@@ -1,10 +1,51 @@
 import asyncio
 import os
+import re
 from typing import ClassVar, Literal
 
 from anthropic.types.beta import BetaToolBash20241022Param
 
 from .base import BaseAnthropicTool, CLIResult, ToolError, ToolResult
+
+# Dangerous command patterns that require explicit approval
+# Only truly destructive or irreversible operations
+DANGEROUS_PATTERNS = [
+    r'\brm\s+(-[rf]+\s+)*/($|\s)',      # rm -rf / (root filesystem)
+    r'\brm\s+-[rf]*\s+--no-preserve-root', # explicit root deletion
+    r'\bsudo\s+(rm|dd|mkfs|fdisk|parted)\b', # sudo with destructive commands
+    r'\bchmod\s+(-R\s+)?777\s+/',       # chmod 777 on absolute paths (security risk)
+    r'\bmkfs\b',                        # filesystem creation (destroys data)
+    r'\bdd\s+.*of=\s*/dev/',            # dd writing to devices
+    r'\b>\s*/dev/sd',                   # overwrite disk devices
+    r'\bcurl\s+.*\|\s*(sudo\s+)?bash\b', # pipe to bash (arbitrary code execution)
+    r'\bwget\s+.*\|\s*(sudo\s+)?bash\b', # pipe to bash
+    r':\s*\(\)\s*\{',                   # fork bomb pattern
+    r'\bgit\s+push\s+.*--force\s+origin\s+(main|master)\b', # force push to main
+]
+
+# Approval modes
+APPROVAL_OFF = "off"          # No prompts (full auto-approve)
+APPROVAL_DANGEROUS = "dangerous"  # Only prompt for dangerous commands
+APPROVAL_ALL = "all"          # Prompt for everything
+
+
+def is_dangerous_command(command: str) -> bool:
+    """Check if a command matches dangerous patterns."""
+    for pattern in DANGEROUS_PATTERNS:
+        if re.search(pattern, command, re.IGNORECASE):
+            return True
+    return False
+
+
+def get_approval_mode() -> str:
+    """Get the approval mode from environment variable."""
+    mode = os.environ.get("OPEN_INTERPRETER_APPROVAL", "dangerous").lower()
+    if mode in (APPROVAL_OFF, "0", "false", "no", "none"):
+        return APPROVAL_OFF
+    elif mode in (APPROVAL_ALL, "1", "true", "yes", "all"):
+        return APPROVAL_ALL
+    else:
+        return APPROVAL_DANGEROUS  # default
 
 
 class _BashSession:
@@ -17,10 +58,12 @@ class _BashSession:
     _output_delay: float = 0.2  # seconds
     _timeout: float = 120.0  # seconds
     _sentinel: str = "<<exit>>"
+    auto_approve: bool = False  # Skip user confirmation when True
 
-    def __init__(self):
+    def __init__(self, auto_approve: bool = False):
         self._started = False
         self._timed_out = False
+        self.auto_approve = auto_approve or os.environ.get("OPEN_INTERPRETER_AUTO_APPROVE", "").lower() in ("1", "true", "yes")
 
     async def start(self):
         if self._started:
@@ -48,15 +91,30 @@ class _BashSession:
 
     async def run(self, command: str):
         """Execute a command in the bash shell."""
-        # Ask for user permission before executing the command
-        print(f"Do you want to execute the following command?\n{command}")
-        user_input = input("Enter 'yes' to proceed, anything else to cancel: ")
+        # Determine if we need approval based on mode and command risk
+        approval_mode = get_approval_mode()
+        needs_approval = False
 
-        if user_input.lower() != "yes":
-            return ToolResult(
-                system="Command execution cancelled by user",
-                error="User did not provide permission to execute the command.",
-            )
+        if approval_mode == APPROVAL_ALL:
+            needs_approval = True
+        elif approval_mode == APPROVAL_DANGEROUS:
+            needs_approval = is_dangerous_command(command)
+        # APPROVAL_OFF = no approval needed
+
+        if needs_approval and not self.auto_approve:
+            risk_label = "⚠️  DANGEROUS" if is_dangerous_command(command) else "Command"
+            print(f"\n{risk_label}: {command}")
+            try:
+                user_input = input("Execute? [y/N]: ").strip().lower()
+                if user_input not in ("y", "yes"):
+                    return ToolResult(
+                        system="Command execution cancelled by user",
+                        error="User did not provide permission to execute the command.",
+                    )
+            except EOFError:
+                # No TTY available, auto-approve
+                pass
+
         if not self._started:
             raise ToolError("Session has not started.")
         if self._process.returncode is not None:
@@ -125,9 +183,11 @@ class BashTool(BaseAnthropicTool):
     _session: _BashSession | None
     name: ClassVar[Literal["bash"]] = "bash"
     api_type: ClassVar[Literal["bash_20241022"]] = "bash_20241022"
+    auto_approve: bool = False  # Skip user confirmation when True
 
-    def __init__(self):
+    def __init__(self, auto_approve: bool = False):
         self._session = None
+        self.auto_approve = auto_approve
         super().__init__()
 
     async def __call__(
@@ -136,13 +196,13 @@ class BashTool(BaseAnthropicTool):
         if restart:
             if self._session:
                 self._session.stop()
-            self._session = _BashSession()
+            self._session = _BashSession(auto_approve=self.auto_approve)
             await self._session.start()
 
             return ToolResult(system="tool has been restarted.")
 
         if self._session is None:
-            self._session = _BashSession()
+            self._session = _BashSession(auto_approve=self.auto_approve)
             await self._session.start()
 
         if command is not None:

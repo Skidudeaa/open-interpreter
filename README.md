@@ -1,3 +1,9 @@
+> **🔱 Fork Notice:** This fork adds a **risk-based approval system**. See [docs/DEVELOPMENT_HISTORY.md](docs/DEVELOPMENT_HISTORY.md) for details.
+>
+> ```bash
+> export OPEN_INTERPRETER_APPROVAL=dangerous  # only prompt for destructive commands
+> ```
+
 <h1 align="center">● Open Interpreter</h1>
 
 <p align="center">

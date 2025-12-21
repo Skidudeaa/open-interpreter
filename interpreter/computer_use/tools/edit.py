@@ -1,3 +1,4 @@
+import os
 from collections import defaultdict
 from pathlib import Path
 from typing import Literal, get_args
@@ -16,6 +17,47 @@ Command = Literal[
 ]
 SNIPPET_LINES: int = 4
 
+# Sensitive paths that require approval for modifications
+# Only critical system files that could break the system or compromise security
+SENSITIVE_PATHS = [
+    "/etc/passwd", "/etc/shadow", "/etc/sudoers",
+    "/etc/ssh/sshd_config",
+    "/boot",
+    "/home/*/.ssh/authorized_keys",
+]
+
+# Approval modes (same as bash.py)
+APPROVAL_OFF = "off"
+APPROVAL_DANGEROUS = "dangerous"
+APPROVAL_ALL = "all"
+
+
+def is_sensitive_path(path: str) -> bool:
+    """Check if path is in a sensitive location."""
+    path_obj = Path(path).resolve()
+    path_str = str(path_obj)
+
+    for sensitive in SENSITIVE_PATHS:
+        if "*" in sensitive:
+            # Simple glob matching
+            import fnmatch
+            if fnmatch.fnmatch(path_str, sensitive):
+                return True
+        elif path_str.startswith(sensitive):
+            return True
+    return False
+
+
+def get_approval_mode() -> str:
+    """Get the approval mode from environment variable."""
+    mode = os.environ.get("OPEN_INTERPRETER_APPROVAL", "dangerous").lower()
+    if mode in (APPROVAL_OFF, "0", "false", "no", "none"):
+        return APPROVAL_OFF
+    elif mode in (APPROVAL_ALL, "1", "true", "yes", "all"):
+        return APPROVAL_ALL
+    else:
+        return APPROVAL_DANGEROUS  # default
+
 
 class EditTool(BaseAnthropicTool):
     """
@@ -25,11 +67,13 @@ class EditTool(BaseAnthropicTool):
 
     api_type: Literal["text_editor_20241022"] = "text_editor_20241022"
     name: Literal["str_replace_editor"] = "str_replace_editor"
+    auto_approve: bool = False  # Skip user confirmation when True
 
     _file_history: dict[Path, list[str]]
 
-    def __init__(self):
+    def __init__(self, auto_approve: bool = False):
         self._file_history = defaultdict(list)
+        self.auto_approve = auto_approve or os.environ.get("OPEN_INTERPRETER_AUTO_APPROVE", "").lower() in ("1", "true", "yes")
         super().__init__()
 
     def to_params(self) -> BetaToolTextEditor20241022Param:
@@ -50,28 +94,32 @@ class EditTool(BaseAnthropicTool):
         insert_line: int | None = None,
         **kwargs,
     ):
-        # Ask for user permission before executing the command
-        print(f"Do you want to execute the following command?")
-        print(f"Command: {command}")
-        print(f"Path: {path}")
-        if file_text:
-            print(f"File text: {file_text}")
-        if view_range:
-            print(f"View range: {view_range}")
-        if old_str:
-            print(f"Old string: {old_str}")
-        if new_str:
-            print(f"New string: {new_str}")
-        if insert_line is not None:
-            print(f"Insert line: {insert_line}")
+        # Determine if we need approval based on mode, command type, and path
+        approval_mode = get_approval_mode()
+        is_write_op = command in ("create", "str_replace", "insert", "undo_edit")
+        is_sensitive = is_sensitive_path(path)
+        needs_approval = False
 
-        user_input = input("Enter 'yes' to proceed, anything else to cancel: ")
+        if approval_mode == APPROVAL_ALL and is_write_op:
+            needs_approval = True
+        elif approval_mode == APPROVAL_DANGEROUS and is_write_op and is_sensitive:
+            needs_approval = True
+        # APPROVAL_OFF or view command = no approval needed
 
-        if user_input.lower() != "yes":
-            return ToolResult(
-                system="Command execution cancelled by user",
-                error="User did not provide permission to execute the command.",
-            )
+        if needs_approval and not self.auto_approve:
+            risk_label = "⚠️  SENSITIVE PATH" if is_sensitive else "Edit"
+            print(f"\n{risk_label}: {command} on {path}")
+            try:
+                user_input = input("Execute? [y/N]: ").strip().lower()
+                if user_input not in ("y", "yes"):
+                    return ToolResult(
+                        system="Command execution cancelled by user",
+                        error="User did not provide permission to execute the command.",
+                    )
+            except EOFError:
+                # No TTY available, auto-approve
+                pass
+
         _path = Path(path)
         self.validate_path(command, _path)
         if command == "view":

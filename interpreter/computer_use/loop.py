@@ -6,6 +6,8 @@ import asyncio
 import json
 import os
 import platform
+import sys
+import threading
 import time
 import traceback
 import uuid
@@ -49,8 +51,11 @@ from rich import print as rich_print
 from rich.markdown import Markdown
 from rich.rule import Rule
 
-# Add this near the top of the file, with other imports and global variables
+import pyautogui
+
+# Global variables
 messages: List[BetaMessageParam] = []
+exit_flag = False
 
 
 def print_markdown(message):
@@ -75,6 +80,41 @@ def print_markdown(message):
     if "\n" not in message and message.startswith(">"):
         # Aesthetic choice. For these tags, they need a space below them
         print("")
+
+
+def check_mouse_position():
+    """Check if mouse is in corner to exit the application."""
+    global exit_flag
+    corner_threshold = 10
+    screen_width, screen_height = pyautogui.size()
+
+    while not exit_flag:
+        x, y = pyautogui.position()
+        if (
+            (x <= corner_threshold and y <= corner_threshold)
+            or (x <= corner_threshold and y >= screen_height - corner_threshold)
+            or (x >= screen_width - corner_threshold and y <= corner_threshold)
+            or (
+                x >= screen_width - corner_threshold
+                and y >= screen_height - corner_threshold
+            )
+        ):
+            exit_flag = True
+            print("\nMouse moved to corner. Exiting...")
+            os._exit(0)
+        threading.Event().wait(0.1)  # Check every 100ms
+
+
+class ChatMessage(BaseModel):
+    """Model for chat messages in the API."""
+    role: str
+    content: str
+
+
+class ChatCompletionRequest(BaseModel):
+    """Model for chat completion requests."""
+    messages: List[ChatMessage]
+    stream: Optional[bool] = False
 
 
 class APIProvider(StrEnum):
@@ -352,13 +392,11 @@ async def main():
 
         @app.post("/openai/chat/completions")
         async def chat_completion(request: ChatCompletionRequest):
-            print("BRAND NEW REQUEST")
             # Check exit flag before processing request
             if exit_flag:
                 return {"error": "Server shutting down due to mouse in corner"}
 
             async def stream_response():
-                print("is this even happening")
 
                 # Instead of creating converted_messages, append the last message to global messages
                 global messages
@@ -388,9 +426,10 @@ async def main():
                 try:
                     yield f"data: {json.dumps({'choices': [{'delta': {'role': 'assistant'}}]})}\n\n"
 
-                    messages = [m for m in messages if m["content"]]
-                    print(str(messages)[-100:])
-                    await asyncio.sleep(4)
+                    # Filter empty messages, updating global messages in place
+                    filtered_messages = [m for m in messages if m["content"]]
+                    messages.clear()
+                    messages.extend(filtered_messages)
 
                     async for chunk in sampling_loop(
                         model=model,
@@ -410,12 +449,10 @@ async def main():
                     yield f"data: {json.dumps({'choices': [{'delta': {'content': '', 'finish_reason': 'stop'}}]})}\n\n"
 
                 except Exception as e:
-                    print("Error: An exception occurred.")
+                    error_msg = f"Error in stream_response: {str(e)}"
+                    print(error_msg)
                     print(traceback.format_exc())
-                    pass
-                    # raise
-                    # print(f"Error: {e}")
-                    # yield f"data: {json.dumps({'error': str(e)})}\n\n"
+                    yield f"data: {json.dumps({'error': error_msg})}\n\n"
 
             return StreamingResponse(stream_response(), media_type="text/event-stream")
 
@@ -483,7 +520,7 @@ Move your mouse to any corner of the screen to exit.
             try:
                 response = requests.post(url, json=data)
             except requests.RequestException as e:
-                pass
+                print(f"Failed to submit to waitlist: {e}")
 
             print_markdown("\nWe'll email you shortly. ✓\n---\n")
             continue
@@ -530,44 +567,3 @@ def run_async_main():
 
 if __name__ == "__main__":
     run_async_main()
-
-import sys
-import threading
-
-# Replace the pynput and screeninfo imports with pyautogui
-import pyautogui
-
-# Replace the global variables and functions related to mouse tracking
-exit_flag = False
-
-
-def check_mouse_position():
-    global exit_flag
-    corner_threshold = 10
-    screen_width, screen_height = pyautogui.size()
-
-    while not exit_flag:
-        x, y = pyautogui.position()
-        if (
-            (x <= corner_threshold and y <= corner_threshold)
-            or (x <= corner_threshold and y >= screen_height - corner_threshold)
-            or (x >= screen_width - corner_threshold and y <= corner_threshold)
-            or (
-                x >= screen_width - corner_threshold
-                and y >= screen_height - corner_threshold
-            )
-        ):
-            exit_flag = True
-            print("\nMouse moved to corner. Exiting...")
-            os._exit(0)
-        threading.Event().wait(0.1)  # Check every 100ms
-
-
-class ChatMessage(BaseModel):
-    role: str
-    content: str
-
-
-class ChatCompletionRequest(BaseModel):
-    messages: List[ChatMessage]
-    stream: Optional[bool] = False

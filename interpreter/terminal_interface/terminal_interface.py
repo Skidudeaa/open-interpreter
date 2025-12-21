@@ -562,7 +562,8 @@ def terminal_interface(interpreter, message):
                             active_block = CodeBlock()
 
                 # Status indicators (features: validated, traced, recorded)
-                if chunk["type"] == "status" and chunk.get("format") == "features":
+                # Skip start/end flag chunks that don't have content
+                if chunk["type"] == "status" and chunk.get("format") == "features" and "content" in chunk:
                     if active_block:
                         active_block.refresh(cursor=False)
                         active_block.end()

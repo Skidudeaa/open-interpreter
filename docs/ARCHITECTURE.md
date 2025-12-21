@@ -13,6 +13,32 @@ interpreter/
 └── sdk/                 # Developer API
 ```
 
+## Activation
+
+Features are disabled by default. Enable via:
+
+```bash
+# Environment variable (recommended for shell aliases)
+export OI_ACTIVATE_ALL=true
+```
+
+```python
+# Programmatic
+from interpreter import interpreter
+interpreter.activate_all_features()
+
+# Or individually
+interpreter.enable_semantic_memory = True
+interpreter.enable_validation = True
+interpreter.enable_tracing = True
+interpreter.enable_agents = True
+```
+
+Hooks in `respond.py` (execution loop):
+- Pre-execution: syntax validation
+- Wrap execution: tracing
+- Post-execution: semantic memory recording
+
 ## Core Modules
 
 ### Memory (`interpreter/core/memory/`)

@@ -305,14 +305,16 @@ def terminal_interface(interpreter, message):
                             active_block.code = code
                         else:
                             # User declined to run code.
+                            print("\n[Code execution declined. The assistant will be informed.]\n")
                             interpreter.messages.append(
                                 {
                                     "role": "user",
                                     "type": "message",
-                                    "content": "I have declined to run this code.",
+                                    "content": "I have declined to run this code. Please continue with an alternative approach or explain what the code would have done.",
                                 }
                             )
-                            break
+                            # Don't break - let the loop continue so the assistant can respond
+                            continue
 
                 # Plain text mode
                 if interpreter.plain_text_display:

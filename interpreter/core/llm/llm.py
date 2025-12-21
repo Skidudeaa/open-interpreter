@@ -435,23 +435,45 @@ def fixed_litellm_completions(**params):
 
     params["model"] = params["model"].replace(":latest", "")
 
+    # Add timeout if not already set (120 seconds default)
+    if "timeout" not in params:
+        params["timeout"] = 120
+
     # Run completion
     attempts = 4
     first_error = None
+    last_error = None
 
     params["num_retries"] = 0
 
     for attempt in range(attempts):
         try:
-            yield from litellm.completion(**params)
+            chunk_received = False
+            for chunk in litellm.completion(**params):
+                chunk_received = True
+                yield chunk
+
+            if not chunk_received:
+                raise Exception("LLM returned empty response - no chunks received")
+
             return  # If the completion is successful, exit the function
         except KeyboardInterrupt:
             print("Exiting...")
             sys.exit(0)
         except Exception as e:
+            last_error = e
             if attempt == 0:
                 # Store the first error
                 first_error = e
+
+            error_str = str(e).lower()
+
+            # Check for timeout errors
+            if "timeout" in error_str or "timed out" in error_str:
+                print(f"Request timed out (attempt {attempt + 1}/{attempts}). Retrying...")
+                # Increase timeout for next attempt
+                params["timeout"] = min(params.get("timeout", 120) * 1.5, 300)
+
             if (
                 isinstance(e, litellm.exceptions.AuthenticationError)
                 and "api_key" not in params
@@ -464,6 +486,11 @@ def fixed_litellm_completions(**params):
             if attempt == 1:
                 # Try turning up the temperature?
                 params["temperature"] = params.get("temperature", 0.0) + 0.1
+
+            # Exponential backoff between retries
+            if attempt < attempts - 1:
+                wait_time = min(2 ** attempt, 8)
+                time.sleep(wait_time)
 
     if first_error is not None:
         raise first_error  # If all attempts fail, raise the first error

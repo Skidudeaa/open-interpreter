@@ -32,12 +32,14 @@ interpreter.enable_semantic_memory = True
 interpreter.enable_validation = True
 interpreter.enable_tracing = True
 interpreter.enable_agents = True
+interpreter.enable_auto_test = True
+interpreter.enable_trace_feedback = True
 ```
 
 Hooks in `respond.py` (execution loop):
-- Pre-execution: syntax validation
+- Pre-execution: syntax validation, file state snapshot
 - Wrap execution: tracing
-- Post-execution: semantic memory recording
+- Post-execution: file change detection, semantic memory recording, auto-test, trace feedback
 
 ## Core Modules
 

@@ -172,6 +172,10 @@ class FeaturesBanner:
             features.append("tracing")
         if getattr(self.interpreter, "enable_agents", False):
             features.append("agents")
+        if getattr(self.interpreter, "enable_auto_test", False):
+            features.append("auto-test")
+        if getattr(self.interpreter, "enable_trace_feedback", False):
+            features.append("trace-fb")
         return features
 
     def render(self) -> Panel:

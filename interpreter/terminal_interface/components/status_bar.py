@@ -142,3 +142,69 @@ def display_status_bar(interpreter, console: Console = None):
         console: Optional console to use
     """
     StatusBar(interpreter, console).display()
+
+
+class FeaturesBanner:
+    """
+    Startup banner showing enabled advanced features.
+
+    Layout:
+    ┌──────────────────────────────────────────────────────────────┐
+    │ ⚡ Features: memory ✓  validation ✓  tracing ✓  agents ✓    │
+    └──────────────────────────────────────────────────────────────┘
+    """
+
+    def __init__(self, interpreter=None, console: Console = None):
+        self.interpreter = interpreter
+        self.console = console or Console()
+
+    def get_enabled_features(self) -> list:
+        """Get list of enabled features."""
+        if not self.interpreter:
+            return []
+
+        features = []
+        if getattr(self.interpreter, "enable_semantic_memory", False):
+            features.append("memory")
+        if getattr(self.interpreter, "enable_validation", False):
+            features.append("validation")
+        if getattr(self.interpreter, "enable_tracing", False):
+            features.append("tracing")
+        if getattr(self.interpreter, "enable_agents", False):
+            features.append("agents")
+        return features
+
+    def render(self) -> Panel:
+        """Render the features banner."""
+        features = self.get_enabled_features()
+
+        if not features:
+            return None
+
+        check = "\u2713"  # ✓
+        bolt = "\u26A1"   # ⚡
+
+        parts = []
+        for f in features:
+            parts.append(f"[{THEME['success']}]{f} {check}[/{THEME['success']}]")
+
+        content = Text.from_markup(f"{bolt} Features: " + "  ".join(parts))
+
+        return Panel(
+            content,
+            box=BOX_STYLES["status"],
+            style=f"on {THEME['bg_dark']}",
+            border_style=THEME["text_muted"],
+            padding=(0, 1),
+        )
+
+    def display(self):
+        """Print the features banner if any features are enabled."""
+        panel = self.render()
+        if panel:
+            self.console.print(panel)
+
+
+def display_features_banner(interpreter, console: Console = None):
+    """Convenience function to display the features banner."""
+    FeaturesBanner(interpreter, console).display()

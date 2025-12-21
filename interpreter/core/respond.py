@@ -356,10 +356,14 @@ def respond(interpreter):
 
                 ## ↓ CODE IS RUN HERE
 
+                # Track feature status for indicator
+                _status = {"validated": False, "traced": False, "recorded": False}
+
                 # === VALIDATION HOOK (pre-execution) ===
                 if interpreter.enable_validation and interpreter.syntax_checker:
                     try:
                         validation_result = interpreter.syntax_checker.check(language, code)
+                        _status["validated"] = True
                         if not validation_result.get('valid', True):
                             for error in validation_result.get('errors', []):
                                 yield {
@@ -387,6 +391,7 @@ def respond(interpreter):
                     try:
                         _execution_trace = interpreter.tracer.stop()
                         interpreter._current_trace = _execution_trace
+                        _status["traced"] = True
                     except Exception:
                         pass  # Non-blocking
 
@@ -418,8 +423,25 @@ def respond(interpreter):
                             conversation_context=context,
                         )
                         interpreter.semantic_graph.record_edit(edit)
+                        _status["recorded"] = True
                     except Exception:
                         pass  # Non-blocking - don't crash on memory errors
+
+                # === STATUS INDICATOR (post-execution) ===
+                if any(_status.values()):
+                    status_parts = []
+                    if _status["validated"]:
+                        status_parts.append("\u2713 validated")
+                    if _status["traced"]:
+                        status_parts.append("\u2713 traced")
+                    if _status["recorded"]:
+                        status_parts.append("\u2713 recorded")
+                    yield {
+                        "role": "computer",
+                        "type": "status",
+                        "format": "features",
+                        "content": " | ".join(status_parts),
+                    }
 
                 ## ↑ CODE IS RUN HERE
 

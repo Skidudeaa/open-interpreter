@@ -23,7 +23,7 @@ from .components.code_block import CodeBlock
 from .components.message_block import MessageBlock
 from .components.prompt_block import PromptBlock
 from .components.spinner_block import ThinkingSpinner
-from .components.status_bar import StatusBar
+from .components.status_bar import StatusBar, FeaturesBanner
 from .magic_commands import handle_magic_command
 from .utils.check_for_package import check_for_package
 from .utils.cli_input import cli_input
@@ -82,6 +82,13 @@ def terminal_interface(interpreter, message):
             status_bar.display()
         except Exception:
             pass  # Don't crash if status bar fails
+
+        # Display features banner if any advanced features are enabled
+        try:
+            features_banner = FeaturesBanner(interpreter)
+            features_banner.display()
+        except Exception:
+            pass  # Don't crash if features banner fails
 
     if message:
         interactive = False
@@ -553,6 +560,19 @@ def terminal_interface(interpreter, message):
                             if active_block:
                                 active_block.end()
                             active_block = CodeBlock()
+
+                # Status indicators (features: validated, traced, recorded)
+                if chunk["type"] == "status" and chunk.get("format") == "features":
+                    if active_block:
+                        active_block.refresh(cursor=False)
+                        active_block.end()
+                        active_block = None
+                    # Print status line in muted style
+                    from rich.console import Console
+                    from rich.text import Text
+                    status_console = Console()
+                    status_text = Text(f"  {chunk['content']}", style="dim")
+                    status_console.print(status_text)
 
                 if active_block:
                     active_block.refresh(cursor=render_cursor)

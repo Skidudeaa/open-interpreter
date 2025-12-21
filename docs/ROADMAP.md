@@ -10,7 +10,9 @@
 - [ ] Placeholder text that gives a compelling example OI request. Probably use `textual`
 - [ ] Everything else `textual` offers, like could we make it easier to select text? Copy paste in and out? Code editing interface?
 - [x] Let people turn off the active line highlighting
-- [ ] Add a --plain flag which doesn't use rich, just prints stuff in plain text
+- [x] Add a --plain flag which doesn't use rich, just prints stuff in plain text
+- [x] Styled terminal UI with Rich components (status bar, spinners, role icons)
+- [x] Contained output viewport to prevent scroll overflow during execution
 - [ ] Use iPython stuff to track the active line, instead of inserting print statements, which makes debugging weird (From ChatGPT: For deeper insights into what's happening behind the scenes, including which line of code is being executed, you can increase the logging level of the IPython kernel. You can configure the kernel's logger to a more verbose setting, which logs each execution request. However, this requires modifying the kernel's startup settings, which might involve changing logging configurations in the IPython kernel source or when launching the kernel.)
 - [ ] Let people edit the code OI writes. Could just open it in the user's preferred editor. Simple. [Full description of how to implement this here.](https://github.com/OpenInterpreter/open-interpreter/pull/830#issuecomment-1854989795)
 - [ ] Display images in the terminal interface

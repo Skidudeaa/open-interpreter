@@ -3,10 +3,13 @@ This file defines the Interpreter class.
 It's the main file. `from interpreter import interpreter` will import an instance of this class.
 """
 import json
-import os
+import os as os_module
 import threading
 import time
 from datetime import datetime
+
+# Check for OI_ACTIVATE_ALL at module load time (before 'os' param shadows it)
+_OI_ACTIVATE_ALL = os_module.environ.get("OI_ACTIVATE_ALL", "").lower() in ("true", "1", "yes")
 
 from ..terminal_interface.local_setup import local_setup
 from ..terminal_interface.terminal_interface import terminal_interface
@@ -221,6 +224,13 @@ class OpenInterpreter:
         self._agent_orchestrator = None
         self.enable_agents = False  # Disabled by default
 
+        # Check for OI_ACTIVATE_ALL environment variable (set at module load)
+        if _OI_ACTIVATE_ALL:
+            self.enable_semantic_memory = True
+            self.enable_validation = True
+            self.enable_tracing = True
+            self.enable_agents = True
+
     @property
     def semantic_graph(self):
         """
@@ -434,11 +444,11 @@ class OpenInterpreter:
                     )
 
                 # Check if the directory exists, if not, create it
-                if not os.path.exists(self.conversation_history_path):
-                    os.makedirs(self.conversation_history_path)
+                if not os_module.path.exists(self.conversation_history_path):
+                    os_module.makedirs(self.conversation_history_path)
                 # Write or overwrite the file
                 with open(
-                    os.path.join(
+                    os_module.path.join(
                         self.conversation_history_path, self.conversation_filename
                     ),
                     "w",

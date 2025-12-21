@@ -32,7 +32,7 @@
 ### Usage
 
 ```bash
-# Launch
+# Quick launch (if alias configured)
 oi
 
 # Or manually
@@ -40,6 +40,18 @@ source /root/open-interpreter-fork/venv/bin/activate
 export OPEN_INTERPRETER_APPROVAL=dangerous
 interpreter
 ```
+
+### Shell Alias Setup
+
+Add to `~/.bashrc`:
+
+```bash
+# Open Interpreter with custom patches
+export OPEN_INTERPRETER_APPROVAL=dangerous
+alias oi="source /root/open-interpreter-fork/venv/bin/activate && interpreter"
+```
+
+Then `source ~/.bashrc` or open a new terminal.
 
 ### Dangerous Command Patterns (prompts required)
 

@@ -357,7 +357,18 @@ def respond(interpreter):
                 ## ↓ CODE IS RUN HERE
 
                 # Track feature status for indicator
-                _status = {"validated": False, "traced": False, "recorded": False}
+                _status = {"validated": False, "traced": False, "recorded": False, "tested": False}
+
+                # === FILE CHANGE DETECTION: BEFORE ===
+                _file_snapshots_before = {}
+                if interpreter.enable_semantic_memory:
+                    try:
+                        from .utils.file_snapshot import capture_source_file_states
+                        _file_snapshots_before = capture_source_file_states(
+                            interpreter.computer.cwd or "."
+                        )
+                    except Exception:
+                        pass  # Non-blocking
 
                 # === VALIDATION HOOK (pre-execution) ===
                 if interpreter.enable_validation and interpreter.syntax_checker:
@@ -427,6 +438,92 @@ def respond(interpreter):
                     except Exception:
                         pass  # Non-blocking - don't crash on memory errors
 
+                # === FILE CHANGE DETECTION: AFTER ===
+                _changed_files = {}
+                if interpreter.enable_semantic_memory and _file_snapshots_before:
+                    try:
+                        from .utils.file_snapshot import capture_source_file_states, diff_file_states
+                        from .core import _get_memory_module
+
+                        _file_snapshots_after = capture_source_file_states(
+                            interpreter.computer.cwd or "."
+                        )
+                        _changed_files = diff_file_states(_file_snapshots_before, _file_snapshots_after)
+
+                        # Record detected file changes
+                        if _changed_files:
+                            memory_module = _get_memory_module()
+                            create_edit = memory_module.get('create_edit_from_file_change')
+                            user_msgs = [m for m in interpreter.messages if m.get("role") == "user"]
+
+                            for file_path, (old_content, new_content) in _changed_files.items():
+                                if create_edit:
+                                    edit = create_edit(
+                                        file_path=file_path,
+                                        original_content=old_content,
+                                        new_content=new_content,
+                                        user_message=user_msgs[-1].get("content", "") if user_msgs else "",
+                                    )
+                                    interpreter.semantic_graph.record_edit(edit)
+                    except Exception:
+                        pass  # Non-blocking
+
+                # === AUTO-TEST HOOK ===
+                if interpreter.enable_auto_test and _changed_files:
+                    try:
+                        from .validation import TestDiscovery
+                        from pathlib import Path
+                        discovery = TestDiscovery(interpreter.computer.cwd or ".")
+
+                        all_test_results = []
+                        for file_path in _changed_files.keys():
+                            if not file_path.endswith('.py'):
+                                continue
+                            related_tests = discovery.find_related_tests(file_path)
+                            if related_tests:
+                                result = discovery.run_tests(related_tests[:5], timeout_seconds=60)
+                                all_test_results.append((file_path, result))
+
+                        # Report test results
+                        failed_tests_context = []
+                        for file_path, result in all_test_results:
+                            if result.passed:
+                                status_msg = f"\u2713 Tests passed for {Path(file_path).name}"
+                            else:
+                                status_msg = f"\u2717 Tests failed for {Path(file_path).name}: {result.failed_test_names}"
+                                failed_tests_context.append({
+                                    "file": file_path,
+                                    "failed": result.failed_test_names,
+                                    "output": result.output[:1000] if result.output else "",
+                                })
+
+                            yield {
+                                "role": "computer",
+                                "type": "console",
+                                "format": "output",
+                                "content": f"[AutoTest] {status_msg}\n",
+                            }
+
+                        # Feed test failures to LLM for analysis
+                        if failed_tests_context:
+                            failure_summary = "\n".join([
+                                f"- {f['file']}: {', '.join(f['failed'])}\n  Output: {f['output'][:200]}..."
+                                for f in failed_tests_context
+                            ])
+                            interpreter.messages.append({
+                                "role": "user",
+                                "type": "message",
+                                "content": (
+                                    "Tests failed after your code changes:\n\n"
+                                    f"{failure_summary}\n\n"
+                                    "Recommend: (1) fix now, (2) add to todos, or (3) continue without fixing."
+                                ),
+                            })
+
+                        _status["tested"] = len(all_test_results) > 0
+                    except Exception:
+                        pass  # Non-blocking
+
                 # === STATUS INDICATOR (post-execution) ===
                 if any(_status.values()):
                     status_parts = []
@@ -436,6 +533,8 @@ def respond(interpreter):
                         status_parts.append("\u2713 traced")
                     if _status["recorded"]:
                         status_parts.append("\u2713 recorded")
+                    if _status["tested"]:
+                        status_parts.append("\u2713 tested")
                     yield {
                         "role": "computer",
                         "type": "status",
@@ -483,12 +582,34 @@ def respond(interpreter):
             except KeyboardInterrupt:
                 break  # It's fine.
             except:
+                error_output = traceback.format_exc()
                 yield {
                     "role": "computer",
                     "type": "console",
                     "format": "output",
-                    "content": traceback.format_exc(),
+                    "content": error_output,
                 }
+
+                # === TRACE FEEDBACK TO LLM ===
+                if interpreter.enable_trace_feedback and interpreter.enable_tracing:
+                    try:
+                        trace = getattr(interpreter, '_current_trace', None)
+                        if trace and getattr(trace, 'exception_occurred', False):
+                            from .tracing import TraceContextGenerator
+                            generator = TraceContextGenerator()
+                            trace_context = generator.to_edit_context(trace)
+
+                            interpreter.messages.append({
+                                "role": "user",
+                                "type": "message",
+                                "content": (
+                                    "The code execution failed. Here's the execution trace:\n\n"
+                                    f"```\n{trace_context}\n```\n\n"
+                                    "Please analyze the trace and fix the code."
+                                ),
+                            })
+                    except Exception:
+                        pass  # Non-blocking
 
         else:
             ## LOOP MESSAGE

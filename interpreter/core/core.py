@@ -30,12 +30,16 @@ def _get_memory_module():
     """Lazy load the memory module."""
     global _memory_module
     if _memory_module is None:
-        from .memory import SemanticEditGraph, ConversationLinker, Edit, EditType
+        from .memory import (
+            SemanticEditGraph, ConversationLinker, Edit, EditType,
+            create_edit_from_file_change
+        )
         _memory_module = {
             'SemanticEditGraph': SemanticEditGraph,
             'ConversationLinker': ConversationLinker,
             'Edit': Edit,
             'EditType': EditType,
+            'create_edit_from_file_change': create_edit_from_file_change,
         }
     return _memory_module
 
@@ -224,12 +228,20 @@ class OpenInterpreter:
         self._agent_orchestrator = None
         self.enable_agents = False  # Disabled by default
 
+        # Auto-test (run tests after file modifications)
+        self.enable_auto_test = False  # Disabled by default
+
+        # Trace feedback (feed execution traces to LLM on failure)
+        self.enable_trace_feedback = False  # Disabled by default
+
         # Check for OI_ACTIVATE_ALL environment variable (set at module load)
         if _OI_ACTIVATE_ALL:
             self.enable_semantic_memory = True
             self.enable_validation = True
             self.enable_tracing = True
             self.enable_agents = True
+            self.enable_auto_test = True
+            self.enable_trace_feedback = True
 
     @property
     def semantic_graph(self):
@@ -295,13 +307,16 @@ class OpenInterpreter:
 
     def activate_all_features(self):
         """
-        Enable all advanced features: semantic memory, validation, tracing, and agents.
+        Enable all advanced features: semantic memory, validation, tracing, agents,
+        auto-test, and trace feedback.
         Returns self for method chaining.
         """
         self.enable_semantic_memory = True
         self.enable_validation = True
         self.enable_tracing = True
         self.enable_agents = True
+        self.enable_auto_test = True
+        self.enable_trace_feedback = True
         return self
 
     def local_setup(self):

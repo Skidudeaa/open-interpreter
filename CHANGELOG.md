@@ -40,11 +40,28 @@
 #### Core Integration
 - `semantic_graph` and `conversation_linker` properties on OpenInterpreter
 - `validator`, `syntax_checker`, `tracer`, `agent_orchestrator` properties
-- Enable flags: `enable_semantic_memory`, `enable_validation`, `enable_tracing`, `enable_agents`
+- Enable flags: `enable_semantic_memory`, `enable_validation`, `enable_tracing`, `enable_agents`, `enable_auto_test`, `enable_trace_feedback`
 - `activate_all_features()` method for quick enablement
 - `OI_ACTIVATE_ALL=true` env var for automatic activation
 - Hooks in `respond.py`: pre-execution validation, execution tracing, post-execution memory recording
 - Lazy-loading for performance
+
+#### File Edit Detection
+- `file_snapshot.py` - Capture and diff file states before/after execution
+- Detects arbitrary file modifications from executed code (not just files.edit())
+- Records changes to semantic graph with full diff
+- Tracks source files: .py, .js, .ts, .json, .yaml, .md, .html, .css, .sql, .sh
+
+#### Auto-Test
+- `enable_auto_test` flag - runs related tests after file modifications
+- Uses `TestDiscovery` to find tests for modified files
+- Reports results: ✓ passed or ✗ failed with test names
+- Feeds failures to LLM with analysis options: fix now, add to todos, or continue
+
+#### Trace Feedback
+- `enable_trace_feedback` flag - feeds execution traces to LLM on failure
+- Uses `TraceContextGenerator` to create LLM-readable trace context
+- Automatically appends trace to conversation when code execution fails
 
 #### Terminal UI (`interpreter/terminal_interface/components/`)
 - `theme.py` - Cyber Professional color palette (violet/cyan/slate)

@@ -623,14 +623,34 @@ def respond(interpreter):
                 )
             loop_breakers = interpreter.loop_breakers
 
+            # Check if the assistant's response contains a loop breaker
+            # Use stricter matching: the phrase must appear on its own line or at end
+            last_content = interpreter.messages[-1].get("content", "") if interpreter.messages else ""
+
+            def is_genuine_loop_breaker(content, breaker):
+                """Check if the loop breaker appears genuinely (not as part of a longer sentence)."""
+                if breaker not in content:
+                    return False
+                # Check if it appears at the end or on its own line
+                content_stripped = content.strip()
+                if content_stripped.endswith(breaker):
+                    return True
+                # Check if it's on its own line
+                for line in content.split('\n'):
+                    if line.strip() == breaker:
+                        return True
+                return False
+
+            has_loop_breaker = any(
+                is_genuine_loop_breaker(last_content, task_status)
+                for task_status in loop_breakers
+            )
+
             if (
                 interpreter.loop
                 and interpreter.messages
                 and interpreter.messages[-1].get("role", "") == "assistant"
-                and not any(
-                    task_status in interpreter.messages[-1].get("content", "")
-                    for task_status in loop_breakers
-                )
+                and not has_loop_breaker
             ):
                 # Remove past loop_message messages
                 interpreter.messages = [

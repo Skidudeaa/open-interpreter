@@ -16,19 +16,29 @@ def run_text_llm(llm, params):
     inside_code_block = False
     accumulated_block = ""
     language = None
+    chunk_count = 0
+    empty_chunk_count = 0
 
     for chunk in llm.completions(**params):
         if llm.interpreter.verbose:
             print("Chunk in coding_llm", chunk)
 
         if "choices" not in chunk or len(chunk["choices"]) == 0:
-            # This happens sometimes
+            # This happens sometimes - track it
+            empty_chunk_count += 1
+            if empty_chunk_count > 10 and chunk_count == 0:
+                # If we get many empty chunks with no real content, warn
+                if llm.interpreter.verbose:
+                    print("Warning: Received many empty chunks from LLM")
             continue
 
         content = chunk["choices"][0]["delta"].get("content", "")
 
         if content == None:
+            empty_chunk_count += 1
             continue
+
+        chunk_count += 1
 
         accumulated_block += content
 
@@ -73,3 +83,10 @@ def run_text_llm(llm, params):
         # If we're not in a code block, send the output as a message
         if not inside_code_block:
             yield {"type": "message", "content": content}
+
+    # If no content was received at all, yield a warning message
+    if chunk_count == 0 and empty_chunk_count > 0:
+        yield {
+            "type": "message",
+            "content": "[LLM returned no content. This may be a connection issue or the model declined to respond. Please try again.]"
+        }

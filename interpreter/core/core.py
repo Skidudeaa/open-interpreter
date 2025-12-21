@@ -491,6 +491,8 @@ class OpenInterpreter:
                 return True
             if chunk["type"] == "review":
                 return True
+            if chunk["type"] == "status":
+                return True
             return False
 
         last_flag_base = None
@@ -499,7 +501,14 @@ class OpenInterpreter:
             for chunk in respond(self):
                 # For async usage
                 if hasattr(self, "stop_event") and self.stop_event.is_set():
-                    print("Open Interpreter stopping.")
+                    print("Open Interpreter stopping gracefully.")
+                    # Yield a notification chunk so callers know we stopped intentionally
+                    yield {
+                        "role": "computer",
+                        "type": "status",
+                        "format": "interrupted",
+                        "content": "Processing was interrupted by user request.",
+                    }
                     break
 
                 if chunk["content"] == "":

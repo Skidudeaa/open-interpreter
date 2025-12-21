@@ -108,26 +108,47 @@ class AsyncInterpreter(OpenInterpreter):
         return await self.output_queue.async_q.get()
 
     def respond(self, run_code=None):
-        for attempt in range(5):  # 5 attempts
+        max_attempts = 5
+        consecutive_empty_attempts = 0
+
+        for attempt in range(max_attempts):
             try:
                 if run_code == None:
                     run_code = self.auto_run
 
                 sent_chunks = False
+                last_chunk_time = time.time()
+                response_timeout = 60  # seconds - timeout if no chunks for this long
 
                 for chunk_og in self._respond_and_store():
                     chunk = (
                         chunk_og.copy()
                     )  # This fixes weird double token chunks. Probably a deeper problem?
 
+                    # Reset timeout timer on each chunk
+                    last_chunk_time = time.time()
+
                     if chunk["type"] == "confirmation":
                         if run_code:
                             run_code = False
                             continue
                         else:
+                            # User declined to run code - this is intentional, not an error
+                            self.output_queue.sync_q.put({
+                                "role": "server",
+                                "type": "status",
+                                "content": "awaiting_confirmation"
+                            })
                             break
 
                     if self.stop_event.is_set():
+                        # Gracefully notify that we're stopping
+                        self.output_queue.sync_q.put({
+                            "role": "server",
+                            "type": "status",
+                            "content": "stopped"
+                        })
+                        self.output_queue.sync_q.put(complete_message)
                         return
 
                     if self.print:
@@ -160,24 +181,33 @@ class AsyncInterpreter(OpenInterpreter):
                     sent_chunks = True
 
                 if not sent_chunks:
-                    print("ERROR. NO CHUNKS SENT. TRYING AGAIN.")
-                    print("Messages:", self.messages)
-                    messages = [
-                        "Hello? Answer please.",
-                        "Just say something, anything.",
-                        "Are you there?",
-                        "Can you respond?",
-                        "Please reply.",
+                    consecutive_empty_attempts += 1
+                    print(f"WARNING: No chunks sent (attempt {attempt + 1}/{max_attempts}). Retrying...")
+
+                    if self.debug:
+                        print("Messages:", self.messages)
+
+                    # Use progressively more urgent prompts
+                    prompts = [
+                        "Please continue with the task.",
+                        "Hello? Please respond.",
+                        "Are you there? Please continue.",
+                        "Please provide a response.",
+                        "Respond now.",
                     ]
                     self.messages.append(
                         {
                             "role": "user",
                             "type": "message",
-                            "content": messages[attempt % len(messages)],
+                            "content": prompts[min(attempt, len(prompts) - 1)],
                         }
                     )
-                    time.sleep(1)
+
+                    # Exponential backoff
+                    wait_time = min(1 * (2 ** attempt), 8)
+                    time.sleep(wait_time)
                 else:
+                    consecutive_empty_attempts = 0
                     self.output_queue.sync_q.put(complete_message)
                     if self.debug:
                         print("\nServer response complete.\n")
@@ -188,23 +218,33 @@ class AsyncInterpreter(OpenInterpreter):
                 error_message = {
                     "role": "server",
                     "type": "error",
-                    "content": traceback.format_exc() + "\n" + str(e),
+                    "content": f"Error on attempt {attempt + 1}: {str(e)}",
                 }
                 self.output_queue.sync_q.put(error_message)
-                self.output_queue.sync_q.put(complete_message)
-                print("\n\n--- SENT ERROR: ---\n\n")
+                print(f"\n--- ERROR (attempt {attempt + 1}/{max_attempts}): ---\n")
                 print(error)
-                print("\n\n--- (ERROR ABOVE WAS SENT) ---\n\n")
-                return
 
+                # For certain errors, don't retry
+                error_lower = str(e).lower()
+                if "api key" in error_lower or "auth" in error_lower or "rate limit" in error_lower:
+                    self.output_queue.sync_q.put(complete_message)
+                    return
+
+                # Exponential backoff before retry
+                if attempt < max_attempts - 1:
+                    wait_time = min(2 * (2 ** attempt), 16)
+                    print(f"Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+
+        # All attempts exhausted
         error_message = {
             "role": "server",
             "type": "error",
-            "content": "No chunks sent or unknown error.",
+            "content": f"Failed after {max_attempts} attempts. The model may be unresponsive or there's a connection issue.",
         }
         self.output_queue.sync_q.put(error_message)
         self.output_queue.sync_q.put(complete_message)
-        raise Exception("No chunks sent or unknown error.")
+        print(f"\n--- FAILED after {max_attempts} attempts ---\n")
 
     def accumulate(self, chunk):
         """

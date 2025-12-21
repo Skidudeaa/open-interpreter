@@ -21,6 +21,9 @@ from ..core.utils.system_debug_info import system_info
 from ..core.utils.truncate_output import truncate_output
 from .components.code_block import CodeBlock
 from .components.message_block import MessageBlock
+from .components.prompt_block import PromptBlock
+from .components.spinner_block import ThinkingSpinner
+from .components.status_bar import StatusBar
 from .magic_commands import handle_magic_command
 from .utils.check_for_package import check_for_package
 from .utils.cli_input import cli_input
@@ -72,6 +75,14 @@ def terminal_interface(interpreter, message):
 
         interpreter.display_message("\n\n".join(interpreter_intro_message) + "\n")
 
+    # Display status bar at startup (if not in plain text mode)
+    if not interpreter.plain_text_display:
+        try:
+            status_bar = StatusBar(interpreter)
+            status_bar.display()
+        except Exception:
+            pass  # Don't crash if status bar fails
+
     if message:
         interactive = False
     else:
@@ -93,11 +104,18 @@ def terminal_interface(interpreter, message):
             else:
                 ### This is the primary input for Open Interpreter.
                 try:
-                    message = (
-                        cli_input("> ").strip()
-                        if interpreter.multi_line
-                        else input("> ").strip()
-                    )
+                    if interpreter.plain_text_display:
+                        # Plain text mode: use simple input
+                        message = (
+                            cli_input("> ").strip()
+                            if interpreter.multi_line
+                            else input("> ").strip()
+                        )
+                    else:
+                        # Styled mode: use PromptBlock
+                        prompt_style = "multiline" if interpreter.multi_line else "default"
+                        prompt = PromptBlock(style=prompt_style)
+                        message = prompt.input().strip()
                 except (KeyboardInterrupt, EOFError):
                     # Treat Ctrl-D on an empty line the same as Ctrl-C by exiting gracefully
                     interpreter.display_message("\n\n`Exiting...`")
@@ -159,8 +177,25 @@ def terminal_interface(interpreter, message):
                     }
 
         try:
+            # Start thinking spinner (only in styled mode)
+            thinking_spinner = None
+            if not interpreter.plain_text_display:
+                try:
+                    thinking_spinner = ThinkingSpinner()
+                    thinking_spinner.start("Thinking")
+                except Exception:
+                    pass  # Don't crash if spinner fails
+
             for chunk in interpreter.chat(message, display=False, stream=True):
                 yield chunk
+
+                # Stop spinner on first content chunk
+                if thinking_spinner and ("content" in chunk or "start" in chunk):
+                    try:
+                        thinking_spinner.stop()
+                        thinking_spinner = None
+                    except Exception:
+                        pass
 
                 # Is this for thine eyes?
                 if "recipient" in chunk and chunk["recipient"] != "user":
@@ -204,9 +239,13 @@ def terminal_interface(interpreter, message):
                             if interpreter.safe_mode == "auto":
                                 should_scan_code = True
                             elif interpreter.safe_mode == "ask":
-                                response = input(
-                                    "  Would you like to scan this code? (y/n)\n\n  "
-                                )
+                                if interpreter.plain_text_display:
+                                    response = input(
+                                        "  Would you like to scan this code? (y/n)\n\n  "
+                                    )
+                                else:
+                                    scan_prompt = PromptBlock(style="confirmation")
+                                    response = "y" if scan_prompt.confirm("Scan this code for security issues?", default=False) else "n"
                                 print("")  # <- Aesthetic choice
 
                                 if response.strip().lower() == "y":
@@ -219,11 +258,11 @@ def terminal_interface(interpreter, message):
                             response = input(
                                 "Would you like to run this code? (y/n)\n\n"
                             )
+                            print("")  # <- Aesthetic choice
                         else:
-                            response = input(
-                                "  Would you like to run this code? (y/n)\n\n  "
-                            )
-                        print("")  # <- Aesthetic choice
+                            # Use styled confirmation
+                            confirm_prompt = PromptBlock(style="confirmation")
+                            response = confirm_prompt.code_confirmation(language)
 
                         if response.strip().lower() == "y":
                             # Create a new, identical block where the code will actually be run
@@ -294,7 +333,9 @@ def terminal_interface(interpreter, message):
                 # Assistant message blocks
                 if chunk["type"] == "message":
                     if "start" in chunk:
-                        active_block = MessageBlock()
+                        # Get role from chunk, default to assistant
+                        role = chunk.get("role", "assistant")
+                        active_block = MessageBlock(role=role)
                         render_cursor = True
 
                     if "content" in chunk:
@@ -424,17 +465,20 @@ def terminal_interface(interpreter, message):
                 if chunk["type"] == "console":
                     render_cursor = False
                     if "format" in chunk and chunk["format"] == "output":
-                        active_block.output += "\n" + chunk["content"]
-                        active_block.output = (
-                            active_block.output.strip()
-                        )  # ^ Aesthetic choice
+                        # Use add_output for proper buffering (prevents scrolling chaos)
+                        if hasattr(active_block, 'add_output'):
+                            active_block.add_output(chunk["content"])
+                        else:
+                            # Fallback for compatibility
+                            active_block.output += "\n" + chunk["content"]
+                            active_block.output = active_block.output.strip()
 
-                        # Truncate output
+                        # Truncate output (only applies to final output string)
                         active_block.output = truncate_output(
                             active_block.output,
                             interpreter.max_output,
                             add_scrollbars=False,
-                        )  # ^ Notice that this doesn't add the "scrollbars" line, which I think is fine
+                        )
                     if "format" in chunk and chunk["format"] == "active_line":
                         active_block.active_line = chunk["content"]
 

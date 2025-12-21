@@ -201,9 +201,36 @@ AgentOrchestrator
 Result
 ```
 
+## Terminal Interface (`interpreter/terminal_interface/`)
+
+Visual components for the CLI.
+
+```
+terminal_interface/
+├── components/
+│   ├── theme.py           # Color palette, icons
+│   ├── base_block.py      # Shared console, timing
+│   ├── message_block.py   # Role icons, styled panels
+│   ├── code_block.py      # Language badges, status
+│   ├── live_output_panel.py  # Contained output viewport
+│   ├── prompt_block.py    # Styled input
+│   ├── spinner_block.py   # Loading indicators
+│   └── status_bar.py      # Session info display
+└── terminal_interface.py  # Main integration
+```
+
+Components:
+- `StatusBar` - Model, message count, mode indicators
+- `MessageBlock` - Role-specific icons and borders
+- `CodeBlock` - Language badges, execution status, timing
+- `LiveOutputPanel` - Fixed-height output viewport (prevents scroll overflow)
+- `PromptBlock` - Styled prompts and confirmations
+- `SpinnerBlock` - Thinking/executing animations
+
 ## Dependencies
 
 - DuckDB (optional, falls back to SQLite)
 - pytest (for test discovery/running)
 - mypy (optional, for type checking)
 - Node.js (optional, for JS/TS syntax checking)
+- Rich (terminal UI)

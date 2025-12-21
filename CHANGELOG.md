@@ -42,8 +42,18 @@
 - `enable_semantic_memory` and `semantic_memory_path` settings
 - Lazy-loading for performance
 
+#### Terminal UI (`interpreter/terminal_interface/components/`)
+- `theme.py` - Cyber Professional color palette (violet/cyan/slate)
+- `status_bar.py` - Model/session/mode display
+- `prompt_block.py` - Styled input prompts
+- `spinner_block.py` - Thinking/executing spinners
+- `live_output_panel.py` - Contained output viewport (fixes scrolling)
+- Redesigned `message_block.py` - Role icons, colored borders
+- Redesigned `code_block.py` - Language badges, status indicators, timing
+
 ### Changed
 - Risk-based approval system for dangerous commands
+- Terminal UI uses Rich-based styled components
 
 ### Fixed
 - Silent exception swallowing in computer_use loop

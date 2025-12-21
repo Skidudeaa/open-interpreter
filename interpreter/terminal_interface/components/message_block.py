@@ -1,48 +1,105 @@
+"""
+Message Block - Displays assistant/user/system messages with role indicators.
+
+Features:
+- Role-specific emoji icons and colors
+- Styled panel borders
+- Animated cursor during streaming
+- Markdown rendering
+"""
+
 import re
 
-from rich.box import MINIMAL
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.text import Text
 
 from .base_block import BaseBlock
+from .theme import (
+    THEME,
+    BOX_STYLES,
+    get_role_icon,
+    get_role_style,
+)
 
 
 class MessageBlock(BaseBlock):
-    def __init__(self):
-        super().__init__()
+    """
+    Displays text messages with role-specific styling.
 
+    Roles:
+    - assistant: AI responses (cyan border)
+    - user: User input (violet border)
+    - system: System messages (amber border)
+    """
+
+    # Role-specific border colors
+    ROLE_BORDER_STYLES = {
+        "assistant": THEME["assistant"],
+        "user": THEME["user"],
+        "computer": THEME["computer"],
+        "system": THEME["system"],
+    }
+
+    def __init__(self, role: str = "assistant"):
+        super().__init__()
         self.type = "message"
+        self.role = role
         self.message = ""
 
-    def refresh(self, cursor=True):
-        # De-stylize any code blocks in markdown,
-        # to differentiate from our Code Blocks
+    def _build_header(self) -> str:
+        """Build the panel title with role icon and name."""
+        icon = get_role_icon(self.role)
+        role_name = self.role.capitalize()
+        return f"{icon} {role_name}"
+
+    def refresh(self, cursor: bool = True):
+        """Refresh the message display."""
+        # De-stylize any code blocks in markdown
         content = textify_markdown_code_blocks(self.message)
 
+        # Add blinking cursor if streaming
         if cursor:
-            content += "●"
+            content += "[blink]\u25cf[/blink]"  # Filled circle
 
+        # Render markdown
         markdown = Markdown(content.strip())
-        panel = Panel(markdown, box=MINIMAL)
+
+        # Get role-specific styling
+        border_color = self.ROLE_BORDER_STYLES.get(self.role, THEME["text_muted"])
+        header = self._build_header()
+
+        # Create styled panel
+        panel = Panel(
+            markdown,
+            title=header,
+            title_align="left",
+            border_style=border_color,
+            box=BOX_STYLES["message"],
+            padding=(0, 1),
+        )
+
         self.live.update(panel)
         self.live.refresh()
 
 
-def textify_markdown_code_blocks(text):
+def textify_markdown_code_blocks(text: str) -> str:
     """
-    To distinguish CodeBlocks from markdown code, we simply turn all markdown code
-    (like '```python...') into text code blocks ('```text') which makes the code black and white.
+    Convert markdown code blocks to text-only format.
+
+    This differentiates inline markdown code from actual CodeBlocks
+    by removing syntax highlighting from markdown code snippets.
     """
     replacement = "```text"
     lines = text.split("\n")
     inside_code_block = False
 
     for i in range(len(lines)):
-        # If the line matches ``` followed by optional language specifier
+        # Match ``` followed by optional language specifier
         if re.match(r"^```(\w*)$", lines[i].strip()):
             inside_code_block = not inside_code_block
 
-            # If we just entered a code block, replace the marker
+            # If entering a code block, replace the marker
             if inside_code_block:
                 lines[i] = replacement
 

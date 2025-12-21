@@ -20,6 +20,20 @@ from .respond import respond
 from .utils.telemetry import send_telemetry
 from .utils.truncate_output import truncate_output
 
+# Semantic memory imports (lazy-loaded for performance)
+_memory_module = None
+
+def _get_memory_module():
+    """Lazy load the memory module."""
+    global _memory_module
+    if _memory_module is None:
+        from .memory import SemanticEditGraph, ConversationLinker
+        _memory_module = {
+            'SemanticEditGraph': SemanticEditGraph,
+            'ConversationLinker': ConversationLinker,
+        }
+    return _memory_module
+
 
 class OpenInterpreter:
     """
@@ -137,6 +151,34 @@ class OpenInterpreter:
         self.code_output_template = code_output_template
         self.empty_code_output_template = empty_code_output_template
         self.code_output_sender = code_output_sender
+
+        # Semantic memory (lazy-initialized)
+        self._semantic_graph = None
+        self._conversation_linker = None
+        self.enable_semantic_memory = False  # Disabled by default
+        self.semantic_memory_path = get_storage_path("semantic_graph.db")
+
+    @property
+    def semantic_graph(self):
+        """
+        Lazy-initialized semantic edit graph for tracking code changes.
+        """
+        if self._semantic_graph is None and self.enable_semantic_memory:
+            memory_module = _get_memory_module()
+            self._semantic_graph = memory_module['SemanticEditGraph'](
+                db_path=self.semantic_memory_path
+            )
+        return self._semantic_graph
+
+    @property
+    def conversation_linker(self):
+        """
+        Lazy-initialized conversation linker for tracking edit context.
+        """
+        if self._conversation_linker is None and self.enable_semantic_memory:
+            memory_module = _get_memory_module()
+            self._conversation_linker = memory_module['ConversationLinker'](self)
+        return self._conversation_linker
 
     def local_setup(self):
         """
@@ -432,6 +474,10 @@ class OpenInterpreter:
         self.computer._has_imported_computer_api = False  # Flag reset
         self.messages = []
         self.last_messages_count = 0
+
+        # Reset semantic memory state (but keep the database)
+        if self._conversation_linker is not None:
+            self._conversation_linker._conversation_id = None
 
     def display_message(self, markdown):
         # This is just handy for start_script in profiles.

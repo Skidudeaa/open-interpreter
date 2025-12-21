@@ -58,6 +58,29 @@ from .core.async_core import AsyncInterpreter
 from .core.computer.terminal.base_language import BaseLanguage
 from .core.core import OpenInterpreter
 
+# Export new modules for direct access
+from .core.memory import (
+    SemanticEditGraph,
+    Edit,
+    EditType,
+    ConversationLinker,
+)
+from .core.validation import (
+    EditValidator,
+    SyntaxChecker,
+    ValidationResult,
+)
+from .core.tracing import (
+    ExecutionTracer,
+    ExecutionTrace,
+    CallGraph,
+)
+from .core.agents import (
+    AgentOrchestrator,
+    ScoutAgent,
+    SurgeonAgent,
+)
+
 interpreter = OpenInterpreter()
 computer = interpreter.computer
 

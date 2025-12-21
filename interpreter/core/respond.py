@@ -356,8 +356,70 @@ def respond(interpreter):
 
                 ## ↓ CODE IS RUN HERE
 
+                # === VALIDATION HOOK (pre-execution) ===
+                if interpreter.enable_validation and interpreter.syntax_checker:
+                    try:
+                        validation_result = interpreter.syntax_checker.check(language, code)
+                        if not validation_result.get('valid', True):
+                            for error in validation_result.get('errors', []):
+                                yield {
+                                    "role": "computer",
+                                    "type": "console",
+                                    "format": "output",
+                                    "content": f"[Validation] {error}\n",
+                                }
+                    except Exception:
+                        pass  # Non-blocking - continue even if validation fails
+
+                # === TRACING HOOK START ===
+                _execution_trace = None
+                if interpreter.enable_tracing and interpreter.tracer:
+                    try:
+                        interpreter.tracer.start()
+                    except Exception:
+                        pass  # Non-blocking
+
                 for line in interpreter.computer.run(language, code, stream=True):
                     yield {"role": "computer", **line}
+
+                # === TRACING HOOK STOP ===
+                if interpreter.enable_tracing and interpreter.tracer:
+                    try:
+                        _execution_trace = interpreter.tracer.stop()
+                        interpreter._current_trace = _execution_trace
+                    except Exception:
+                        pass  # Non-blocking
+
+                # === SEMANTIC MEMORY HOOK (post-execution) ===
+                if interpreter.enable_semantic_memory and interpreter.semantic_graph:
+                    try:
+                        from .core import _get_memory_module
+                        memory_module = _get_memory_module()
+                        Edit = memory_module['Edit']
+                        EditType = memory_module['EditType']
+
+                        # Get conversation context
+                        context = None
+                        if interpreter.conversation_linker:
+                            user_msgs = [m for m in interpreter.messages if m.get("role") == "user"]
+                            if user_msgs:
+                                context = interpreter.conversation_linker.create_context(
+                                    user_message=user_msgs[-1].get("content", ""),
+                                    assistant_response=code,
+                                )
+
+                        # Record the code execution
+                        edit = Edit(
+                            file_path=None,  # Script execution, not file edit
+                            original_content="",
+                            new_content=code,
+                            edit_type=EditType.OTHER,
+                            language=language,
+                            conversation_context=context,
+                        )
+                        interpreter.semantic_graph.record_edit(edit)
+                    except Exception:
+                        pass  # Non-blocking - don't crash on memory errors
 
                 ## ↑ CODE IS RUN HERE
 

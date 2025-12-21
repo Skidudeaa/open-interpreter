@@ -27,12 +27,61 @@ def _get_memory_module():
     """Lazy load the memory module."""
     global _memory_module
     if _memory_module is None:
-        from .memory import SemanticEditGraph, ConversationLinker
+        from .memory import SemanticEditGraph, ConversationLinker, Edit, EditType
         _memory_module = {
             'SemanticEditGraph': SemanticEditGraph,
             'ConversationLinker': ConversationLinker,
+            'Edit': Edit,
+            'EditType': EditType,
         }
     return _memory_module
+
+
+# Validation module (lazy-loaded for performance)
+_validation_module = None
+
+def _get_validation_module():
+    """Lazy load the validation module."""
+    global _validation_module
+    if _validation_module is None:
+        from .validation import EditValidator, SyntaxChecker, ValidationResult
+        _validation_module = {
+            'EditValidator': EditValidator,
+            'SyntaxChecker': SyntaxChecker,
+            'ValidationResult': ValidationResult,
+        }
+    return _validation_module
+
+
+# Tracing module (lazy-loaded for performance)
+_tracing_module = None
+
+def _get_tracing_module():
+    """Lazy load the tracing module."""
+    global _tracing_module
+    if _tracing_module is None:
+        from .tracing import ExecutionTracer, ExecutionTrace
+        _tracing_module = {
+            'ExecutionTracer': ExecutionTracer,
+            'ExecutionTrace': ExecutionTrace,
+        }
+    return _tracing_module
+
+
+# Agents module (lazy-loaded for performance)
+_agents_module = None
+
+def _get_agents_module():
+    """Lazy load the agents module."""
+    global _agents_module
+    if _agents_module is None:
+        from .agents import AgentOrchestrator, ScoutAgent, SurgeonAgent
+        _agents_module = {
+            'AgentOrchestrator': AgentOrchestrator,
+            'ScoutAgent': ScoutAgent,
+            'SurgeonAgent': SurgeonAgent,
+        }
+    return _agents_module
 
 
 class OpenInterpreter:
@@ -158,6 +207,20 @@ class OpenInterpreter:
         self.enable_semantic_memory = False  # Disabled by default
         self.semantic_memory_path = get_storage_path("semantic_graph.db")
 
+        # Validation (lazy-initialized)
+        self._validator = None
+        self._syntax_checker = None
+        self.enable_validation = False  # Disabled by default
+
+        # Tracing (lazy-initialized)
+        self._tracer = None
+        self._current_trace = None
+        self.enable_tracing = False  # Disabled by default
+
+        # Agents (lazy-initialized)
+        self._agent_orchestrator = None
+        self.enable_agents = False  # Disabled by default
+
     @property
     def semantic_graph(self):
         """
@@ -179,6 +242,57 @@ class OpenInterpreter:
             memory_module = _get_memory_module()
             self._conversation_linker = memory_module['ConversationLinker'](self)
         return self._conversation_linker
+
+    @property
+    def validator(self):
+        """
+        Lazy-initialized edit validator for syntax and test checking.
+        """
+        if self._validator is None and self.enable_validation:
+            validation_module = _get_validation_module()
+            self._validator = validation_module['EditValidator']()
+        return self._validator
+
+    @property
+    def syntax_checker(self):
+        """
+        Lazy-initialized syntax checker for quick validation.
+        """
+        if self._syntax_checker is None and self.enable_validation:
+            validation_module = _get_validation_module()
+            self._syntax_checker = validation_module['SyntaxChecker']()
+        return self._syntax_checker
+
+    @property
+    def tracer(self):
+        """
+        Lazy-initialized execution tracer for capturing runtime behavior.
+        """
+        if self._tracer is None and self.enable_tracing:
+            tracing_module = _get_tracing_module()
+            self._tracer = tracing_module['ExecutionTracer']()
+        return self._tracer
+
+    @property
+    def agent_orchestrator(self):
+        """
+        Lazy-initialized agent orchestrator for multi-agent workflows.
+        """
+        if self._agent_orchestrator is None and self.enable_agents:
+            agents_module = _get_agents_module()
+            self._agent_orchestrator = agents_module['AgentOrchestrator'](self)
+        return self._agent_orchestrator
+
+    def activate_all_features(self):
+        """
+        Enable all advanced features: semantic memory, validation, tracing, and agents.
+        Returns self for method chaining.
+        """
+        self.enable_semantic_memory = True
+        self.enable_validation = True
+        self.enable_tracing = True
+        self.enable_agents = True
+        return self
 
     def local_setup(self):
         """

@@ -39,7 +39,11 @@
 
 #### Core Integration
 - `semantic_graph` and `conversation_linker` properties on OpenInterpreter
-- `enable_semantic_memory` and `semantic_memory_path` settings
+- `validator`, `syntax_checker`, `tracer`, `agent_orchestrator` properties
+- Enable flags: `enable_semantic_memory`, `enable_validation`, `enable_tracing`, `enable_agents`
+- `activate_all_features()` method for quick enablement
+- `OI_ACTIVATE_ALL=true` env var for automatic activation
+- Hooks in `respond.py`: pre-execution validation, execution tracing, post-execution memory recording
 - Lazy-loading for performance
 
 #### Terminal UI (`interpreter/terminal_interface/components/`)

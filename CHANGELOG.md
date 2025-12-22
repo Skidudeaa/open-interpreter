@@ -50,6 +50,23 @@
   - Integrates context meter in center section
   - Format: `💬 5 messages │ 🤖 2 agents (1 active) │ [████░] 60% (24k/41k)`
 
+#### Context Panel (Phase 3)
+- `context_panel.py` - Variables/functions/metrics sidebar
+  - Shows variables with type icons and value previews
+  - Shows function signatures
+  - Displays execution time and memory usage
+  - Adaptive visibility: POWER/DEBUG mode or when content exists
+- `code_navigator.py` - Block navigation system
+  - j/k navigation between code blocks
+  - Space to toggle fold/unfold on output
+  - Tracks fold state per block with auto-fold for long outputs (>20 lines)
+  - Supports select_next_code/select_prev_code for code-only navigation
+- `code_block.py` - Enhanced with fold/unfold support
+  - `fold()`, `unfold()`, `toggle_fold()` methods
+  - `is_folded` property for state tracking
+  - Fold preview shows first 3 lines with "▶ Output (N lines, folded)" indicator
+  - `block_id` and `is_selected` for CodeNavigator integration
+
 ### Fixed
 - Skip FastAPI server tests when fastapi not installed
 - Fix test_generator flakiness (allow multiple console outputs)

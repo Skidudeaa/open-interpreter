@@ -58,10 +58,19 @@ Event-driven architecture with prompt_toolkit integration.
   - [x] Auto-fold for outputs > 20 lines
   - [x] Preview shows first 3 lines when folded
 
-### Phase 4 - Adaptive Mode System [TODO]
-- [ ] `ui_mode_manager.py` - Mode state machine with auto-escalation
-- [ ] Modes: ZEN → STANDARD → POWER → DEBUG
-- [ ] Toast notifications on mode changes
+### Phase 4 - Adaptive Mode System [DONE]
+- [x] `ui_mode_manager.py` - Mode state machine with auto-escalation
+  - [x] Score-based escalation: ZEN (0) → STANDARD (5) → POWER (15) → DEBUG (30)
+  - [x] Event scoring: AGENT_SPAWN (+10), CODE_START (+3), ERROR (+5)
+  - [x] Score decay: -1 every 30s of inactivity
+  - [x] Manual mode control: set_mode(), lock_mode(), cycle_mode()
+  - [x] Mode never auto-downgrades (manual only)
+- [x] Toast notifications on mode changes
+  - [x] `toast.py` - ToastManager with levels (INFO, SUCCESS, WARNING, ERROR, MODE)
+  - [x] Auto-dismiss after timeout (configurable)
+  - [x] Rate limiting to prevent spam
+  - [x] Stack display (newest first, max 3 visible)
+  - [x] Inline rendering for status bar integration
 
 ---
 

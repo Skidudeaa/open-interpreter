@@ -1,6 +1,17 @@
 # UI Enhancement Todos
 
-All items completed in commit series.
+All items completed and integrated into the main codebase.
+
+## Integration Summary
+
+All UI components are now wired into the terminal interface:
+
+- **Session Manager** → `start_terminal_interface.py` (autosave on interrupt)
+- **Network Status** → `respond.py` (LLM request tracking)
+- **Error Block** → `terminal_interface.py` (structured exception display)
+- **Table Display** → `code_block.py` (auto-detect tabular output)
+- **Interactive Menu** → `terminal_interface.py` (arrow-key confirmations)
+- **Components exported** in `components/__init__.py`
 
 ## Completed - High Impact
 

@@ -21,6 +21,8 @@ from ..core.utils.system_debug_info import system_info
 from ..core.utils.truncate_output import truncate_output
 from .components.code_block import CodeBlock
 from .components.diff_block import show_diff
+from .components.error_block import display_error
+from .components.interactive_menu import interactive_choice, interactive_confirm
 from .components.message_block import MessageBlock
 from .components.prompt_block import PromptBlock
 from .components.spinner_block import ThinkingSpinner
@@ -249,13 +251,14 @@ def terminal_interface(interpreter, message):
                                     response = input(
                                         "  Would you like to scan this code? (y/n)\n\n  "
                                     )
+                                    if response.strip().lower() == "y":
+                                        should_scan_code = True
                                 else:
-                                    scan_prompt = PromptBlock(style="confirmation")
-                                    response = "y" if scan_prompt.confirm("Scan this code for security issues?", default=False) else "n"
-                                print("")  # <- Aesthetic choice
-
-                                if response.strip().lower() == "y":
-                                    should_scan_code = True
+                                    # Use interactive confirmation menu
+                                    should_scan_code = interactive_confirm(
+                                        "Scan this code for security issues?",
+                                        default=False
+                                    )
 
                         if should_scan_code:
                             scan_code(code, language, interpreter)
@@ -266,9 +269,19 @@ def terminal_interface(interpreter, message):
                             )
                             print("")  # <- Aesthetic choice
                         else:
-                            # Use styled confirmation
-                            confirm_prompt = PromptBlock(style="confirmation")
-                            response = confirm_prompt.code_confirmation(language)
+                            # Use interactive menu for code execution confirmation
+                            choice = interactive_choice(
+                                options=["Run code", "Skip", "Edit code"],
+                                title=f"Execute {language} code?",
+                                descriptions=[
+                                    "Execute the code block",
+                                    "Skip execution and continue",
+                                    "Edit code before running"
+                                ],
+                                default=0
+                            )
+                            # Map choice to response
+                            response = {0: "y", 1: "n", 2: "e"}.get(choice, "n")
 
                         if response.strip().lower() == "y":
                             # Create a new, identical block where the code will actually be run
@@ -600,7 +613,15 @@ def terminal_interface(interpreter, message):
                 continue
             else:
                 break
-        except:
+        except Exception:
+            import traceback
+            error_text = traceback.format_exc()
+
+            # Display structured error if not in plain text mode
+            if not interpreter.plain_text_display:
+                with UIErrorContext("ErrorBlock", "display"):
+                    display_error(error_text)
+
             if interpreter.debug:
                 system_info(interpreter)
             raise

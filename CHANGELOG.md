@@ -91,6 +91,23 @@
 - Code preview on undo: shows language and first 60 chars of removed code
 - Progress indicator for long-running code: spinner animation after 5 seconds
 
+#### New Components (`interpreter/terminal_interface/components/`)
+- `error_block.py` - Structured error display with formatted tracebacks
+- `diff_block.py` - Before/after code comparison on edit
+- `interactive_menu.py` - Arrow-key navigation for selections
+- `table_display.py` - Formatted tables for SQL results, CSV, JSON
+- `network_status.py` - API connection state indicator
+
+#### New Utilities (`interpreter/terminal_interface/utils/`)
+- `session_manager.py` - Autosave on interrupt, session resume
+- `voice_output.py` - Cross-platform TTS (macOS/Windows/Linux)
+- `ui_logger.py` - Debug logging replacing silent exceptions
+
+#### Theme System
+- Multiple themes: dark (default), light, high-contrast
+- Set via `OI_THEME` environment variable
+- High contrast mode for accessibility
+
 ### Performance
 - String accumulation in `run_text_llm.py`: O(n²) → O(n) via list-based accumulation
 - Image message filtering in `llm.py`: O(n²) → O(n) via set-based filtering

@@ -51,6 +51,9 @@ class CodeBlock(BaseBlock):
     # Maximum lines to show in output panel during execution
     MAX_OUTPUT_LINES = 8
 
+    # Pagination support
+    PAGINATE_THRESHOLD = 50  # Show pagination controls after this many lines
+
     def __init__(self, interpreter=None):
         super().__init__()
 
@@ -73,6 +76,10 @@ class CodeBlock(BaseBlock):
         # Each entry is (text, output_type) where output_type is 'stdout', 'stderr', or 'traceback'
         self._output_lines: list[tuple[str, str]] = []
         self._in_traceback = False  # Track if we're inside a traceback
+
+        # Pagination support
+        self._output_page = 0  # Current page for pagination
+        self._show_full_output = False  # Toggle for full output view
 
         # Refresh throttling to prevent UI unresponsiveness
         self._last_refresh = 0
@@ -342,3 +349,32 @@ class CodeBlock(BaseBlock):
         if self.highlight_active_line is not None:
             return self.highlight_active_line
         return True
+
+    def next_output_page(self):
+        """Go to next page of output (for pagination)."""
+        total_lines = len(self._output_lines)
+        max_pages = (total_lines + self.MAX_OUTPUT_LINES - 1) // self.MAX_OUTPUT_LINES
+        if self._output_page < max_pages - 1:
+            self._output_page += 1
+            self.refresh(cursor=False)
+
+    def prev_output_page(self):
+        """Go to previous page of output (for pagination)."""
+        if self._output_page > 0:
+            self._output_page -= 1
+            self.refresh(cursor=False)
+
+    def toggle_full_output(self):
+        """Toggle between paginated and full output view."""
+        self._show_full_output = not self._show_full_output
+        self.refresh(cursor=False)
+
+    def get_output_page_info(self) -> tuple:
+        """Get current page info (current_page, total_pages, total_lines)."""
+        total_lines = len(self._output_lines)
+        total_pages = max(1, (total_lines + self.MAX_OUTPUT_LINES - 1) // self.MAX_OUTPUT_LINES)
+        return (self._output_page + 1, total_pages, total_lines)
+
+    def get_full_output(self) -> str:
+        """Get the complete output text."""
+        return "\n".join(line for line, _ in self._output_lines)

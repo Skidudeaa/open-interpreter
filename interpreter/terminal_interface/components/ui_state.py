@@ -40,6 +40,24 @@ class AgentRole(Enum):
     HISTORIAN = "historian" # Memory & documentation
     CUSTOM = "custom"       # User-defined agents
 
+    @classmethod
+    def from_core_role(cls, core_role):
+        """
+        Convert from core.agents.base_agent.AgentRole to UI AgentRole.
+
+        Args:
+            core_role: AgentRole from core.agents.base_agent
+
+        Returns:
+            UI AgentRole instance
+        """
+        # Map by value string
+        role_value = core_role.value if hasattr(core_role, 'value') else str(core_role)
+        for ui_role in cls:
+            if ui_role.value == role_value:
+                return ui_role
+        return cls.CUSTOM
+
 
 @dataclass
 class AgentState:

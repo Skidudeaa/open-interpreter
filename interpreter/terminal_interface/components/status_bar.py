@@ -14,6 +14,8 @@ from rich.table import Table
 from rich.text import Text
 
 from .theme import THEME, BOX_STYLES, ROLE_ICONS
+from .ui_state import UIState
+from .context_meter import ContextMeter
 
 
 class StatusBar:
@@ -26,9 +28,10 @@ class StatusBar:
     └──────────────────────────────────────────────────────────────┘
     """
 
-    def __init__(self, interpreter=None, console: Console = None):
+    def __init__(self, interpreter=None, console: Console = None, ui_state: UIState = None):
         self.interpreter = interpreter
         self.console = console or Console()
+        self.ui_state = ui_state
 
     def render(self) -> Panel:
         """Render the status bar panel."""
@@ -45,13 +48,13 @@ class StatusBar:
         # Left section: Model info
         model_section = self._build_model_section()
 
-        # Center section: Message count
-        message_section = self._build_message_section()
+        # Center section: Message count + agent count + context meter
+        center_section = self._build_center_section()
 
         # Right section: Mode indicators
         mode_section = self._build_mode_section()
 
-        table.add_row(model_section, message_section, mode_section)
+        table.add_row(model_section, center_section, mode_section)
 
         return Panel(
             table,
@@ -75,8 +78,55 @@ class StatusBar:
 
         return Text(f"{robot_icon} {model}", style=THEME["secondary"])
 
+    def _build_center_section(self) -> Text:
+        """Build the center section with messages, agents, and context meter."""
+        parts = []
+
+        # Message count
+        speech_icon = "\U0001F4AC"  # Speech balloon
+        if self.interpreter and hasattr(self.interpreter, "messages"):
+            count = len(self.interpreter.messages)
+        else:
+            count = 0
+        plural = "s" if count != 1 else ""
+        parts.append(f"{speech_icon} {count} message{plural}")
+
+        # Agent count (if ui_state provided and agents active)
+        if self.ui_state and self.ui_state.active_agents:
+            agent_count = len(self.ui_state.active_agents)
+            running_count = sum(
+                1 for agent in self.ui_state.active_agents.values()
+                if agent.status.name == "RUNNING"
+            )
+            robot_icon = "\U0001F916"  # Robot
+            if running_count > 0:
+                parts.append(f"{robot_icon} {agent_count} agent{'s' if agent_count != 1 else ''} ({running_count} active)")
+            else:
+                parts.append(f"{robot_icon} {agent_count} agent{'s' if agent_count != 1 else ''}")
+
+        # Context meter (if ui_state provided and tokens > 0)
+        meter_text = None
+        if self.ui_state and self.ui_state.context_tokens > 0:
+            meter = ContextMeter(self.ui_state, self.console)
+            meter_text = meter.render()
+
+        # Join with separator
+        result = Text()
+        for i, part in enumerate(parts):
+            if i > 0:
+                result.append(" │ ", style="dim")
+            result.append(part, style=THEME["text_muted"])
+
+        # Add meter separately (it's already a Text object with styling)
+        if meter_text:
+            if parts:  # Add separator if we have other parts
+                result.append(" │ ", style="dim")
+            result.append(meter_text)
+
+        return result
+
     def _build_message_section(self) -> Text:
-        """Build the message count display."""
+        """Build the message count display (deprecated, use _build_center_section)."""
         speech_icon = "\U0001F4AC"  # Speech balloon
 
         if self.interpreter and hasattr(self.interpreter, "messages"):

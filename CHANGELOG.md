@@ -25,6 +25,31 @@
 - Interactive menu: arrow-key navigation for code execution confirmation
 - Components exported in `components/__init__.py`
 
+#### Agent Visualization (Phase 2)
+- `agent_strip.py` - Bottom bar showing all active agents with real-time status
+  - Format: `[Scout: ✓ 2.3s] [Surgeon: ⏳ thinking...] [Validator: ▶ running]`
+  - Status icons: ○ pending, ⏳ running, ✓ complete, ✗ error, ⊘ cancelled
+  - Color-coded by status (green/yellow/red)
+  - Selection tracking for keyboard navigation
+- `agent_tree.py` - Expandable hierarchical view using Rich Tree
+  - Shows parent → child agent relationships
+  - Displays last 3 lines of output preview for each agent
+  - Color-coded status with elapsed time display
+  - Support for navigation with select_next_agent/select_prev_agent
+- `context_meter.py` - Token usage display with progress bar
+  - Format: `[████████░░] 78% (32k/41k tokens)`
+  - Color shifts green→yellow→red as context fills (60%/85% thresholds)
+  - K/M suffix formatting for readability
+- `orchestrator.py` - Agent event emission
+  - Emits AGENT_SPAWN, AGENT_OUTPUT, AGENT_COMPLETE, AGENT_ERROR events
+  - Integrates with EventBus from ui_events.py
+  - Tracks parent-child agent relationships via parent_id
+  - Helper method `_execute_agent_with_events()` for consistent event emission
+- `status_bar.py` - Enhanced with agent count and context meter
+  - Shows active agent count when agents are running
+  - Integrates context meter in center section
+  - Format: `💬 5 messages │ 🤖 2 agents (1 active) │ [████░] 60% (24k/41k)`
+
 ### Fixed
 - Skip FastAPI server tests when fastapi not installed
 - Fix test_generator flakiness (allow multiple console outputs)

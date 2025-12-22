@@ -363,8 +363,19 @@ Terminal Freeze Prevention:
 
 ## Dependencies
 
-- DuckDB (optional, falls back to SQLite)
-- pytest (for test discovery/running)
-- mypy (optional, for type checking)
-- Node.js (optional, for JS/TS syntax checking)
-- Rich (terminal UI)
+Core (always installed):
+- litellm, anthropic, google-generativeai - LLM providers
+- rich, prompt_toolkit - Terminal UI
+- fastapi, uvicorn - Server mode
+- pydantic - Data validation
+
+Optional extras:
+- `[memory]` - duckdb (SemanticEditGraph backend, falls back to SQLite)
+- `[safe]` - semgrep (static security analysis)
+- `[local]` - torch, transformers (local model inference)
+- `[os]` - opencv-python, pyautogui (screen/GUI automation)
+- `[server]` - janus (async queue bridge)
+
+Dev:
+- pytest, pytest-cov - Testing
+- black, isort - Formatting

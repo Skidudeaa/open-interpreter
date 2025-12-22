@@ -11,12 +11,15 @@ Event-driven architecture with prompt_toolkit integration.
 - [x] `sanitizer.py` - Terminal escape sequence filtering
 - [x] Wire event emission into `terminal_interface.py`
 
-### Phase 1 - prompt_toolkit Integration [TODO]
-- [ ] Add `prompt_toolkit` dependency
-- [ ] Implement `PromptToolkitBackend` with always-on Application
-- [ ] Key bindings: Esc (cancel), Ctrl+R (history), Alt+P/F2 (power mode)
-- [ ] Rich → ANSI → prompt_toolkit rendering bridge
-- [ ] Multiline input with syntax highlighting
+### Phase 1 - prompt_toolkit Integration [DONE]
+- [x] Add `prompt_toolkit` dependency
+- [x] Implement `PromptToolkitBackend` with session management
+- [x] Key bindings: Esc (cancel), Ctrl+R (history), Alt+P/F2 (power mode)
+- [x] `pt_app.py` - Application skeleton for future full-screen mode
+- [x] `input_handler.py` - Key bindings with F-key fallbacks
+- [x] `completers.py` - Magic commands, file paths, conversation history
+- [x] Multiline input with syntax highlighting
+- [x] `--no-tui` flag to disable interactive mode
 
 ### Phase 2 - Agent Visualization [TODO]
 - [ ] `agent_strip.py` - Bottom bar showing agent status

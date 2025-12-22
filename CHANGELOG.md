@@ -4,12 +4,17 @@
 
 ### Added
 
-#### Terminal UI Architecture (Phase 0)
+#### Terminal UI Architecture (Phase 0 + Phase 1)
 - `ui_state.py` - Centralized state: `UIState`, `UIMode`, `AgentState`, `AgentRole`
 - `ui_events.py` - Event system: `UIEvent`, `EventType`, `EventBus` with thread-safe queue
-- `ui_backend.py` - Backend abstraction: `RichStreamBackend` (current), `PromptToolkitBackend` (stub)
+- `ui_backend.py` - Backend abstraction: `RichStreamBackend`, `PromptToolkitBackend`
 - `sanitizer.py` - Terminal security: blocks clipboard/hyperlink escape sequences
+- `pt_app.py` - prompt_toolkit Application skeleton for interactive TUI
+- `input_handler.py` - Key bindings (Esc, F2, Ctrl+R, etc.) with fallbacks
+- `completers.py` - Magic commands, file paths, conversation history completion
 - Event emission wired into `terminal_interface.py`
+- `--no-tui` flag to disable interactive mode
+- prompt_toolkit dependency added
 
 #### UI Component Integration
 - Wired up 5 orphaned UI components into main flow

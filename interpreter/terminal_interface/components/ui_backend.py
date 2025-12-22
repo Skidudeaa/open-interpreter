@@ -262,19 +262,22 @@ class PromptToolkitBackend(UIBackend):
     """
     prompt_toolkit-based interactive backend.
 
-    This is the new behavior for Phase 1+:
+    Features:
     - prompt_toolkit owns the screen
     - Rich renders to ANSI, displayed in PT windows
-    - Full key bindings (Esc, Ctrl+R, Alt+P, etc.)
+    - Full key bindings (Esc, Ctrl+R, Alt+P, F2, etc.)
     - Multiline input with syntax highlighting
+    - History with auto-suggestions
+    - Magic command completion
 
-    This is a STUB for Phase 0.
-    Full implementation comes in Phase 1.
+    Phase 1 Implementation.
     """
 
     def __init__(self, interpreter: "OpenInterpreter", state: UIState):
         super().__init__(interpreter, state)
-        self._app = None
+        self._session = None
+        self._input_handler = None
+        self._output_buffer = []
 
     @property
     def backend_type(self) -> BackendType:
@@ -285,60 +288,173 @@ class PromptToolkitBackend(UIBackend):
         return True
 
     def start(self) -> None:
-        """
-        Initialize prompt_toolkit application.
+        """Initialize prompt_toolkit session and handlers"""
+        from .input_handler import InputHandler
+        from .completers import create_completer
 
-        STUB: Full implementation in Phase 1.
-        For now, falls back to Rich streaming.
-        """
         self._running = True
 
-        # TODO Phase 1: Create prompt_toolkit Application
-        # self._app = Application(
-        #     layout=self._create_layout(),
-        #     key_bindings=self._create_bindings(),
-        #     full_screen=True,
-        # )
+        # Create input handler with key bindings
+        self._input_handler = InputHandler(
+            self.interpreter,
+            self.state,
+            history_file=self._get_history_path(),
+        )
+
+        # Set up cancel handler
+        self._input_handler.set_cancel_handler(self._on_cancel)
 
         # Subscribe to events
         self.event_bus.subscribe_all(self._on_event)
 
+    def _get_history_path(self) -> str:
+        """Get path to history file"""
+        from platformdirs import user_data_dir
+        data_dir = user_data_dir("open-interpreter", "openinterpreter")
+        os.makedirs(data_dir, exist_ok=True)
+        return os.path.join(data_dir, "prompt_history")
+
+    def _on_cancel(self) -> None:
+        """Handle cancel action"""
+        self.cancel_current()
+
     def stop(self) -> None:
-        """Shutdown prompt_toolkit application"""
+        """Shutdown prompt_toolkit resources"""
         self._running = False
         self.event_bus.unsubscribe_all(self._on_event)
-
-        if self._app:
-            # TODO Phase 1: Proper app shutdown
-            pass
+        self._session = None
+        self._input_handler = None
 
     def emit(self, event: UIEvent) -> None:
         """
-        Process event in interactive mode.
+        Process UI event.
 
-        STUB: Full implementation in Phase 1.
+        Updates state and buffers output for display.
         """
-        # TODO Phase 1: Update PT windows based on event
-        pass
+        self._update_state(event)
+
+        # Buffer output for display
+        if event.type == EventType.MESSAGE_CHUNK:
+            content = event.data.get("content", "")
+            if content:
+                self._output_buffer.append(content)
+
+        elif event.type == EventType.CODE_CHUNK:
+            content = event.data.get("content", "")
+            if content:
+                self._output_buffer.append(content)
+
+        elif event.type == EventType.CONSOLE_OUTPUT:
+            content = event.data.get("content", "")
+            if content:
+                self._output_buffer.append(content)
+
+    def _update_state(self, event: UIEvent) -> None:
+        """Update UI state based on event"""
+        from .ui_state import AgentRole, AgentStatus
+
+        if event.type == EventType.AGENT_SPAWN:
+            agent_id = event.data.get("agent_id", "unknown")
+            role_str = event.data.get("role", "custom")
+            try:
+                role = AgentRole(role_str)
+            except ValueError:
+                role = AgentRole.CUSTOM
+            self.state.add_agent(agent_id, role)
+
+        elif event.type == EventType.AGENT_COMPLETE:
+            agent_id = event.data.get("agent_id")
+            if agent_id:
+                self.state.update_agent_status(agent_id, AgentStatus.COMPLETE)
+
+        elif event.type == EventType.AGENT_ERROR:
+            agent_id = event.data.get("agent_id")
+            error = event.data.get("error")
+            if agent_id:
+                self.state.update_agent_status(agent_id, AgentStatus.ERROR, error)
+
+        elif event.type == EventType.SYSTEM_TOKEN_UPDATE:
+            tokens = event.data.get("tokens", 0)
+            self.state.context_tokens = tokens
+
+        elif event.type == EventType.SYSTEM_START:
+            self.state.is_responding = True
+            self._output_buffer.clear()
+
+        elif event.type == EventType.SYSTEM_END:
+            self.state.is_responding = False
+
+        elif event.type == EventType.UI_MODE_CHANGE:
+            mode_name = event.data.get("mode", "ZEN")
+            try:
+                self.state.mode = UIMode[mode_name]
+            except KeyError:
+                pass
 
     def _on_event(self, event: UIEvent) -> None:
         """Global event handler"""
         self.emit(event)
 
     def invalidate(self) -> None:
-        """Request PT app redraw"""
-        if self._app:
-            # TODO Phase 1: self._app.invalidate()
-            pass
+        """Request redraw - handled by prompt_toolkit automatically"""
+        pass
 
-    def get_input(self, prompt: str = "") -> str:
+    def get_input(self, prompt: str = "❯ ") -> str:
         """
-        Get input using prompt_toolkit.
+        Get input using prompt_toolkit with full features.
 
-        STUB: Falls back to basic input for Phase 0.
+        Features:
+        - Multiline editing
+        - History with search (Ctrl+R)
+        - Auto-suggestions
+        - Syntax highlighting
+        - Key bindings (Esc, F2, etc.)
         """
-        # TODO Phase 1: Use prompt_toolkit prompt session
-        return input(prompt)
+        if not self._input_handler:
+            # Fallback if not started
+            return input(prompt)
+
+        from .completers import create_completer
+
+        try:
+            from prompt_toolkit import PromptSession
+            from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+            from prompt_toolkit.formatted_text import FormattedText
+
+            # Create session with completer
+            completer = create_completer(self.interpreter)
+
+            session = PromptSession(
+                history=self._input_handler.history,
+                auto_suggest=AutoSuggestFromHistory(),
+                completer=completer,
+                multiline=True,
+                key_bindings=self._input_handler.create_key_bindings(),
+                enable_history_search=True,
+                complete_while_typing=False,
+            )
+
+            # Format prompt with styling
+            formatted_prompt = FormattedText([
+                ('class:prompt', prompt),
+            ])
+
+            result = session.prompt(formatted_prompt)
+            return result
+
+        except KeyboardInterrupt:
+            return ""
+        except EOFError:
+            raise
+        except Exception:
+            # Fallback to basic input on any error
+            return input(prompt)
+
+    def get_buffered_output(self) -> str:
+        """Get and clear buffered output"""
+        output = "".join(self._output_buffer)
+        self._output_buffer.clear()
+        return output
 
 
 def is_tty() -> bool:

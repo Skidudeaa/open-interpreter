@@ -240,6 +240,9 @@ terminal_interface/
 │   ├── ui_events.py       # Event system (UIEvent, EventType, EventBus)
 │   ├── ui_backend.py      # Backend abstraction (Rich/prompt_toolkit)
 │   ├── sanitizer.py       # Terminal escape sequence security
+│   ├── pt_app.py          # prompt_toolkit Application (Phase 1)
+│   ├── input_handler.py   # Key bindings + input session
+│   ├── completers.py      # Auto-completion (magic, paths, history)
 │   ├── theme.py           # Color palette, icons
 │   ├── base_block.py      # Shared console, timing
 │   ├── message_block.py   # Role icons, styled panels

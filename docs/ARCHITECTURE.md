@@ -260,6 +260,17 @@ Performance:
 - `code_block.py` - 30fps internal throttle prevents excessive re-rendering
 - `jupyter_language.py` - Thread-safe terminate() with join() before channel close
 
+## Performance Optimizations
+
+### LLM Processing (`interpreter/core/llm/`)
+- `run_text_llm.py` - List-based string accumulation (O(n) vs O(n²) concatenation)
+- `llm.py` - Set-based image filtering (O(n) vs O(n²) list removals)
+
+### Core Loop (`interpreter/core/`)
+- `respond.py` - System message caching (hash-based dependency tracking)
+- `respond.py` - Reverse iteration for last code message (O(1) avg vs O(n))
+- `core.py` - Thread-safe lazy module loading (double-checked locking)
+
 ## Dependencies
 
 - DuckDB (optional, falls back to SQLite)

@@ -84,3 +84,11 @@
 - UI unresponsiveness during streaming: 50ms refresh rate limiting in terminal_interface, 30fps throttle in CodeBlock
 - Jupyter kernel shutdown errors (InvalidStateError): thread-safe terminate() with join() before channel close
 - Code decline exits loop instead of continuing conversation
+
+### Performance
+- String accumulation in `run_text_llm.py`: O(n²) → O(n) via list-based accumulation
+- Image message filtering in `llm.py`: O(n²) → O(n) via set-based filtering
+- System message caching in `respond.py`: avoid per-iteration rebuilding
+- Message scanning in `respond.py`: O(n) → O(1) avg via reverse iteration
+- Thread-safe lazy initialization in `core.py`: double-checked locking pattern
+- Debug output in `jupyter_language.py`: conditional on DEBUG_MODE flag

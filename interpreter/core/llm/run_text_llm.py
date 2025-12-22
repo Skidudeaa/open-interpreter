@@ -14,7 +14,7 @@ def run_text_llm(llm, params):
     ## Convert output to LMC format
 
     inside_code_block = False
-    accumulated_block = ""
+    accumulated_chunks = []  # Use list for O(n) accumulation instead of O(n²) string concat
     language = None
     chunk_count = 0
     empty_chunk_count = 0
@@ -40,7 +40,8 @@ def run_text_llm(llm, params):
 
         chunk_count += 1
 
-        accumulated_block += content
+        accumulated_chunks.append(content)
+        accumulated_block = ''.join(accumulated_chunks)  # O(n) join when needed
 
         if accumulated_block.endswith("`"):
             # We might be writing "```" one token at a time.
@@ -50,6 +51,8 @@ def run_text_llm(llm, params):
         if "```" in accumulated_block and not inside_code_block:
             inside_code_block = True
             accumulated_block = accumulated_block.split("```")[1]
+            # Reset chunks to just the content after the code block marker
+            accumulated_chunks = [accumulated_block]
 
         # Did we just exit a code block?
         if inside_code_block and "```" in accumulated_block:

@@ -10,6 +10,57 @@ import litellm
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
 from .render_message import render_message
 
+# System message cache to avoid rebuilding every iteration
+_system_message_cache = {}
+
+
+def _build_system_message(interpreter):
+    """
+    Build the system message with caching based on dependencies.
+    Returns cached version if dependencies haven't changed.
+    """
+    # Build cache key from dependencies
+    lang_messages = tuple(
+        getattr(lang, "system_message", "")
+        for lang in interpreter.computer.terminal.languages
+        if hasattr(lang, "system_message")
+    )
+    cache_key = (
+        id(interpreter),
+        interpreter.system_message,
+        lang_messages,
+        interpreter.custom_instructions,
+        interpreter.computer.import_computer_api,
+        interpreter.computer.system_message if interpreter.computer.import_computer_api else "",
+    )
+
+    if cache_key in _system_message_cache:
+        return _system_message_cache[cache_key]
+
+    # Build system message
+    system_message = interpreter.system_message
+
+    # Add language-specific system messages
+    for lang_msg in lang_messages:
+        if lang_msg:
+            system_message += "\n\n" + lang_msg
+
+    # Add custom instructions
+    if interpreter.custom_instructions:
+        system_message += "\n\n" + interpreter.custom_instructions
+
+    # Add computer API system message
+    if interpreter.computer.import_computer_api:
+        if interpreter.computer.system_message not in system_message:
+            system_message = system_message + "\n\n" + interpreter.computer.system_message
+
+    # Cache and return (limit cache size to prevent memory issues)
+    if len(_system_message_cache) > 100:
+        _system_message_cache.clear()
+    _system_message_cache[cache_key] = system_message
+
+    return system_message
+
 
 def respond(interpreter):
     """
@@ -21,25 +72,8 @@ def respond(interpreter):
     insert_loop_message = False
 
     while True:
-        ## RENDER SYSTEM MESSAGE ##
-
-        system_message = interpreter.system_message
-
-        # Add language-specific system messages
-        for language in interpreter.computer.terminal.languages:
-            if hasattr(language, "system_message"):
-                system_message += "\n\n" + language.system_message
-
-        # Add custom instructions
-        if interpreter.custom_instructions:
-            system_message += "\n\n" + interpreter.custom_instructions
-
-        # Add computer API system message
-        if interpreter.computer.import_computer_api:
-            if interpreter.computer.system_message not in system_message:
-                system_message = (
-                    system_message + "\n\n" + interpreter.computer.system_message
-                )
+        ## RENDER SYSTEM MESSAGE (cached for performance) ##
+        system_message = _build_system_message(interpreter)
 
         # Storing the messages so they're accessible in the interpreter's computer
         # no... this is a huge time sink.....
@@ -299,10 +333,14 @@ def respond(interpreter):
                     # We need to tell python what we (the generator) should do if they exit
                     break
 
-                # They may have edited the code! Grab it again
-                code = [m for m in interpreter.messages if m["type"] == "code"][-1][
-                    "content"
-                ]
+                # They may have edited the code! Grab it again (O(1) avg via reverse scan)
+                code = None
+                for m in reversed(interpreter.messages):
+                    if m.get("type") == "code":
+                        code = m["content"]
+                        break
+                if code is None:
+                    code = interpreter.messages[-1]["content"]  # Fallback
 
                 # don't let it import computer — we handle that!
                 if interpreter.computer.import_computer_api and language == "python":

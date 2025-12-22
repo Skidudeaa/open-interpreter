@@ -61,14 +61,31 @@ swarm = builder.create_swarm([scout, surgeon])
 ```
 
 ### Terminal UI
+
+**Environment Variables:**
 ```bash
-export OI_THEME=dark              # dark, light, high-contrast
-export OI_UI_DEBUG=true           # Debug logging to ~/.open-interpreter/logs/
+OI_ACTIVATE_ALL=true    # Enable all features (memory, agents, tracing, validation)
+OI_THEME=dark           # dark, light, high-contrast
+OI_UI_DEBUG=true        # Debug logging to ~/.open-interpreter/logs/
+OI_NO_TUI=true          # Disable interactive mode (use Rich streaming)
 ```
-- Arrow-key menus for code confirmation
-- Session autosave on interrupt
-- Syntax-highlighted tracebacks
-- Auto-format CSV/JSON as tables
+
+**Features:**
+- Interactive prompt_toolkit input with multiline, history, completions
+- Agent visualization: status strip, hierarchical tree, token meter
+- Adaptive modes: ZEN → STANDARD → POWER → DEBUG (auto-escalates)
+- Code block fold/unfold, j/k navigation
+- Arrow-key menus, session autosave, syntax-highlighted tracebacks
+
+**Key Bindings:**
+| Key | Action |
+|-----|--------|
+| Esc | Cancel operation |
+| F2 / Alt+P | Toggle power mode |
+| F3 / Alt+H | Toggle context panel |
+| Ctrl+R | Search history |
+| j/k | Navigate code blocks |
+| Space | Fold/unfold output |
 
 ## Configuration
 

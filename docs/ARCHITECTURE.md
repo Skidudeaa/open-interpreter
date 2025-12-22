@@ -250,10 +250,15 @@ terminal_interface/
 Components:
 - `StatusBar` - Model, message count, mode indicators
 - `MessageBlock` - Role-specific icons and borders
-- `CodeBlock` - Language badges, execution status, timing
+- `CodeBlock` - Language badges, execution status, timing, 30fps refresh throttle
 - `LiveOutputPanel` - Fixed-height output viewport (prevents scroll overflow)
 - `PromptBlock` - Styled prompts and confirmations
 - `SpinnerBlock` - Thinking/executing animations
+
+Performance:
+- `terminal_interface.py` - 50ms refresh rate limiting during streaming
+- `code_block.py` - 30fps internal throttle prevents excessive re-rendering
+- `jupyter_language.py` - Thread-safe terminate() with join() before channel close
 
 ## Dependencies
 

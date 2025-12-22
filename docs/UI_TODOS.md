@@ -21,11 +21,26 @@ Event-driven architecture with prompt_toolkit integration.
 - [x] Multiline input with syntax highlighting
 - [x] `--no-tui` flag to disable interactive mode
 
-### Phase 2 - Agent Visualization [TODO]
-- [ ] `agent_strip.py` - Bottom bar showing agent status
-- [ ] `agent_tree.py` - Expandable hierarchical view
-- [ ] Hook into `AgentOrchestrator` for spawn/complete events
-- [ ] Context window meter (token usage display)
+### Phase 2 - Agent Visualization [DONE]
+- [x] `agent_strip.py` - Bottom bar showing agent status
+  - [x] Real-time status display with icons (○ pending, ⏳ running, ✓ complete, ✗ error, ⊘ cancelled)
+  - [x] Color-coded by status (green/yellow/red)
+  - [x] Shows elapsed time and output preview
+  - [x] Selection tracking for keyboard navigation
+- [x] `agent_tree.py` - Expandable hierarchical view
+  - [x] Rich Tree structure showing parent → child relationships
+  - [x] Last 3 lines of output preview per agent
+  - [x] Navigation support with select_next_agent/select_prev_agent
+- [x] Hook into `AgentOrchestrator` for spawn/complete events
+  - [x] Emits AGENT_SPAWN, AGENT_OUTPUT, AGENT_COMPLETE, AGENT_ERROR events
+  - [x] Integrates with EventBus from ui_events.py
+  - [x] Tracks parent-child relationships via parent_id
+  - [x] Helper method `_execute_agent_with_events()` for consistent emission
+- [x] Context window meter (token usage display)
+  - [x] `context_meter.py` - Progress bar with percentage
+  - [x] Color shifts green→yellow→red (60%/85% thresholds)
+  - [x] K/M suffix formatting for readability
+  - [x] Integrated into status_bar.py center section
 
 ### Phase 3 - Context Panel [TODO]
 - [ ] `context_panel.py` - Variables/functions/metrics sidebar

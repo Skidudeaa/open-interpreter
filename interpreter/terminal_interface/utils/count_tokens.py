@@ -1,7 +1,7 @@
 try:
     import tiktoken
     from litellm import cost_per_token
-except:
+except Exception:
     # Non-essential feature
     pass
 
@@ -25,7 +25,7 @@ def count_tokens(text="", model="gpt-4"):
             encoder = tiktoken.encoding_for_model("gpt-4")
 
         return len(encoder.encode(text))
-    except:
+    except Exception:
         # Non-essential feature
         return 0
 
@@ -39,15 +39,17 @@ def token_cost(tokens=0, model="gpt-4"):
         (prompt_cost, _) = cost_per_token(model=model, prompt_tokens=tokens)
 
         return round(prompt_cost, 6)
-    except:
+    except Exception:
         # Non-essential feature
         return 0
 
 
-def count_messages_tokens(messages=[], model=None):
+def count_messages_tokens(messages=None, model=None):
     """
     Count the number of tokens in a list of messages
     """
+    if messages is None:
+        messages = []
     try:
         tokens_used = 0
 
@@ -66,6 +68,6 @@ def count_messages_tokens(messages=[], model=None):
         prompt_cost = token_cost(tokens_used, model=model)
 
         return (tokens_used, prompt_cost)
-    except:
+    except Exception:
         # Non-essential feature
         return (0, 0)

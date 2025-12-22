@@ -220,8 +220,10 @@ def display_error(error_text: str, suggestion: str = None):
         suggestion: Optional helpful suggestion
     """
     block = ErrorBlock()
-    block.parse_error(error_text)
-    if suggestion:
-        block.set_suggestion(suggestion)
-    block.refresh()
-    block.end()
+    try:
+        block.parse_error(error_text)
+        if suggestion:
+            block.set_suggestion(suggestion)
+        block.refresh()
+    finally:
+        block.end()

@@ -54,7 +54,7 @@ def render_past_conversation(messages):
                 active_block.active_line = chunk["active_line"]
 
         # Console
-        if chunk["type"] == "console":
+        if chunk["type"] == "console" and active_block and hasattr(active_block, 'output'):
             ran_code_block = True
             render_cursor = False
             active_block.output += "\n" + chunk["content"]

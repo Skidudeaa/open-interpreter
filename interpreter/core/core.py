@@ -379,7 +379,8 @@ class OpenInterpreter:
 
             if not blocking:
                 chat_thread = threading.Thread(
-                    target=self.chat, args=(message, display, stream, True)
+                    target=self.chat, args=(message, display, stream, True),
+                    daemon=True  # Don't prevent process exit
                 )  # True as in blocking = True
                 chat_thread.start()
                 return

@@ -154,16 +154,19 @@ class EventBus:
         self._rate_limits[event_type] = min_interval_seconds
 
     def subscribe(self, event_type: EventType, handler: EventHandler) -> None:
-        """Register a handler for a specific event type"""
+        """Register a handler for a specific event type (idempotent)"""
         with self._lock:
             if event_type not in self._handlers:
                 self._handlers[event_type] = []
-            self._handlers[event_type].append(handler)
+            # Prevent duplicate subscriptions
+            if handler not in self._handlers[event_type]:
+                self._handlers[event_type].append(handler)
 
     def subscribe_all(self, handler: EventHandler) -> None:
-        """Register a handler for all event types"""
+        """Register a handler for all event types (idempotent)"""
         with self._lock:
-            self._global_handlers.append(handler)
+            if handler not in self._global_handlers:
+                self._global_handlers.append(handler)
 
     def unsubscribe(self, event_type: EventType, handler: EventHandler) -> None:
         """Remove a handler for a specific event type"""
@@ -207,8 +210,10 @@ class EventBus:
         try:
             self._queue.put_nowait(event)
             return True
-        except:
-            # Queue is full
+        except Exception:
+            # Queue is full - log and drop
+            from .ui_logger import log_ui_event
+            log_ui_event("EventBus", f"dropped event {event.type.value} - queue full")
             return False
 
     def poll(self, timeout: Optional[float] = None) -> Optional[UIEvent]:

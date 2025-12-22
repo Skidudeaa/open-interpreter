@@ -175,8 +175,7 @@ def apply_profile(interpreter, profile, profile_path):
                     elif profile["llm"]["model"] == "gpt-4-turbo-preview":
                         text = text.replace("gpt-4-turbo-preview", "gpt-4o")
                         profile["llm"]["model"] = "gpt-4o"
-                except:
-                    raise
+                except Exception:
                     pass  # fine
 
                 with open(profile_path, "w") as file:

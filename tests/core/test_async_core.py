@@ -1,9 +1,18 @@
 import os
+import pytest
 from unittest import TestCase, mock
 
 from interpreter.core.async_core import AsyncInterpreter, Server
 
+# Skip these tests if FastAPI is not installed
+try:
+    import fastapi
+    FASTAPI_AVAILABLE = True
+except ImportError:
+    FASTAPI_AVAILABLE = False
 
+
+@pytest.mark.skipif(not FASTAPI_AVAILABLE, reason="FastAPI not installed")
 class TestServerConstruction(TestCase):
     """
     Tests to make sure that the underlying server is configured correctly when constructing

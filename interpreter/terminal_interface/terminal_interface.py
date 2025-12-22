@@ -20,6 +20,7 @@ from ..core.utils.scan_code import scan_code
 from ..core.utils.system_debug_info import system_info
 from ..core.utils.truncate_output import truncate_output
 from .components.code_block import CodeBlock
+from .components.diff_block import show_diff
 from .components.message_block import MessageBlock
 from .components.prompt_block import PromptBlock
 from .components.spinner_block import ThinkingSpinner
@@ -29,6 +30,8 @@ from .utils.check_for_package import check_for_package
 from .utils.cli_input import cli_input
 from .utils.display_output import display_output
 from .utils.find_image_path import find_image_path
+from .utils.ui_logger import UIErrorContext, log_ui_event
+from .utils.voice_output import speak, stop_speaking, check_tts_available
 
 # Add examples to the readline history
 examples = [
@@ -77,18 +80,14 @@ def terminal_interface(interpreter, message):
 
     # Display status bar at startup (if not in plain text mode)
     if not interpreter.plain_text_display:
-        try:
+        with UIErrorContext("StatusBar", "display"):
             status_bar = StatusBar(interpreter)
             status_bar.display()
-        except Exception:
-            pass  # Don't crash if status bar fails
 
         # Display features banner if any advanced features are enabled
-        try:
+        with UIErrorContext("FeaturesBanner", "display"):
             features_banner = FeaturesBanner(interpreter)
             features_banner.display()
-        except Exception:
-            pass  # Don't crash if features banner fails
 
     if message:
         interactive = False
@@ -191,22 +190,18 @@ def terminal_interface(interpreter, message):
             # Start thinking spinner (only in styled mode)
             thinking_spinner = None
             if not interpreter.plain_text_display:
-                try:
+                with UIErrorContext("ThinkingSpinner", "start"):
                     thinking_spinner = ThinkingSpinner()
                     thinking_spinner.start("Thinking")
-                except Exception:
-                    pass  # Don't crash if spinner fails
 
             for chunk in interpreter.chat(message, display=False, stream=True):
                 yield chunk
 
                 # Stop spinner on first content chunk
                 if thinking_spinner and ("content" in chunk or "start" in chunk):
-                    try:
+                    with UIErrorContext("ThinkingSpinner", "stop"):
                         thinking_spinner.stop()
-                        thinking_spinner = None
-                    except Exception:
-                        pass
+                    thinking_spinner = None
 
                 # Is this for thine eyes?
                 if "recipient" in chunk and chunk["recipient"] != "user":
@@ -284,6 +279,7 @@ def terminal_interface(interpreter, message):
                             active_block.code = code
                         elif response.strip().lower() == "e":
                             # Edit
+                            original_code = code  # Save original for diff
 
                             # Create a temporary file
                             with tempfile.NamedTemporaryFile(
@@ -298,6 +294,11 @@ def terminal_interface(interpreter, message):
                             # Read the modified code
                             with open(tf.name, "r") as tf:
                                 code = tf.read()
+
+                            # Show diff if code was changed
+                            if code != original_code and not interpreter.plain_text_display:
+                                log_ui_event("CodeEdit", "showing diff")
+                                show_diff(original_code, code, language)
 
                             interpreter.messages[-1]["content"] = code  # Give it code
 
@@ -380,21 +381,10 @@ def terminal_interface(interpreter, message):
                         # Display notification in OS mode
                         interpreter.computer.os.notify(sanitized_message)
 
-                        # Speak message aloud
-                        if platform.system() == "Darwin" and interpreter.speak_messages:
-                            if voice_subprocess:
-                                voice_subprocess.terminate()
-                            voice_subprocess = subprocess.Popen(
-                                [
-                                    "osascript",
-                                    "-e",
-                                    f'say "{sanitized_message}" using "Fred"',
-                                ]
-                            )
-                        else:
-                            pass
-                            # User isn't on a Mac, so we can't do this. You should tell them something about that when they first set this up.
-                            # Or use a universal TTS library.
+                        # Speak message aloud (cross-platform support)
+                        if interpreter.speak_messages:
+                            stop_speaking()  # Stop any ongoing speech
+                            speak(sanitized_message, async_speak=True)
 
                 # Assistant code blocks
                 elif chunk["role"] == "assistant" and chunk["type"] == "code":

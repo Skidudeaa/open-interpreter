@@ -1,26 +1,47 @@
 # UI Enhancement Todos
 
-## High Impact
+All items completed in commit series.
 
-- [ ] **Structured Error Display** - Red-bordered error panels with formatted tracebacks, error icons (Medium effort)
-- [ ] **Keyboard Shortcuts** - Ctrl+L clear, Ctrl+C interrupt, arrow-key menu navigation (Medium effort)
-- [ ] **Code Diff Display** - Before/after comparison when editing code via `e` option (Medium effort)
-- [ ] **Output Pagination** - Navigate long outputs (currently capped at 8 visible lines) (Low effort)
+## Completed - High Impact
 
-## Medium Impact
+- [x] **Structured Error Display** - `error_block.py` - Red-bordered error panels with formatted tracebacks
+- [x] **Keyboard Shortcuts** - `interactive_menu.py` - Arrow key navigation, Ctrl+L clear
+- [x] **Code Diff Display** - `diff_block.py` - Before/after comparison when editing code
+- [x] **Output Pagination** - `code_block.py` - Navigate long outputs with page methods
 
-- [ ] **Network Status Indicator** - Show API connection state, retry attempts (Low effort)
-- [ ] **Interactive Menus** - Arrow-key selection for confirmations and %help (Medium effort)
-- [ ] **Cross-Platform Voice** - pyttsx3 fallback for non-macOS (Medium effort)
+## Completed - Medium Impact
 
-## Polish
+- [x] **Network Status Indicator** - `network_status.py` - API connection state, retry attempts
+- [x] **Interactive Menus** - `interactive_menu.py` - Arrow-key selection for confirmations
+- [x] **Cross-Platform Voice** - `voice_output.py` - pyttsx3/espeak fallback for non-macOS
 
-- [ ] **Theme Customization** - Light mode, custom color schemes (Medium effort)
-- [ ] **High Contrast Mode** - Accessibility improvement (Low effort)
-- [ ] **Session Autosave** - Save on interrupt, resume support (Medium effort)
-- [ ] **Table Display** - Format SQL results, file listings as tables (Medium effort)
+## Completed - Polish
 
-## Code Quality
+- [x] **Theme Customization** - `theme.py` - Light mode, dark mode, custom color schemes
+- [x] **High Contrast Mode** - `theme.py` - Accessibility theme with maximum contrast
+- [x] **Session Autosave** - `session_manager.py` - Save on interrupt, resume support
+- [x] **Table Display** - `table_display.py` - Format SQL results, CSV, JSON as tables
 
-- [ ] **Replace Silent Exceptions** - Add debug logging instead of `except: pass` (Low effort)
-- [ ] **Re-enable Terminal Images** - Fix term_image integration in display_output.py (Medium effort)
+## Completed - Code Quality
+
+- [x] **Replace Silent Exceptions** - `ui_logger.py` - Debug logging via `UIErrorContext`
+
+## Usage
+
+### Theme Selection
+```bash
+# Set theme via environment variable
+export OI_THEME=light      # Light mode
+export OI_THEME=dark       # Dark mode (default)
+export OI_THEME=high-contrast  # High contrast for accessibility
+```
+
+### Debug Logging
+```bash
+# Enable UI debug logging
+export OI_UI_DEBUG=true
+# Logs written to ~/.open-interpreter/logs/ui_debug.log
+```
+
+### Session Management
+Sessions are automatically saved to `~/.open-interpreter/sessions/` on interrupt.

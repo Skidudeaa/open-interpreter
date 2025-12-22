@@ -183,6 +183,10 @@ def terminal_interface(interpreter, message):
                         "content": image_path,
                     }
 
+        # Rate limiting for UI refresh to prevent excessive rendering
+        last_refresh_time = 0
+        REFRESH_INTERVAL = 0.05  # 50ms = 20 refreshes/sec max
+
         try:
             # Start thinking spinner (only in styled mode)
             thinking_spinner = None
@@ -578,7 +582,11 @@ def terminal_interface(interpreter, message):
                     status_console.print(status_text)
 
                 if active_block:
-                    active_block.refresh(cursor=render_cursor)
+                    # Rate-limited refresh to prevent UI unresponsiveness
+                    current_time = time.time()
+                    if current_time - last_refresh_time >= REFRESH_INTERVAL:
+                        active_block.refresh(cursor=render_cursor)
+                        last_refresh_time = current_time
 
             # (Sometimes -- like if they CTRL-C quickly -- active_block is still None here)
             if "active_block" in locals():

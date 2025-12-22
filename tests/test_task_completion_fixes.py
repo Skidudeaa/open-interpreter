@@ -149,5 +149,44 @@ class TestRetryLogic:
             pytest.skip("FastAPI not installed")
 
 
+class TestUIResponsiveness:
+    """Test UI refresh rate limiting."""
+
+    def test_terminal_interface_has_rate_limiting(self):
+        """Terminal interface should have refresh rate limiting."""
+        from interpreter.terminal_interface import terminal_interface
+        import inspect
+        source = inspect.getsource(terminal_interface.terminal_interface)
+
+        # Check our rate limiting is present
+        assert "REFRESH_INTERVAL" in source
+        assert "last_refresh_time" in source
+
+    def test_code_block_has_throttling(self):
+        """Code block should have refresh throttling."""
+        from interpreter.terminal_interface.components.code_block import CodeBlock
+        import inspect
+        source = inspect.getsource(CodeBlock.refresh)
+
+        # Check throttling is present
+        assert "_last_refresh" in source
+        assert "_min_refresh_interval" in source
+
+
+class TestJupyterTermination:
+    """Test Jupyter kernel termination is thread-safe."""
+
+    def test_jupyter_terminate_waits_for_thread(self):
+        """Jupyter terminate should wait for listener thread."""
+        from interpreter.core.computer.terminal.languages.jupyter_language import JupyterLanguage
+        import inspect
+        source = inspect.getsource(JupyterLanguage.terminate)
+
+        # Check our thread-safe terminate is present
+        assert "finish_flag = True" in source
+        assert "listener_thread" in source
+        assert "join" in source
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

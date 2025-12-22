@@ -9,6 +9,8 @@ Features:
 - Execution timing display
 """
 
+import time
+
 from rich.console import Group
 from rich.panel import Panel
 from rich.syntax import Syntax
@@ -61,6 +63,10 @@ class CodeBlock(BaseBlock):
         # Output buffering for contained display
         self._output_lines: list[str] = []
 
+        # Refresh throttling to prevent UI unresponsiveness
+        self._last_refresh = 0
+        self._min_refresh_interval = 0.033  # ~30 fps max
+
     def set_status(self, status: str):
         """Set execution status (pending/running/success/error)."""
         self.status = status
@@ -85,6 +91,12 @@ class CodeBlock(BaseBlock):
         """Refresh the code block display."""
         if not self.code and not self.output:
             return
+
+        # Throttle refresh rate to prevent UI unresponsiveness
+        current_time = time.time()
+        if current_time - self._last_refresh < self._min_refresh_interval:
+            return  # Skip this refresh - too soon
+        self._last_refresh = current_time
 
         # Build all components
         components = []

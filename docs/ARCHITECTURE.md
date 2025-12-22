@@ -236,6 +236,10 @@ Visual components for the CLI.
 ```
 terminal_interface/
 ├── components/
+│   ├── ui_state.py        # Centralized state (UIState, UIMode, AgentState)
+│   ├── ui_events.py       # Event system (UIEvent, EventType, EventBus)
+│   ├── ui_backend.py      # Backend abstraction (Rich/prompt_toolkit)
+│   ├── sanitizer.py       # Terminal escape sequence security
 │   ├── theme.py           # Color palette, icons
 │   ├── base_block.py      # Shared console, timing
 │   ├── message_block.py   # Role icons, styled panels
@@ -246,6 +250,25 @@ terminal_interface/
 │   └── status_bar.py      # Session info display
 └── terminal_interface.py  # Main integration
 ```
+
+### UI Architecture (Event-Driven)
+
+```
+┌──────────────┐     ┌───────────┐     ┌──────────────┐
+│  Interpreter │────>│ EventBus  │────>│  UI Backend  │
+│  (Generator) │     │ (queue)   │     │ (Rich/PT)    │
+└──────────────┘     └─────┬─────┘     └──────────────┘
+                           │
+                     ┌─────┴─────┐
+                     │  UIState  │
+                     │(dataclass)│
+                     └───────────┘
+```
+
+- **UIState** - Single source of truth for mode, agents, panels, tokens
+- **EventBus** - Thread-safe queue, pub/sub handlers, rate limiting
+- **UIBackend** - Abstract interface; `RichStreamBackend` (fallback), `PromptToolkitBackend` (interactive)
+- **sanitizer** - Blocks dangerous escape sequences (clipboard, hyperlinks)
 
 Components:
 - `StatusBar` - Model, message count, mode indicators

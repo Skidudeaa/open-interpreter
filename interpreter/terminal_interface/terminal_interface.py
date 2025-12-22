@@ -19,6 +19,14 @@ import time
 from ..core.utils.scan_code import scan_code
 from ..core.utils.system_debug_info import system_info
 from ..core.utils.truncate_output import truncate_output
+
+# Phase 0 UI Architecture: Event system for future backends
+from .components.ui_events import (
+    UIEvent, EventType, get_event_bus, chunk_to_event
+)
+from .components.ui_state import UIState
+from .components.sanitizer import sanitize_output
+
 from .components.code_block import CodeBlock
 from .components.diff_block import show_diff
 from .components.error_block import display_error
@@ -188,6 +196,10 @@ def terminal_interface(interpreter, message):
         last_refresh_time = 0
         REFRESH_INTERVAL = 0.05  # 50ms = 20 refreshes/sec max
 
+        # Initialize event bus for UI architecture (Phase 0)
+        event_bus = get_event_bus()
+        event_bus.emit(UIEvent(type=EventType.SYSTEM_START, source="terminal_interface"))
+
         try:
             # Start thinking spinner (only in styled mode)
             thinking_spinner = None
@@ -198,6 +210,12 @@ def terminal_interface(interpreter, message):
 
             for chunk in interpreter.chat(message, display=False, stream=True):
                 yield chunk
+
+                # Emit event for UI architecture (Phase 0)
+                # This allows future backends to consume events without modifying legacy code
+                ui_event = chunk_to_event(chunk)
+                if ui_event:
+                    event_bus.emit(ui_event)
 
                 # Stop spinner on first content chunk
                 if thinking_spinner and ("content" in chunk or "start" in chunk):
@@ -597,6 +615,9 @@ def terminal_interface(interpreter, message):
                     active_block.end()
                     active_block = None
                     time.sleep(0.1)
+
+            # Emit SYSTEM_END event (Phase 0)
+            event_bus.emit(UIEvent(type=EventType.SYSTEM_END, source="terminal_interface"))
 
             if not interactive:
                 # Don't loop

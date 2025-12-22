@@ -1,5 +1,43 @@
 # UI Enhancement Todos
 
+## Terminal UI Architecture Overhaul
+
+Event-driven architecture with prompt_toolkit integration.
+
+### Phase 0 - Foundation [DONE]
+- [x] `ui_state.py` - Centralized state: `UIState`, `UIMode`, `AgentState`
+- [x] `ui_events.py` - Event system: `UIEvent`, `EventType`, `EventBus`
+- [x] `ui_backend.py` - Backend abstraction: `RichStreamBackend`, `PromptToolkitBackend`
+- [x] `sanitizer.py` - Terminal escape sequence filtering
+- [x] Wire event emission into `terminal_interface.py`
+
+### Phase 1 - prompt_toolkit Integration [TODO]
+- [ ] Add `prompt_toolkit` dependency
+- [ ] Implement `PromptToolkitBackend` with always-on Application
+- [ ] Key bindings: Esc (cancel), Ctrl+R (history), Alt+P/F2 (power mode)
+- [ ] Rich → ANSI → prompt_toolkit rendering bridge
+- [ ] Multiline input with syntax highlighting
+
+### Phase 2 - Agent Visualization [TODO]
+- [ ] `agent_strip.py` - Bottom bar showing agent status
+- [ ] `agent_tree.py` - Expandable hierarchical view
+- [ ] Hook into `AgentOrchestrator` for spawn/complete events
+- [ ] Context window meter (token usage display)
+
+### Phase 3 - Context Panel [TODO]
+- [ ] `context_panel.py` - Variables/functions/metrics sidebar
+- [ ] Adaptive visibility based on content
+- [ ] Code block fold/unfold and navigation
+
+### Phase 4 - Adaptive Mode System [TODO]
+- [ ] `ui_mode_manager.py` - Mode state machine with auto-escalation
+- [ ] Modes: ZEN → STANDARD → POWER → DEBUG
+- [ ] Toast notifications on mode changes
+
+---
+
+## Completed - Previous Iteration
+
 All items completed and integrated into the main codebase.
 
 ## Integration Summary

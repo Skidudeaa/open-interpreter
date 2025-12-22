@@ -83,8 +83,23 @@ import matplotlib.pyplot as plt
         # self.run(code)
 
     def terminate(self):
-        self.kc.stop_channels()
-        self.km.shutdown_kernel()
+        # Signal listener thread to stop first
+        self.finish_flag = True
+
+        # Wait for listener thread to finish before closing channels
+        if self.listener_thread and self.listener_thread.is_alive():
+            self.listener_thread.join(timeout=2.0)
+
+        # Now safe to stop channels
+        try:
+            self.kc.stop_channels()
+        except Exception:
+            pass  # Channels may already be closed
+
+        try:
+            self.km.shutdown_kernel()
+        except Exception:
+            pass  # Kernel may already be shut down
 
     def run(self, code):
         while not self.kc.is_alive():

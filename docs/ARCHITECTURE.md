@@ -280,8 +280,8 @@ terminal_interface/
                      └───────────┘
 ```
 
-- **UIState** - Single source of truth for mode, agents, panels, tokens
-- **EventBus** - Thread-safe queue, pub/sub handlers, rate limiting
+- **UIState** - Single source of truth for mode, agents, panels, tokens (thread-safe via Lock)
+- **EventBus** - Thread-safe queue, pub/sub handlers, idempotent subscriptions
 - **UIBackend** - Abstract interface; `RichStreamBackend` (fallback), `PromptToolkitBackend` (interactive)
 - **sanitizer** - Blocks dangerous escape sequences (clipboard, hyperlinks)
 
@@ -337,6 +337,11 @@ Performance:
 - `terminal_interface.py` - 50ms refresh rate limiting during streaming
 - `code_block.py` - 30fps internal throttle prevents excessive re-rendering
 - `jupyter_language.py` - Thread-safe terminate() with join() before channel close
+
+Exception Handling:
+- Use `except Exception:` not bare `except:` (preserves SystemExit, KeyboardInterrupt)
+- Convenience functions (show_diff, display_error) use try-finally for cleanup
+- EventBus logs dropped events via ui_logger
 
 ## Performance Optimizations
 

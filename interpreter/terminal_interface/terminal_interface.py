@@ -40,7 +40,7 @@ from .components.error_block import display_error
 from .components.interactive_menu import interactive_choice, interactive_confirm
 from .components.message_block import MessageBlock
 from .components.prompt_block import PromptBlock
-from .components.spinner_block import ThinkingSpinner
+from .components.spinner_block import ThinkingSpinner, ExecutingSpinner
 from .components.status_bar import StatusBar, FeaturesBanner
 from .magic_commands import handle_magic_command
 from .utils.check_for_package import check_for_package
@@ -216,7 +216,8 @@ def terminal_interface(interpreter, message):
                         )
                     elif hasattr(interpreter, '_ui_backend') and interpreter._ui_backend.supports_interactive:
                         # Use prompt_toolkit backend for interactive input (Phase 1)
-                        message = interpreter._ui_backend.get_input("❯ ").strip()
+                        ui_input = interpreter._ui_backend.get_input("❯ ")
+                        message = (ui_input or "").strip()
                     else:
                         # Styled mode: use PromptBlock
                         prompt_style = "multiline" if interpreter.multi_line else "default"
@@ -295,8 +296,11 @@ def terminal_interface(interpreter, message):
             thinking_spinner = None
             if not interpreter.plain_text_display:
                 with UIErrorContext("ThinkingSpinner", "start"):
-                    thinking_spinner = ThinkingSpinner()
-                    thinking_spinner.start("Thinking")
+                    try:
+                        thinking_spinner = ThinkingSpinner()
+                        thinking_spinner.start("Thinking")
+                    except Exception:
+                        thinking_spinner = None  # Continue without spinner
 
             for chunk in interpreter.chat(message, display=False, stream=True):
                 yield chunk
@@ -319,8 +323,9 @@ def terminal_interface(interpreter, message):
                                 console.print(agent_panel, end="")
                         last_refresh_time = current_time
 
-                # Stop spinner on first content chunk
-                if thinking_spinner and ("content" in chunk or "start" in chunk):
+                # Stop spinner when a block is about to be created (start) or content arrives
+                # Must stop before creating any new Live contexts to avoid Rich conflicts
+                if thinking_spinner and ("start" in chunk or ("content" in chunk and chunk.get("content"))):
                     with UIErrorContext("ThinkingSpinner", "stop"):
                         thinking_spinner.stop()
                     thinking_spinner = None
@@ -474,6 +479,14 @@ def terminal_interface(interpreter, message):
                         "message",
                         "console",
                     ]:  # We don't stop on code's end — code + console output are actually one block.
+                        # Set final execution status if this is a code block
+                        if hasattr(active_block, 'status') and active_block.status == "running":
+                            # Check output for error indicators
+                            output = getattr(active_block, 'output', '')
+                            if 'Traceback' in output or 'Error' in output or 'Exception' in output:
+                                active_block.status = "error"
+                            else:
+                                active_block.status = "success"
                         active_block.end()
                         active_block = None
 
@@ -618,6 +631,10 @@ def terminal_interface(interpreter, message):
                     if "format" in chunk and chunk["format"] == "active_line":
                         active_block.active_line = chunk["content"]
 
+                        # Set status to running when execution starts
+                        if hasattr(active_block, 'status') and active_block.status == "pending":
+                            active_block.status = "running"
+
                         # Display action notifications if we're in OS mode
                         if interpreter.os and active_block.active_line != None:
                             action = ""
@@ -726,7 +743,10 @@ def terminal_interface(interpreter, message):
                 break
 
         except KeyboardInterrupt:
-            # Exit gracefully
+            # Exit gracefully - stop spinner first
+            if "thinking_spinner" in locals() and thinking_spinner:
+                thinking_spinner.stop()
+                thinking_spinner = None
             if "active_block" in locals() and active_block:
                 active_block.end()
                 active_block = None
@@ -737,6 +757,14 @@ def terminal_interface(interpreter, message):
             else:
                 break
         except Exception:
+            # Stop spinner on error to avoid terminal lock
+            if "thinking_spinner" in locals() and thinking_spinner:
+                thinking_spinner.stop()
+                thinking_spinner = None
+            if "active_block" in locals() and active_block:
+                active_block.end()
+                active_block = None
+
             import traceback
             error_text = traceback.format_exc()
 

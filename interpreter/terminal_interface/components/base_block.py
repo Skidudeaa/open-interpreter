@@ -31,7 +31,11 @@ class BaseBlock:
             console=self.get_console(),
             vertical_overflow="visible"
         )
-        self.live.start()
+        try:
+            self.live.start()
+        except Exception:
+            # If Live display fails, set to None for graceful degradation
+            self.live = None
         self.start_time = time.time()
 
     @classmethod
@@ -69,8 +73,9 @@ class BaseBlock:
 
     def end(self):
         """End the live display."""
-        self.refresh(cursor=False)
-        self.live.stop()
+        if self.live:
+            self.refresh(cursor=False)
+            self.live.stop()
 
     def refresh(self, cursor=True):
         """Refresh the display. Subclasses must implement."""

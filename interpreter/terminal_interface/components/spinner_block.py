@@ -59,14 +59,19 @@ class SpinnerBlock:
         if text:
             self.text = text
 
-        self.live = Live(
-            self._render(),
-            console=self.console,
-            refresh_per_second=12,
-            transient=True,  # Spinner disappears when stopped
-        )
-        self.live.start()
-        self.is_active = True
+        try:
+            self.live = Live(
+                self._render(),
+                console=self.console,
+                refresh_per_second=12,
+                transient=True,  # Spinner disappears when stopped
+            )
+            self.live.start()
+            self.is_active = True
+        except Exception:
+            # If spinner fails to start, continue without it
+            self.is_active = False
+            self.live = None
 
     def update(self, text: str):
         """

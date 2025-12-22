@@ -121,8 +121,9 @@ class ErrorBlock(BaseBlock):
 
         # Combine and display
         group = Group(*components)
-        self.live.update(group)
-        self.live.refresh()
+        if self.live:
+            self.live.update(group)
+            self.live.refresh()
 
     def _build_error_panel(self) -> Panel:
         """Build the main error panel."""

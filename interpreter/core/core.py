@@ -23,24 +23,31 @@ from .respond import respond
 from .utils.telemetry import send_telemetry
 from .utils.truncate_output import truncate_output
 
+# Thread-safe lazy loading for modules (prevents race conditions in async/multi-threaded usage)
+_module_lock = threading.Lock()
+
 # Semantic memory imports (lazy-loaded for performance)
 _memory_module = None
 
 def _get_memory_module():
-    """Lazy load the memory module."""
+    """Lazy load the memory module (thread-safe)."""
     global _memory_module
-    if _memory_module is None:
-        from .memory import (
-            SemanticEditGraph, ConversationLinker, Edit, EditType,
-            create_edit_from_file_change
-        )
-        _memory_module = {
-            'SemanticEditGraph': SemanticEditGraph,
-            'ConversationLinker': ConversationLinker,
-            'Edit': Edit,
-            'EditType': EditType,
-            'create_edit_from_file_change': create_edit_from_file_change,
-        }
+    if _memory_module is not None:
+        return _memory_module
+    with _module_lock:
+        # Double-check after acquiring lock
+        if _memory_module is None:
+            from .memory import (
+                SemanticEditGraph, ConversationLinker, Edit, EditType,
+                create_edit_from_file_change
+            )
+            _memory_module = {
+                'SemanticEditGraph': SemanticEditGraph,
+                'ConversationLinker': ConversationLinker,
+                'Edit': Edit,
+                'EditType': EditType,
+                'create_edit_from_file_change': create_edit_from_file_change,
+            }
     return _memory_module
 
 
@@ -48,15 +55,19 @@ def _get_memory_module():
 _validation_module = None
 
 def _get_validation_module():
-    """Lazy load the validation module."""
+    """Lazy load the validation module (thread-safe)."""
     global _validation_module
-    if _validation_module is None:
-        from .validation import EditValidator, SyntaxChecker, ValidationResult
-        _validation_module = {
-            'EditValidator': EditValidator,
-            'SyntaxChecker': SyntaxChecker,
-            'ValidationResult': ValidationResult,
-        }
+    if _validation_module is not None:
+        return _validation_module
+    with _module_lock:
+        # Double-check after acquiring lock
+        if _validation_module is None:
+            from .validation import EditValidator, SyntaxChecker, ValidationResult
+            _validation_module = {
+                'EditValidator': EditValidator,
+                'SyntaxChecker': SyntaxChecker,
+                'ValidationResult': ValidationResult,
+            }
     return _validation_module
 
 
@@ -64,14 +75,18 @@ def _get_validation_module():
 _tracing_module = None
 
 def _get_tracing_module():
-    """Lazy load the tracing module."""
+    """Lazy load the tracing module (thread-safe)."""
     global _tracing_module
-    if _tracing_module is None:
-        from .tracing import ExecutionTracer, ExecutionTrace
-        _tracing_module = {
-            'ExecutionTracer': ExecutionTracer,
-            'ExecutionTrace': ExecutionTrace,
-        }
+    if _tracing_module is not None:
+        return _tracing_module
+    with _module_lock:
+        # Double-check after acquiring lock
+        if _tracing_module is None:
+            from .tracing import ExecutionTracer, ExecutionTrace
+            _tracing_module = {
+                'ExecutionTracer': ExecutionTracer,
+                'ExecutionTrace': ExecutionTrace,
+            }
     return _tracing_module
 
 
@@ -79,15 +94,19 @@ def _get_tracing_module():
 _agents_module = None
 
 def _get_agents_module():
-    """Lazy load the agents module."""
+    """Lazy load the agents module (thread-safe)."""
     global _agents_module
-    if _agents_module is None:
-        from .agents import AgentOrchestrator, ScoutAgent, SurgeonAgent
-        _agents_module = {
-            'AgentOrchestrator': AgentOrchestrator,
-            'ScoutAgent': ScoutAgent,
-            'SurgeonAgent': SurgeonAgent,
-        }
+    if _agents_module is not None:
+        return _agents_module
+    with _module_lock:
+        # Double-check after acquiring lock
+        if _agents_module is None:
+            from .agents import AgentOrchestrator, ScoutAgent, SurgeonAgent
+            _agents_module = {
+                'AgentOrchestrator': AgentOrchestrator,
+                'ScoutAgent': ScoutAgent,
+                'SurgeonAgent': SurgeonAgent,
+            }
     return _agents_module
 
 

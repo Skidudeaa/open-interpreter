@@ -146,23 +146,26 @@ class Llm:
             except:
                 self.supports_vision = False
 
-        # Trim image messages if they're there
+        # Trim image messages if they're there (O(n) filtering instead of O(n²) removals)
         image_messages = [msg for msg in messages if msg["type"] == "image"]
         if self.supports_vision:
             if self.interpreter.os:
                 # Keep only the last two images if the interpreter is running in OS mode
-                if len(image_messages) > 1:
-                    for img_msg in image_messages[:-2]:
-                        messages.remove(img_msg)
-                        if self.interpreter.verbose:
-                            print("Removing image message!")
+                if len(image_messages) > 2:
+                    keep_images = set(id(img) for img in image_messages[-2:])
+                    removed_count = len(image_messages) - 2
+                    messages = [m for m in messages if m["type"] != "image" or id(m) in keep_images]
+                    if self.interpreter.verbose:
+                        print(f"Removed {removed_count} image message(s)!")
             else:
                 # Delete all the middle ones (leave only the first and last 2 images) from messages_for_llm
                 if len(image_messages) > 3:
-                    for img_msg in image_messages[1:-2]:
-                        messages.remove(img_msg)
-                        if self.interpreter.verbose:
-                            print("Removing image message!")
+                    # Keep first image and last 2 images
+                    keep_images = set(id(img) for img in [image_messages[0]] + image_messages[-2:])
+                    removed_count = len(image_messages) - 3
+                    messages = [m for m in messages if m["type"] != "image" or id(m) in keep_images]
+                    if self.interpreter.verbose:
+                        print(f"Removed {removed_count} image message(s)!")
                 # Idea: we could set detail: low for the middle messages, instead of deleting them
         elif self.supports_vision == False and self.vision_renderer:
             for img_msg in image_messages:

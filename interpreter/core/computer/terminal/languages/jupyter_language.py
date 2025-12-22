@@ -219,7 +219,8 @@ import matplotlib.pyplot as plt
                     max_retries -= 1
                     if max_retries < 0:
                         raise
-                    print("Jupyter error, retrying:", str(e))
+                    if DEBUG_MODE:
+                        print("Jupyter error, retrying:", str(e))
                     continue
 
                 if DEBUG_MODE:

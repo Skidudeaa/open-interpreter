@@ -62,7 +62,7 @@ random.shuffle(examples)
 try:
     for example in examples:
         readline.add_history(example)
-except:
+except Exception:
     # If they don't have readline, that's fine
     pass
 
@@ -231,7 +231,7 @@ def terminal_interface(interpreter, message):
             try:
                 # This lets users hit the up arrow key for past messages
                 readline.add_history(message)
-            except:
+            except Exception:
                 # If the user doesn't have readline (may be the case on windows), that's fine
                 pass
 
@@ -418,30 +418,35 @@ def terminal_interface(interpreter, message):
                         elif response.strip().lower() == "e":
                             # Edit
                             original_code = code  # Save original for diff
+                            tf_name = None
 
-                            # Create a temporary file
-                            with tempfile.NamedTemporaryFile(
-                                suffix=".tmp", delete=False
-                            ) as tf:
-                                tf.write(code.encode())
-                                tf.flush()
+                            try:
+                                # Create a temporary file
+                                with tempfile.NamedTemporaryFile(
+                                    suffix=".tmp", delete=False
+                                ) as tf:
+                                    tf.write(code.encode())
+                                    tf.flush()
+                                    tf_name = tf.name
 
-                            # Open the temporary file with the default editor
-                            subprocess.call([os.environ.get("EDITOR", "vim"), tf.name])
+                                # Open the temporary file with the default editor
+                                subprocess.call([os.environ.get("EDITOR", "vim"), tf_name])
 
-                            # Read the modified code
-                            with open(tf.name, "r") as tf:
-                                code = tf.read()
+                                # Read the modified code
+                                with open(tf_name, "r") as tf:
+                                    code = tf.read()
 
-                            # Show diff if code was changed
-                            if code != original_code and not interpreter.plain_text_display:
-                                log_ui_event("CodeEdit", "showing diff")
-                                show_diff(original_code, code, language)
+                                # Show diff if code was changed
+                                if code != original_code and not interpreter.plain_text_display:
+                                    log_ui_event("CodeEdit", "showing diff")
+                                    show_diff(original_code, code, language)
 
-                            interpreter.messages[-1]["content"] = code  # Give it code
+                                interpreter.messages[-1]["content"] = code  # Give it code
+                            finally:
+                                # Delete the temporary file
+                                if tf_name and os.path.exists(tf_name):
+                                    os.unlink(tf_name)
 
-                            # Delete the temporary file
-                            os.unlink(tf.name)
                             active_block = CodeBlock()
                             active_block.margin_top = False  # <- Aesthetic choice
                             active_block.language = language

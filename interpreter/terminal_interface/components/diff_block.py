@@ -244,6 +244,8 @@ def show_diff(old_code: str, new_code: str, language: str = "python", side_by_si
     else:
         block = DiffBlock(language)
 
-    block.set_diff(old_code, new_code)
-    block.refresh()
-    block.end()
+    try:
+        block.set_diff(old_code, new_code)
+        block.refresh()
+    finally:
+        block.end()

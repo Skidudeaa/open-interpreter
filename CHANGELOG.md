@@ -1,6 +1,22 @@
 # Changelog
 
-## [Unreleased] - 2025-12-21
+## [Unreleased] - 2025-12-22
+
+### Added
+
+#### UI Component Integration
+- Wired up 5 orphaned UI components into main flow
+- Session manager: autosave on interrupt, resume prompt on startup
+- Network status: LLM request lifecycle tracking in `respond.py`
+- Error block: structured exception display with formatted tracebacks
+- Table display: auto-detect CSV/JSON output, render as tables
+- Interactive menu: arrow-key navigation for code execution confirmation
+- Components exported in `components/__init__.py`
+
+### Fixed
+- Skip FastAPI server tests when fastapi not installed
+- Fix test_generator flakiness (allow multiple console outputs)
+- Fix test_activate_all_features environment isolation
 
 ### Added
 

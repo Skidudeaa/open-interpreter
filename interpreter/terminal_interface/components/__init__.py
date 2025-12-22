@@ -25,6 +25,13 @@ from .prompt_block import PromptBlock, styled_input, styled_confirm
 from .spinner_block import SpinnerBlock, ThinkingSpinner, ExecutingSpinner, with_spinner
 from .status_bar import StatusBar, display_status_bar
 
+# New UI components (v0.4.x)
+from .error_block import ErrorBlock, display_error
+from .diff_block import DiffBlock, show_diff
+from .interactive_menu import InteractiveMenu, interactive_choice
+from .table_display import TableDisplay, detect_and_format_table
+from .network_status import NetworkStatus, get_network_status
+
 __all__ = [
     # Theme
     "THEME",
@@ -57,4 +64,19 @@ __all__ = [
     # Status
     "StatusBar",
     "display_status_bar",
+    # Error display
+    "ErrorBlock",
+    "display_error",
+    # Diff display
+    "DiffBlock",
+    "show_diff",
+    # Interactive menus
+    "InteractiveMenu",
+    "interactive_choice",
+    # Table formatting
+    "TableDisplay",
+    "detect_and_format_table",
+    # Network status
+    "NetworkStatus",
+    "get_network_status",
 ]

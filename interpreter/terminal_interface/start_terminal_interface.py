@@ -13,6 +13,7 @@ from interpreter.terminal_interface.contributing_conversations import (
 from .conversation_navigator import conversation_navigator
 from .profiles.profiles import open_storage_dir, profile, reset_profile
 from .utils.check_for_update import check_for_update
+from .utils.session_manager import SessionManager, get_resume_prompt
 from .validate_llm_settings import validate_llm_settings
 
 
@@ -608,10 +609,29 @@ def get_argument_dictionary(arguments: list[dict], key: str) -> dict:
 def main():
     from interpreter import interpreter
 
+    # Session management
+    session_mgr = SessionManager(interpreter)
+    session_mgr.enable_autosave()
+
+    # Check for resumable session
+    if resume_prompt := get_resume_prompt(interpreter):
+        try:
+            response = input(f"\n{resume_prompt} ").strip().lower()
+            if response == 'y':
+                sessions = session_mgr.list_sessions(limit=1)
+                if sessions and session_mgr.load_session(sessions[0]['id']):
+                    print(f"Resumed session with {len(interpreter.messages)} messages.\n")
+        except (EOFError, KeyboardInterrupt):
+            pass
+
     try:
         start_terminal_interface(interpreter)
     except KeyboardInterrupt:
         try:
+            # Save session on interrupt
+            if interpreter.messages:
+                session_mgr.save_session()
+
             interpreter.computer.terminate()
 
             if not interpreter.offline and not interpreter.disable_telemetry:

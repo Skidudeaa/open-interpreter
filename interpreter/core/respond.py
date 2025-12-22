@@ -8,6 +8,7 @@ os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 import litellm
 
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
+from ..terminal_interface.components.network_status import get_network_status
 from .render_message import render_message
 
 # System message cache to avoid rebuilding every iteration
@@ -117,11 +118,19 @@ def respond(interpreter):
         if (
             interpreter.messages[-1]["type"] != "code"
         ):  # If it is, we should run the code (we do below)
+            # Network status tracking
+            network_status = get_network_status()
+            network_status.start_request()
+
             try:
                 for chunk in interpreter.llm.run(messages_for_llm):
                     yield {"role": "assistant", **chunk}
 
+                # Mark request as successful after receiving all chunks
+                network_status.end_request(success=True)
+
             except litellm.exceptions.BudgetExceededError:
+                network_status.set_error("Budget exceeded")
                 interpreter.display_message(
                     f"""> Max budget exceeded
 
@@ -134,6 +143,7 @@ def respond(interpreter):
                 break
 
             except Exception as e:
+                network_status.set_error(str(e)[:100])
                 error_message = str(e).lower()
                 if (
                     interpreter.offline == False

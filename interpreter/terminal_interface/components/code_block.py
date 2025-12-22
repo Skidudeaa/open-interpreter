@@ -22,6 +22,7 @@ from rich.table import Table
 from rich.text import Text
 
 from .base_block import BaseBlock
+from .table_display import detect_and_format_table
 from .theme import (
     THEME,
     BOX_STYLES,
@@ -252,6 +253,23 @@ class CodeBlock(BaseBlock):
     def _build_output_panel(self) -> Panel:
         """Build the contained output panel with syntax-highlighted tracebacks."""
         total_lines = len(self._output_lines) if self._output_lines else 0
+
+        # Check if output is tabular data (CSV or JSON array)
+        raw_output = self.output.strip() if self.output else ""
+        if raw_output and total_lines > 1:
+            table_formatted = detect_and_format_table(raw_output)
+            if table_formatted:
+                # Return pre-formatted table as panel content
+                table_icon = "\U0001F4CA"  # Bar chart
+                return Panel(
+                    Text.from_ansi(table_formatted),
+                    title=f"{table_icon} Table Output",
+                    title_align="left",
+                    box=BOX_STYLES["output"],
+                    style=f"on {THEME['bg_light']}",
+                    border_style=THEME["secondary"],
+                    padding=(0, 1),
+                )
 
         # Get visible lines
         if total_lines == 0:

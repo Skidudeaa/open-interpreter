@@ -91,6 +91,22 @@ Event-driven architecture with prompt_toolkit integration.
   - Add None checks in all block `refresh()`/`end()` methods
   - Cleanup spinner/active_block in exception handlers
 
+- [x] **Bare Except Clauses** - ~40 instances across 20 files caught SystemExit/KeyboardInterrupt
+  - Changed to `except Exception:` in llm.py, display.py, jupyter_language.py, etc.
+
+- [x] **Thread Safety** - UIState mutations raced in multi-threaded scenarios
+  - Added threading.Lock to UIState dataclass
+  - Wrapped add_agent(), update_agent_status(), append_agent_output(), reset_agents()
+
+- [x] **Resource Leaks**
+  - try-finally in show_diff(), display_error() convenience functions
+  - Temp file cleanup in terminal_interface.py editor flow
+  - EventBus.subscribe() now idempotent (prevents handler accumulation)
+
+- [x] **Silent Failures**
+  - Event queue logs dropped events via ui_logger
+  - Fixed mutable default arg in count_tokens.py
+
 ## Completed - Previous Iteration
 
 All items completed and integrated into the main codebase.

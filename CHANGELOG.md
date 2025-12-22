@@ -7,6 +7,13 @@
 - Terminal freeze from Rich Live context conflicts - spinner now stops before creating new blocks
 - None checks in all block refresh/end methods after Live.start() fails
 - Exception handlers now cleanup spinner and active_block to restore terminal state
+- Replace ~40 bare `except:` with `except Exception:` across 20 files (prevents catching SystemExit/KeyboardInterrupt)
+- Thread safety: UIState mutations now use threading.Lock
+- try-finally in show_diff(), display_error() convenience functions
+- Temp file cleanup in terminal_interface.py editor flow
+- EventBus.subscribe() now idempotent (prevents handler accumulation)
+- Mutable default arg in count_tokens.py
+- Event queue logs dropped events instead of silent failure
 
 ### Added
 

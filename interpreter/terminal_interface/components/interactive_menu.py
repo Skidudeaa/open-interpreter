@@ -6,6 +6,7 @@ Features:
 - Enter to select
 - Number keys for quick selection
 - Visual highlighting of current selection
+- Timeout protection to prevent infinite blocking
 """
 
 import sys
@@ -21,9 +22,11 @@ from .theme import THEME
 try:
     import termios
     import tty
+    import select as select_module  # For timeout on stdin.read()
     UNIX_AVAILABLE = True
 except ImportError:
     UNIX_AVAILABLE = False
+    select_module = None
 
 try:
     import msvcrt
@@ -32,9 +35,41 @@ except ImportError:
     WINDOWS_AVAILABLE = False
 
 
-def get_key() -> str:
-    """Get a single keypress, handling arrow keys."""
+def _read_with_timeout(fd, timeout: float = 30.0) -> str:
+    """Read a single character from stdin with timeout protection.
+
+    Args:
+        fd: File descriptor for stdin
+        timeout: Maximum seconds to wait for input (default 30s)
+
+    Returns:
+        Single character read, or empty string on timeout
+    """
+    if select_module is None:
+        # No select available, fall back to blocking read
+        return sys.stdin.read(1)
+
+    # Use select to wait for input with timeout
+    ready, _, _ = select_module.select([sys.stdin], [], [], timeout)
+    if ready:
+        return sys.stdin.read(1)
+    else:
+        # Timeout occurred
+        return ''
+
+
+def get_key(timeout: float = 30.0) -> str:
+    """Get a single keypress, handling arrow keys.
+
+    Args:
+        timeout: Maximum seconds to wait for input (default 30s)
+
+    Returns:
+        Key name ('up', 'down', 'enter', etc.) or 'timeout' on timeout
+    """
     if WINDOWS_AVAILABLE:
+        # Windows uses msvcrt which has its own timeout handling
+        # For now, use blocking read (Windows terminals are more reliable)
         key = msvcrt.getch()
         if key == b'\xe0':  # Arrow key prefix on Windows
             key = msvcrt.getch()
@@ -54,15 +89,21 @@ def get_key() -> str:
 
     elif UNIX_AVAILABLE:
         fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
+        old_settings = None
         try:
+            old_settings = termios.tcgetattr(fd)
             tty.setraw(fd)
-            ch = sys.stdin.read(1)
+
+            ch = _read_with_timeout(fd, timeout)
+
+            if ch == '':
+                return 'timeout'
 
             if ch == '\x1b':  # Escape sequence
-                ch2 = sys.stdin.read(1)
+                # Short timeout for escape sequences (arrow keys send multiple chars quickly)
+                ch2 = _read_with_timeout(fd, 0.1)
                 if ch2 == '[':
-                    ch3 = sys.stdin.read(1)
+                    ch3 = _read_with_timeout(fd, 0.1)
                     if ch3 == 'A':
                         return 'up'
                     elif ch3 == 'B':
@@ -80,8 +121,18 @@ def get_key() -> str:
                 return 'clear'
             return ch
 
+        except Exception as e:
+            # If any error occurs, return timeout to allow fallback
+            if 'KeyboardInterrupt' in str(type(e)):
+                raise
+            return 'timeout'
         finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            # CRITICAL: Always restore terminal settings
+            if old_settings is not None:
+                try:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                except Exception:
+                    pass  # Terminal may be in bad state, but at least we tried
 
     else:
         # Fallback to regular input
@@ -161,45 +212,70 @@ class InteractiveMenu:
         )
         self.console.print(panel)
 
-    def show(self, title: str = None) -> Optional[int]:
+    def show(self, title: str = None, timeout: float = 30.0) -> Optional[int]:
         """
         Display the menu and wait for selection.
 
         Args:
             title: Optional title to display above menu
+            timeout: Maximum seconds to wait for each keypress (default 30s)
 
         Returns:
-            Selected index, or None if cancelled
+            Selected index, or None if cancelled/timeout
         """
         if not (UNIX_AVAILABLE or WINDOWS_AVAILABLE):
             # Fallback to simple numbered input
             return self._fallback_show(title)
 
+        timeout_count = 0
+        max_timeouts = 3  # Fall back after 3 consecutive timeouts
+
         try:
             while True:
                 self._render(title)
 
-                key = get_key()
+                key = get_key(timeout=timeout)
+
+                if key == 'timeout':
+                    timeout_count += 1
+                    if timeout_count >= max_timeouts:
+                        # Too many timeouts - fall back to simple input
+                        self.console.print("\n[dim]Interactive menu timed out. Falling back to simple input.[/dim]")
+                        return self._fallback_show(title)
+                    continue
+                else:
+                    timeout_count = 0  # Reset on successful input
 
                 if key == 'up':
                     self.selected_index = (self.selected_index - 1) % len(self.options)
                 elif key == 'down':
                     self.selected_index = (self.selected_index + 1) % len(self.options)
                 elif key == 'enter':
-                    self.console.clear()
+                    self._safe_clear()
                     return self.selected_index
                 elif key == 'escape' and self.allow_cancel:
-                    self.console.clear()
+                    self._safe_clear()
                     return None
                 elif key.isdigit():
                     num = int(key)
                     if 1 <= num <= len(self.options):
-                        self.console.clear()
+                        self._safe_clear()
                         return num - 1
 
         except KeyboardInterrupt:
-            self.console.clear()
+            self._safe_clear()
             return None
+        except Exception:
+            # Any other error - fall back to simple input
+            return self._fallback_show(title)
+
+    def _safe_clear(self):
+        """Safely clear the console, handling potential errors."""
+        try:
+            self.console.clear()
+        except Exception:
+            # If clear fails, just print newlines to separate
+            print("\n\n")
 
     def _fallback_show(self, title: str = None) -> Optional[int]:
         """Fallback for systems without raw keyboard access."""

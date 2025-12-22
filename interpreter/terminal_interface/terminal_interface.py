@@ -356,6 +356,13 @@ def terminal_interface(interpreter, message):
                     if not interpreter.auto_run:
                         # OI is about to execute code. The user wants to approve this
 
+                        # CRITICAL: Stop thinking spinner before any user interaction
+                        # to prevent Rich Live context conflicts
+                        if thinking_spinner:
+                            with UIErrorContext("ThinkingSpinner", "stop_for_confirmation"):
+                                thinking_spinner.stop()
+                            thinking_spinner = None
+
                         # End the active code block so you can run input() below it
                         if active_block and not interpreter.plain_text_display:
                             active_block.refresh(cursor=False)

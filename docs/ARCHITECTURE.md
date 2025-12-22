@@ -343,6 +343,13 @@ Exception Handling:
 - Convenience functions (show_diff, display_error) use try-finally for cleanup
 - EventBus logs dropped events via ui_logger
 
+Terminal Freeze Prevention:
+- `BaseBlock` - Lazy Live initialization (starts on first refresh, not __init__)
+- `InteractiveMenu` - stdin.read() with 30s timeout via select.select()
+- `InteractiveMenu` - Raw terminal mode restored in finally block (tcsetattr)
+- `InteractiveMenu` - Safe console.clear() with newline fallback
+- `terminal_interface.py` - Spinner cleanup before confirmation prompts
+
 ## Performance Optimizations
 
 ### LLM Processing (`interpreter/core/llm/`)

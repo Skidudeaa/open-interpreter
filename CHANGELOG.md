@@ -2,6 +2,12 @@
 
 ## [Unreleased] - 2025-12-22
 
+### Changed
+
+- Cleaned up ~35 orphaned dependencies (chunkhound/MCP remnants, tree-sitter, pandas, quart, etc.)
+- Added `duckdb` as optional `[memory]` extra in pyproject.toml
+- Added `pytest-cov` to dev dependencies
+
 ### Fixed
 
 - Terminal freeze from Rich Live context conflicts - spinner now stops before creating new blocks

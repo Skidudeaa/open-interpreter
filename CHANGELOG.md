@@ -67,6 +67,20 @@
   - Fold preview shows first 3 lines with "▶ Output (N lines, folded)" indicator
   - `block_id` and `is_selected` for CodeNavigator integration
 
+#### Adaptive Mode System (Phase 4)
+- `ui_mode_manager.py` - Mode state machine with auto-escalation
+  - Score-based escalation: ZEN (0) → STANDARD (5) → POWER (15) → DEBUG (30)
+  - Event scoring: AGENT_SPAWN (+10), CODE_START (+3), ERROR (+5)
+  - Score decay: -1 every 30s of inactivity
+  - Mode never auto-downgrades (manual only)
+  - Manual controls: `set_mode()`, `lock_mode()`, `cycle_mode()`, `toggle_power_mode()`
+- `toast.py` - Ephemeral notifications for mode changes
+  - Toast levels: INFO, SUCCESS, WARNING, ERROR, MODE
+  - Auto-dismiss with configurable timeout
+  - Rate limiting (min 0.5s between toasts)
+  - Stack display (max 3 visible, newest first)
+  - Inline rendering for status bar integration
+
 ### Fixed
 - Skip FastAPI server tests when fastapi not installed
 - Fix test_generator flakiness (allow multiple console outputs)

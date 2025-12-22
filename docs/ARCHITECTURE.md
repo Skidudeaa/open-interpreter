@@ -253,6 +253,8 @@ terminal_interface/
 │   ├── context_meter.py   # Token usage progress bar (Phase 2)
 │   ├── context_panel.py   # Variables/functions/metrics sidebar (Phase 3)
 │   ├── code_navigator.py  # Block navigation + fold/unfold (Phase 3)
+│   ├── ui_mode_manager.py # Mode state machine + auto-escalation (Phase 4)
+│   ├── toast.py           # Ephemeral notifications (Phase 4)
 │   ├── theme.py           # Color palette, icons
 │   ├── base_block.py      # Shared console, timing
 │   ├── message_block.py   # Role icons, styled panels
@@ -305,6 +307,16 @@ Context Panel (Phase 3):
 - `ContextPanel` - Variables/functions/metrics sidebar (POWER/DEBUG or when content exists)
 - `CodeNavigator` - Block navigation (j/k), fold/unfold (Space), selection tracking
 - `CodeBlock` (enhanced) - fold/unfold methods, is_folded property, block_id integration
+
+Adaptive Mode System (Phase 4):
+- `UIModeManager` - Score-based mode transitions with hysteresis
+  - Thresholds: ZEN (0) → STANDARD (5) → POWER (15) → DEBUG (30)
+  - Event scoring: AGENT_SPAWN (+10), CODE_START (+3), ERROR (+5)
+  - Decay: -1 per 30s inactivity
+  - Manual: `set_mode()`, `lock_mode()`, `cycle_mode()`
+- `ToastManager` - Ephemeral notifications for mode changes and status
+  - Levels: INFO, SUCCESS, WARNING, ERROR, MODE
+  - Auto-dismiss, rate limiting, stack display (max 3)
 
 Utilities (`terminal_interface/utils/`):
 - `session_manager.py` - Autosave on interrupt, resume support

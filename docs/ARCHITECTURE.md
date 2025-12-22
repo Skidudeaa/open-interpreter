@@ -324,9 +324,13 @@ Utilities (`terminal_interface/utils/`):
 - `ui_logger.py` - Debug logging via `UIErrorContext`
 
 Integration points:
-- `start_terminal_interface.py` - Session manager (autosave, resume prompt)
+- `start_terminal_interface.py` - Session manager, UIBackend initialization
+- `terminal_interface.py` - Event subscriptions, component wiring:
+  - Initializes UIModeManager, ToastManager, AgentStrip, CodeNavigator
+  - Subscribes to EventBus for AGENT_*, CODE_*, MESSAGE_* events
+  - Updates UIState and displays AgentStrip during streaming
 - `respond.py` - Network status (start_request, end_request, set_error)
-- `terminal_interface.py` - Error block, interactive menu for confirmations
+- `orchestrator.py` - Emits AGENT_SPAWN/COMPLETE/ERROR/OUTPUT events
 - `code_block.py` - Table display for tabular output detection
 
 Performance:

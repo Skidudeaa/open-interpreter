@@ -72,6 +72,16 @@ Event-driven architecture with prompt_toolkit integration.
   - [x] Stack display (newest first, max 3 visible)
   - [x] Inline rendering for status bar integration
 
+### Integration [DONE]
+- [x] Wire Phase 2-4 components into `terminal_interface.py`
+  - [x] Initialize UIModeManager, ToastManager, AgentStrip, CodeNavigator
+  - [x] Subscribe to EventBus for AGENT_*, CODE_*, MESSAGE_* events
+  - [x] Update UIState from events (agent status, token counts)
+  - [x] Display AgentStrip during streaming when agents active
+  - [x] Track code/message blocks with CodeNavigator
+  - [x] Auto-escalate mode via UIModeManager.process_event()
+- [x] UIBackend created in `start_terminal_interface.py`
+
 ---
 
 ## Completed - Previous Iteration

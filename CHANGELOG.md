@@ -85,6 +85,12 @@
 - Jupyter kernel shutdown errors (InvalidStateError): thread-safe terminate() with join() before channel close
 - Code decline exits loop instead of continuing conversation
 
+### UI Enhancements
+- Syntax-highlighted tracebacks: file paths (amber), line numbers (cyan), function names (violet)
+- Stderr distinction: red coloring for error output, red border on error panels
+- Code preview on undo: shows language and first 60 chars of removed code
+- Progress indicator for long-running code: spinner animation after 5 seconds
+
 ### Performance
 - String accumulation in `run_text_llm.py`: O(n²) → O(n) via list-based accumulation
 - Image message filtering in `llm.py`: O(n²) → O(n) via set-based filtering

@@ -35,13 +35,23 @@ def handle_undo(self, arguments):
     # Print out a preview of what messages were removed.
     for message in removed_messages:
         if "content" in message and message["content"] != None:
-            self.display_message(
-                f"**Removed message:** `\"{message['content'][:30]}...\"`"
-            )
+            if message.get("type") == "code":
+                # Show code preview with language
+                lang = message.get("format", "code")
+                code_preview = message["content"][:60].replace("\n", " ")
+                if len(message["content"]) > 60:
+                    code_preview += "..."
+                self.display_message(
+                    f"**Removed code** ({lang}): `{code_preview}`"
+                )
+            else:
+                self.display_message(
+                    f"**Removed message:** `\"{message['content'][:30]}...\"`"
+                )
         elif "function_call" in message:
             self.display_message(
-                f"**Removed codeblock**"
-            )  # TODO: Could add preview of code removed here.
+                f"**Removed function call**"
+            )
 
     print("")  # Aesthetics.
 

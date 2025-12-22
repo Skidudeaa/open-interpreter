@@ -180,18 +180,40 @@ class TestCoreFlags:
 
     def test_activate_all_features(self):
         """Test that activate_all_features enables the new flags."""
-        from interpreter.core.core import OpenInterpreter
+        import os
+        import sys
+        import importlib
 
-        interp = OpenInterpreter()
-        assert interp.enable_auto_test == False, "Should start disabled"
-        assert interp.enable_trace_feedback == False, "Should start disabled"
+        # Save and clear OI_ACTIVATE_ALL to test default behavior
+        original_value = os.environ.pop("OI_ACTIVATE_ALL", None)
 
-        interp.activate_all_features()
+        # Save cached modules
+        cached_core = sys.modules.get("interpreter.core.core")
 
-        assert interp.enable_auto_test == True, "Should be enabled after activate_all"
-        assert interp.enable_trace_feedback == True, "Should be enabled after activate_all"
+        try:
+            # Clear the cached module so it reloads with new env var
+            if "interpreter.core.core" in sys.modules:
+                del sys.modules["interpreter.core.core"]
 
-        print("✓ test_activate_all_features passed")
+            from interpreter.core.core import OpenInterpreter
+
+            interp = OpenInterpreter()
+            assert interp.enable_auto_test == False, "Should start disabled"
+            assert interp.enable_trace_feedback == False, "Should start disabled"
+
+            interp.activate_all_features()
+
+            assert interp.enable_auto_test == True, "Should be enabled after activate_all"
+            assert interp.enable_trace_feedback == True, "Should be enabled after activate_all"
+
+            print("✓ test_activate_all_features passed")
+        finally:
+            # Restore original value
+            if original_value is not None:
+                os.environ["OI_ACTIVATE_ALL"] = original_value
+            # Restore cached module
+            if cached_core is not None:
+                sys.modules["interpreter.core.core"] = cached_core
 
 
 class TestMemoryExports:

@@ -53,7 +53,7 @@ def profile(interpreter, filename_or_url):
     if profile == None:
         try:
             profile = get_profile(filename_or_url, profile_path)
-        except:
+        except Exception:
             if filename_or_url in ["default", "default.yaml"]:
                 # Literally this just happens to default.yaml
                 reset_profile(filename_or_url)

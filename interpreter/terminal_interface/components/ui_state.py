@@ -12,6 +12,7 @@ from enum import Enum, auto
 from typing import Dict, Optional, Set, Deque
 from collections import deque
 import time
+import threading
 
 
 class UIMode(Enum):
@@ -165,6 +166,9 @@ class UIState:
     # Error state
     last_error: Optional[str] = None
 
+    # Thread safety lock for mutable state
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
     @property
     def context_usage_percent(self) -> float:
         """Percentage of context window used"""
@@ -175,15 +179,17 @@ class UIState:
     @property
     def has_active_agents(self) -> bool:
         """True if any agents are currently running"""
-        return any(
-            a.status == AgentStatus.RUNNING
-            for a in self.active_agents.values()
-        )
+        with self._lock:
+            return any(
+                a.status == AgentStatus.RUNNING
+                for a in self.active_agents.values()
+            )
 
     @property
     def agent_strip_visible(self) -> bool:
         """Agent strip appears when agents exist (not just running)"""
-        return len(self.active_agents) > 0
+        with self._lock:
+            return len(self.active_agents) > 0
 
     @property
     def context_panel_visible(self) -> bool:
@@ -200,28 +206,32 @@ class UIState:
 
     def reset_agents(self) -> None:
         """Clear all agent state (e.g., on new conversation)"""
-        self.active_agents.clear()
-        self.selected_agent_id = None
+        with self._lock:
+            self.active_agents.clear()
+            self.selected_agent_id = None
 
     def add_agent(self, agent_id: str, role: AgentRole, parent_id: Optional[str] = None) -> AgentState:
         """Register a new agent and return its state"""
         agent = AgentState(id=agent_id, role=role, parent_id=parent_id)
-        self.active_agents[agent_id] = agent
-        # Auto-escalate complexity
-        self.complexity_score += 10
+        with self._lock:
+            self.active_agents[agent_id] = agent
+            # Auto-escalate complexity
+            self.complexity_score += 10
         return agent
 
     def update_agent_status(self, agent_id: str, status: AgentStatus, error: Optional[str] = None) -> None:
         """Update an agent's status"""
-        if agent_id in self.active_agents:
-            agent = self.active_agents[agent_id]
-            agent.status = status
-            if status in (AgentStatus.COMPLETE, AgentStatus.ERROR, AgentStatus.CANCELLED):
-                agent.completed_at = time.time()
-            if error:
-                agent.error_summary = error
+        with self._lock:
+            if agent_id in self.active_agents:
+                agent = self.active_agents[agent_id]
+                agent.status = status
+                if status in (AgentStatus.COMPLETE, AgentStatus.ERROR, AgentStatus.CANCELLED):
+                    agent.completed_at = time.time()
+                if error:
+                    agent.error_summary = error
 
     def append_agent_output(self, agent_id: str, line: str) -> None:
         """Add a line to an agent's output preview"""
-        if agent_id in self.active_agents:
-            self.active_agents[agent_id].last_lines.append(line)
+        with self._lock:
+            if agent_id in self.active_agents:
+                self.active_agents[agent_id].last_lines.append(line)

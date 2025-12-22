@@ -81,6 +81,16 @@
   - Stack display (max 3 visible, newest first)
   - Inline rendering for status bar integration
 
+#### Integration
+- Wired Phase 2-4 components into `terminal_interface.py`
+  - Initialize UIModeManager, ToastManager, AgentStrip, CodeNavigator with shared UIState
+  - Subscribe to EventBus for AGENT_SPAWN/COMPLETE/ERROR/OUTPUT events
+  - Update UIState from events, trigger mode auto-escalation
+  - Display AgentStrip during streaming when agents are active
+  - Track code/message blocks with CodeNavigator via CODE_START/END events
+- UIBackend (Rich/prompt_toolkit) created in `start_terminal_interface.py`
+- Event flow: Orchestrator → EventBus → handle_agent_event() → UIState → UI Components
+
 ### Fixed
 - Skip FastAPI server tests when fastapi not installed
 - Fix test_generator flakiness (allow multiple console outputs)

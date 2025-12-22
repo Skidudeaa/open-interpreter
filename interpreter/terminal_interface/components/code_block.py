@@ -182,8 +182,9 @@ class CodeBlock(BaseBlock):
 
         # Combine and display
         group = Group(*components)
-        self.live.update(group)
-        self.live.refresh()
+        if self.live:
+            self.live.update(group)
+            self.live.refresh()
 
     def _build_header(self) -> Table:
         """Build the language header with status indicator."""

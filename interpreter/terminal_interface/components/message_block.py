@@ -79,8 +79,9 @@ class MessageBlock(BaseBlock):
             padding=(0, 1),
         )
 
-        self.live.update(panel)
-        self.live.refresh()
+        if self.live:
+            self.live.update(panel)
+            self.live.refresh()
 
 
 def textify_markdown_code_blocks(text: str) -> str:

@@ -40,14 +40,19 @@ class LiveOutputPanel:
     def start(self):
         """Start the live output display."""
         if not self.is_active:
-            self.live = Live(
-                self._render(),
-                console=self.console,
-                refresh_per_second=10,
-                vertical_overflow="visible",
-            )
-            self.live.start()
-            self.is_active = True
+            try:
+                self.live = Live(
+                    self._render(),
+                    console=self.console,
+                    refresh_per_second=10,
+                    vertical_overflow="visible",
+                )
+                self.live.start()
+                self.is_active = True
+            except Exception:
+                # Graceful degradation if Live fails
+                self.live = None
+                self.is_active = False
 
     def stop(self):
         """Stop the live output display."""

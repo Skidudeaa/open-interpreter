@@ -106,8 +106,9 @@ class DiffBlock(BaseBlock):
 
         # Combine and display
         group = Group(*components)
-        self.live.update(group)
-        self.live.refresh()
+        if self.live:
+            self.live.update(group)
+            self.live.refresh()
 
     def _build_diff_panel(self) -> Panel:
         """Build the diff panel with syntax highlighting."""

@@ -254,6 +254,22 @@ Components:
 - `LiveOutputPanel` - Fixed-height output viewport (prevents scroll overflow)
 - `PromptBlock` - Styled prompts and confirmations
 - `SpinnerBlock` - Thinking/executing animations
+- `ErrorBlock` - Structured exception display with formatted tracebacks
+- `DiffBlock` - Before/after code comparison
+- `InteractiveMenu` - Arrow-key navigation for selections
+- `TableDisplay` - Auto-format CSV/JSON as tables
+- `NetworkStatus` - LLM request state tracking
+
+Utilities (`terminal_interface/utils/`):
+- `session_manager.py` - Autosave on interrupt, resume support
+- `voice_output.py` - Cross-platform TTS (macOS/Windows/Linux)
+- `ui_logger.py` - Debug logging via `UIErrorContext`
+
+Integration points:
+- `start_terminal_interface.py` - Session manager (autosave, resume prompt)
+- `respond.py` - Network status (start_request, end_request, set_error)
+- `terminal_interface.py` - Error block, interactive menu for confirmations
+- `code_block.py` - Table display for tabular output detection
 
 Performance:
 - `terminal_interface.py` - 50ms refresh rate limiting during streaming

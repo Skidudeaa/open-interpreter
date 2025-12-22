@@ -138,7 +138,7 @@ class PythonSymbolExtractor:
             if arg.annotation:
                 try:
                     arg_str += f": {ast.unparse(arg.annotation)}"
-                except:
+                except Exception:
                     pass
             args.append(arg_str)
 
@@ -156,7 +156,7 @@ class PythonSymbolExtractor:
         if node.returns:
             try:
                 signature += f" -> {ast.unparse(node.returns)}"
-            except:
+            except Exception:
                 pass
 
         return signature
@@ -167,7 +167,7 @@ class PythonSymbolExtractor:
         for base in node.bases:
             try:
                 bases.append(ast.unparse(base))
-            except:
+            except Exception:
                 bases.append("...")
 
         if bases:

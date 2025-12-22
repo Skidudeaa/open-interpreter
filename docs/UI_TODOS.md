@@ -84,6 +84,13 @@ Event-driven architecture with prompt_toolkit integration.
 
 ---
 
+## Bug Fixes
+
+- [x] **Rich Live Context Conflict** - Two Live contexts (spinner + block) caused terminal freeze
+  - Stop spinner on `start` chunks before creating new blocks
+  - Add None checks in all block `refresh()`/`end()` methods
+  - Cleanup spinner/active_block in exception handlers
+
 ## Completed - Previous Iteration
 
 All items completed and integrated into the main codebase.

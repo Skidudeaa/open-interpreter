@@ -291,7 +291,7 @@ Components:
 - `CodeBlock` - Language badges, execution status, timing, 30fps refresh throttle
 - `LiveOutputPanel` - Fixed-height output viewport (prevents scroll overflow)
 - `PromptBlock` - Styled prompts and confirmations
-- `SpinnerBlock` - Thinking/executing animations
+- `SpinnerBlock` - Thinking/executing animations (must stop before creating other Live blocks)
 - `ErrorBlock` - Structured exception display with formatted tracebacks
 - `DiffBlock` - Before/after code comparison
 - `InteractiveMenu` - Arrow-key navigation for selections

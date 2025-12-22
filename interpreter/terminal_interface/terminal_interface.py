@@ -24,8 +24,15 @@ from ..core.utils.truncate_output import truncate_output
 from .components.ui_events import (
     UIEvent, EventType, get_event_bus, chunk_to_event
 )
-from .components.ui_state import UIState
+from .components.ui_state import UIState, UIMode, AgentStatus
 from .components.sanitizer import sanitize_output
+
+# Phase 2-4: Agent visualization, context panel, mode manager
+from .components.agent_strip import AgentStrip
+from .components.context_meter import ContextMeter
+from .components.ui_mode_manager import UIModeManager
+from .components.toast import ToastManager, ToastLevel
+from .components.code_navigator import CodeNavigator, BlockType
 
 from .components.code_block import CodeBlock
 from .components.diff_block import show_diff
@@ -106,6 +113,86 @@ def terminal_interface(interpreter, message):
 
     active_block = None
     voice_subprocess = None
+
+    # Phase 2-4: Initialize UI components
+    ui_state = getattr(interpreter, '_ui_state', None) or UIState()
+    mode_manager = UIModeManager(ui_state)
+    toast_manager = ToastManager()
+    agent_strip = AgentStrip(ui_state)
+    code_navigator = CodeNavigator(ui_state)
+
+    # Wire toast notifications to mode changes
+    mode_manager.set_toast_handler(lambda msg: toast_manager.show(msg, level=ToastLevel.MODE))
+
+    # Subscribe to agent events to update UI state
+    event_bus = get_event_bus()
+
+    def handle_agent_event(event: UIEvent):
+        """Process agent events to update UI state."""
+        if event.type == EventType.AGENT_SPAWN:
+            from .components.ui_state import AgentRole
+            agent_id = event.data.get("agent_id", "unknown")
+            role_str = event.data.get("role", "custom")
+            # Convert role string to AgentRole enum
+            try:
+                role = AgentRole(role_str) if isinstance(role_str, str) else AgentRole.CUSTOM
+            except ValueError:
+                role = AgentRole.CUSTOM
+            parent_id = event.data.get("parent_id")
+            ui_state.add_agent(agent_id, role, parent_id)
+
+        elif event.type == EventType.AGENT_COMPLETE:
+            agent_id = event.data.get("agent_id")
+            if agent_id:
+                ui_state.update_agent_status(agent_id, AgentStatus.COMPLETE)
+
+        elif event.type == EventType.AGENT_ERROR:
+            agent_id = event.data.get("agent_id")
+            error = event.data.get("error", "Unknown error")
+            if agent_id:
+                ui_state.update_agent_status(agent_id, AgentStatus.ERROR, error)
+
+        elif event.type == EventType.AGENT_OUTPUT:
+            agent_id = event.data.get("agent_id")
+            line = event.data.get("line", "")
+            if agent_id:
+                ui_state.append_agent_output(agent_id, line)
+
+        elif event.type == EventType.SYSTEM_TOKEN_UPDATE:
+            ui_state.context_tokens = event.data.get("tokens", 0)
+            ui_state.context_limit = event.data.get("limit", 128000)
+
+        # Phase 3: Track code blocks for navigation
+        if event.type == EventType.CODE_START:
+            block_id = code_navigator.register_block(BlockType.CODE)
+            # Store block_id for later reference
+            ui_state._current_code_block_id = block_id
+
+        elif event.type == EventType.CODE_END:
+            # Register output block if there was output
+            if hasattr(ui_state, '_current_code_block_id'):
+                code_navigator.register_block(
+                    BlockType.OUTPUT,
+                    parent_id=ui_state._current_code_block_id
+                )
+
+        elif event.type == EventType.MESSAGE_START:
+            code_navigator.register_block(BlockType.MESSAGE)
+
+        # Let mode manager process all events for auto-escalation
+        mode_manager.process_event(event)
+
+    # Subscribe to all agent-related events
+    event_bus.subscribe(EventType.AGENT_SPAWN, handle_agent_event)
+    event_bus.subscribe(EventType.AGENT_COMPLETE, handle_agent_event)
+    event_bus.subscribe(EventType.AGENT_ERROR, handle_agent_event)
+    event_bus.subscribe(EventType.AGENT_OUTPUT, handle_agent_event)
+    event_bus.subscribe(EventType.SYSTEM_TOKEN_UPDATE, handle_agent_event)
+    event_bus.subscribe(EventType.CODE_START, handle_agent_event)
+    event_bus.subscribe(EventType.CODE_END, handle_agent_event)
+    event_bus.subscribe(EventType.MESSAGE_START, handle_agent_event)
+    event_bus.subscribe(EventType.SYSTEM_ERROR, handle_agent_event)
+    event_bus.subscribe(EventType.CONSOLE_ERROR, handle_agent_event)
 
     while True:
         if interactive:
@@ -219,6 +306,18 @@ def terminal_interface(interpreter, message):
                 ui_event = chunk_to_event(chunk)
                 if ui_event:
                     event_bus.emit(ui_event)
+
+                # Phase 2: Display agent strip when agents are active
+                if not interpreter.plain_text_display and ui_state.agent_strip_visible:
+                    current_time = time.time()
+                    if current_time - last_refresh_time > REFRESH_INTERVAL:
+                        with UIErrorContext("AgentStrip", "render"):
+                            agent_panel = agent_strip.render()
+                            if agent_panel:
+                                from rich.console import Console
+                                console = Console()
+                                console.print(agent_panel, end="")
+                        last_refresh_time = current_time
 
                 # Stop spinner on first content chunk
                 if thinking_spinner and ("content" in chunk or "start" in chunk):

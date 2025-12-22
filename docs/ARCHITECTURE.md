@@ -101,13 +101,18 @@ result = orchestrator.handle_task(
 Agents:
 - `ScoutAgent` - File/symbol search (no LLM)
 - `SurgeonAgent` - Precise code editing
-- `AgentOrchestrator` - Coordinates workflows
+- `AgentOrchestrator` - Coordinates workflows, emits UI events
 
 Workflows:
 - `BUG_FIX` - Scout → Surgeon
 - `FEATURE` - Scout → Surgeon
 - `REFACTOR` - Scout → Surgeon
 - `EXPLORE` - Scout only
+
+Event Integration:
+- Emits `AGENT_SPAWN`, `AGENT_COMPLETE`, `AGENT_ERROR` via EventBus
+- Tracks parent-child relationships with `parent_id`
+- Helper: `_execute_agent_with_events()` for consistent event emission
 
 ### Validation (`interpreter/core/validation/`)
 
@@ -243,6 +248,9 @@ terminal_interface/
 │   ├── pt_app.py          # prompt_toolkit Application (Phase 1)
 │   ├── input_handler.py   # Key bindings + input session
 │   ├── completers.py      # Auto-completion (magic, paths, history)
+│   ├── agent_strip.py     # Bottom bar with agent status (Phase 2)
+│   ├── agent_tree.py      # Hierarchical agent view (Phase 2)
+│   ├── context_meter.py   # Token usage progress bar (Phase 2)
 │   ├── theme.py           # Color palette, icons
 │   ├── base_block.py      # Shared console, timing
 │   ├── message_block.py   # Role icons, styled panels
@@ -250,7 +258,7 @@ terminal_interface/
 │   ├── live_output_panel.py  # Contained output viewport
 │   ├── prompt_block.py    # Styled input
 │   ├── spinner_block.py   # Loading indicators
-│   └── status_bar.py      # Session info display
+│   └── status_bar.py      # Session info + agent count + context meter
 └── terminal_interface.py  # Main integration
 ```
 
@@ -274,7 +282,7 @@ terminal_interface/
 - **sanitizer** - Blocks dangerous escape sequences (clipboard, hyperlinks)
 
 Components:
-- `StatusBar` - Model, message count, mode indicators
+- `StatusBar` - Model, message count, agent count, context meter
 - `MessageBlock` - Role-specific icons and borders
 - `CodeBlock` - Language badges, execution status, timing, 30fps refresh throttle
 - `LiveOutputPanel` - Fixed-height output viewport (prevents scroll overflow)
@@ -285,6 +293,11 @@ Components:
 - `InteractiveMenu` - Arrow-key navigation for selections
 - `TableDisplay` - Auto-format CSV/JSON as tables
 - `NetworkStatus` - LLM request state tracking
+
+Agent Visualization (Phase 2):
+- `AgentStrip` - Bottom bar: `[Scout: ✓ 2.3s] [Surgeon: ⏳ thinking...]`
+- `AgentTree` - Rich Tree with parent→child relationships, output preview
+- `ContextMeter` - Token usage: `[████░░] 60% (24k/41k)` with color thresholds
 
 Utilities (`terminal_interface/utils/`):
 - `session_manager.py` - Autosave on interrupt, resume support

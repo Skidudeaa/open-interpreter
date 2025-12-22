@@ -9,6 +9,8 @@ Features:
 - Execution timing display
 - Syntax-highlighted tracebacks
 - Stderr distinction (red coloring)
+- Fold/unfold output support (Phase 3)
+- Block navigation integration (Phase 3)
 """
 
 import re
@@ -85,6 +87,12 @@ class CodeBlock(BaseBlock):
         # Refresh throttling to prevent UI unresponsiveness
         self._last_refresh = 0
         self._min_refresh_interval = 0.033  # ~30 fps max
+
+        # Phase 3: Block navigation integration
+        self.block_id: str = ""       # Unique ID for CodeNavigator
+        self.is_selected: bool = False  # True if selected for navigation
+        self._is_folded: bool = False   # True if output is collapsed
+        self.fold_preview_lines: int = 3  # Lines to show when folded
 
     def set_status(self, status: str):
         """Set execution status (pending/running/success/error)."""
@@ -280,8 +288,14 @@ class CodeBlock(BaseBlock):
         else:
             visible_lines = self._output_lines
 
-        # Limit visible lines to prevent scrolling
-        if len(visible_lines) > self.MAX_OUTPUT_LINES:
+        # Determine how many lines to show based on fold state
+        if self._is_folded:
+            # Folded: show only preview lines from the beginning
+            max_lines = self.fold_preview_lines
+            visible_lines = visible_lines[:max_lines]
+            showing = len(visible_lines)
+        elif len(visible_lines) > self.MAX_OUTPUT_LINES:
+            # Not folded but too long: show last N lines
             visible_lines = visible_lines[-self.MAX_OUTPUT_LINES:]
             showing = self.MAX_OUTPUT_LINES
         else:
@@ -316,10 +330,14 @@ class CodeBlock(BaseBlock):
                 # Normal stdout: default color
                 styled_content.append(line, style=THEME["computer"])
 
-        # Build header with line count
+        # Build header with line count and fold indicator
         scroll_icon = "\U0001F4DC"  # Scroll emoji
-        if total_lines > self.MAX_OUTPUT_LINES:
-            title = f"{scroll_icon} Output ({total_lines} lines, showing last {showing})"
+        fold_icon = "▶" if self._is_folded else "▼"  # Arrow for fold state
+
+        if self._is_folded:
+            title = f"{fold_icon} Output ({total_lines} lines, folded)"
+        elif total_lines > self.MAX_OUTPUT_LINES:
+            title = f"{fold_icon} Output ({total_lines} lines, showing last {showing})"
         else:
             title = f"{scroll_icon} Output"
 
@@ -386,6 +404,45 @@ class CodeBlock(BaseBlock):
         """Toggle between paginated and full output view."""
         self._show_full_output = not self._show_full_output
         self.refresh(cursor=False)
+
+    # Phase 3: Fold/unfold methods
+
+    @property
+    def is_folded(self) -> bool:
+        """Check if output is folded (collapsed)."""
+        return self._is_folded
+
+    @is_folded.setter
+    def is_folded(self, value: bool):
+        """Set fold state."""
+        self._is_folded = value
+        self.refresh(cursor=False)
+
+    def fold(self):
+        """Collapse the output to show only preview lines."""
+        if not self._is_folded:
+            self._is_folded = True
+            self.refresh(cursor=False)
+
+    def unfold(self):
+        """Expand the output to show all lines."""
+        if self._is_folded:
+            self._is_folded = False
+            self.refresh(cursor=False)
+
+    def toggle_fold(self):
+        """Toggle between folded and unfolded output."""
+        self._is_folded = not self._is_folded
+        self.refresh(cursor=False)
+
+    def get_visible_line_count(self) -> int:
+        """Get the number of visible output lines (considering fold state)."""
+        total = len(self._output_lines)
+        if self._is_folded:
+            return min(self.fold_preview_lines, total)
+        if self._show_full_output:
+            return total
+        return min(self.MAX_OUTPUT_LINES, total)
 
     def get_output_page_info(self) -> tuple:
         """Get current page info (current_page, total_pages, total_lines)."""

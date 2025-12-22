@@ -251,6 +251,8 @@ terminal_interface/
 │   ├── agent_strip.py     # Bottom bar with agent status (Phase 2)
 │   ├── agent_tree.py      # Hierarchical agent view (Phase 2)
 │   ├── context_meter.py   # Token usage progress bar (Phase 2)
+│   ├── context_panel.py   # Variables/functions/metrics sidebar (Phase 3)
+│   ├── code_navigator.py  # Block navigation + fold/unfold (Phase 3)
 │   ├── theme.py           # Color palette, icons
 │   ├── base_block.py      # Shared console, timing
 │   ├── message_block.py   # Role icons, styled panels
@@ -298,6 +300,11 @@ Agent Visualization (Phase 2):
 - `AgentStrip` - Bottom bar: `[Scout: ✓ 2.3s] [Surgeon: ⏳ thinking...]`
 - `AgentTree` - Rich Tree with parent→child relationships, output preview
 - `ContextMeter` - Token usage: `[████░░] 60% (24k/41k)` with color thresholds
+
+Context Panel (Phase 3):
+- `ContextPanel` - Variables/functions/metrics sidebar (POWER/DEBUG or when content exists)
+- `CodeNavigator` - Block navigation (j/k), fold/unfold (Space), selection tracking
+- `CodeBlock` (enhanced) - fold/unfold methods, is_folded property, block_id integration
 
 Utilities (`terminal_interface/utils/`):
 - `session_manager.py` - Autosave on interrupt, resume support

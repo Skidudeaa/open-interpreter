@@ -42,10 +42,21 @@ Event-driven architecture with prompt_toolkit integration.
   - [x] K/M suffix formatting for readability
   - [x] Integrated into status_bar.py center section
 
-### Phase 3 - Context Panel [TODO]
-- [ ] `context_panel.py` - Variables/functions/metrics sidebar
-- [ ] Adaptive visibility based on content
-- [ ] Code block fold/unfold and navigation
+### Phase 3 - Context Panel [DONE]
+- [x] `context_panel.py` - Variables/functions/metrics sidebar
+  - [x] Shows variables with type icons (🔢 int, 📝 str, 📊 DataFrame, etc.)
+  - [x] Shows function signatures
+  - [x] Displays execution time (⏱️) and memory usage (💾)
+  - [x] Truncates long values with "..." preview
+- [x] Adaptive visibility based on content
+  - [x] Always visible in POWER/DEBUG mode
+  - [x] Auto-shows when variables/functions exist
+  - [x] Can be toggled with Alt+H / F3
+- [x] Code block fold/unfold and navigation
+  - [x] `code_navigator.py` - Block navigation (j/k, Space to fold)
+  - [x] `code_block.py` - fold/unfold methods, is_folded property
+  - [x] Auto-fold for outputs > 20 lines
+  - [x] Preview shows first 3 lines when folded
 
 ### Phase 4 - Adaptive Mode System [TODO]
 - [ ] `ui_mode_manager.py` - Mode state machine with auto-escalation

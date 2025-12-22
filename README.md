@@ -60,6 +60,16 @@ surgeon = builder.from_template("surgeon")  # Precise edits
 swarm = builder.create_swarm([scout, surgeon])
 ```
 
+### Terminal UI
+```bash
+export OI_THEME=dark              # dark, light, high-contrast
+export OI_UI_DEBUG=true           # Debug logging to ~/.open-interpreter/logs/
+```
+- Arrow-key menus for code confirmation
+- Session autosave on interrupt
+- Syntax-highlighted tracebacks
+- Auto-format CSV/JSON as tables
+
 ## Configuration
 
 ```bash

@@ -80,3 +80,7 @@
 - Silent exception swallowing in computer_use loop
 - Debug prints in production code
 - Hardcoded sleeps in computer_use module
+- Task stopping prematurely: stricter loop breaker matching, empty LLM response detection, exponential backoff retry, graceful stop handling
+- UI unresponsiveness during streaming: 50ms refresh rate limiting in terminal_interface, 30fps throttle in CodeBlock
+- Jupyter kernel shutdown errors (InvalidStateError): thread-safe terminate() with join() before channel close
+- Code decline exits loop instead of continuing conversation

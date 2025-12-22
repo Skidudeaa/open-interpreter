@@ -4,6 +4,13 @@
 
 ### Added
 
+#### Terminal UI Architecture (Phase 0)
+- `ui_state.py` - Centralized state: `UIState`, `UIMode`, `AgentState`, `AgentRole`
+- `ui_events.py` - Event system: `UIEvent`, `EventType`, `EventBus` with thread-safe queue
+- `ui_backend.py` - Backend abstraction: `RichStreamBackend` (current), `PromptToolkitBackend` (stub)
+- `sanitizer.py` - Terminal security: blocks clipboard/hyperlink escape sequences
+- Event emission wired into `terminal_interface.py`
+
 #### UI Component Integration
 - Wired up 5 orphaned UI components into main flow
 - Session manager: autosave on interrupt, resume prompt on startup

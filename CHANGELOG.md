@@ -15,6 +15,13 @@
 - Mutable default arg in count_tokens.py
 - Event queue logs dropped events instead of silent failure
 
+#### Terminal Freeze Prevention (2025-12-22)
+- Interactive menu stdin.read() timeout - prevents infinite blocking with 30s timeout per keypress
+- Spinner cleanup before confirmation prompts - stops ThinkingSpinner before interactive_choice/interactive_confirm
+- BaseBlock lazy Live initialization - Live display now starts on first refresh, not in __init__
+- Safe console clear in interactive menu - handles errors gracefully, falls back to newlines
+- Raw terminal mode always restored - tcsetattr in finally block even on exceptions
+
 ### Added
 
 #### Terminal UI Architecture (Phase 0 + Phase 1)

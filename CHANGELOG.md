@@ -2,6 +2,12 @@
 
 ## [Unreleased] - 2025-12-22
 
+### Fixed
+
+- Terminal freeze from Rich Live context conflicts - spinner now stops before creating new blocks
+- None checks in all block refresh/end methods after Live.start() fails
+- Exception handlers now cleanup spinner and active_block to restore terminal state
+
 ### Added
 
 #### Terminal UI Architecture (Phase 0 + Phase 1)

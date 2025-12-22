@@ -300,6 +300,14 @@ def start_terminal_interface(interpreter):
             "help_text": "Run OI in stdin mode",
             "type": bool,
         },
+        {
+            "name": "no_tui",
+            "nickname": "nt",
+            "help_text": "Disable interactive TUI (use basic Rich streaming)",
+            "type": bool,
+            "action": "store_true",
+            "default": False,
+        },
     ]
 
     if "--stdin" in sys.argv and "--plain" not in sys.argv:
@@ -568,15 +576,37 @@ Use """ to write multi-line messages.
 
     interpreter.in_terminal_interface = True
 
+    # Initialize UI backend (Phase 1)
+    from .components.ui_backend import create_backend, BackendType
+    from .components.ui_state import UIState
+
+    ui_state = UIState()
+
+    # Determine backend type
+    if args.no_tui or interpreter.plain_text_display:
+        backend_type = BackendType.RICH_STREAM
+    else:
+        backend_type = None  # Auto-detect
+
+    backend = create_backend(interpreter, ui_state, force_type=backend_type)
+    backend.start()
+
+    # Store backend on interpreter for terminal_interface to use
+    interpreter._ui_backend = backend
+    interpreter._ui_state = ui_state
+
     contribute_conversation_launch_logic(interpreter)
 
-    # Standard in mode
-    if args.stdin:
-        stdin_input = input()
-        interpreter.plain_text_display = True
-        interpreter.chat(stdin_input)
-    else:
-        interpreter.chat()
+    try:
+        # Standard in mode
+        if args.stdin:
+            stdin_input = input()
+            interpreter.plain_text_display = True
+            interpreter.chat(stdin_input)
+        else:
+            interpreter.chat()
+    finally:
+        backend.stop()
 
 
 def set_attributes(args, arguments):

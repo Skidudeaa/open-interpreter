@@ -127,6 +127,9 @@ def terminal_interface(interpreter, message):
                             if interpreter.multi_line
                             else input("> ").strip()
                         )
+                    elif hasattr(interpreter, '_ui_backend') and interpreter._ui_backend.supports_interactive:
+                        # Use prompt_toolkit backend for interactive input (Phase 1)
+                        message = interpreter._ui_backend.get_input("❯ ").strip()
                     else:
                         # Styled mode: use PromptBlock
                         prompt_style = "multiline" if interpreter.multi_line else "default"

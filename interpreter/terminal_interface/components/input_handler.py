@@ -12,22 +12,19 @@ Usage:
     session = handler.create_prompt_session()
 """
 
-from typing import TYPE_CHECKING, Optional, Callable, Dict, Any
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import Enum, auto
+from typing import TYPE_CHECKING
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
-from prompt_toolkit.key_binding.bindings.named_commands import get_by_name
-from prompt_toolkit.keys import Keys
-from prompt_toolkit.filters import Condition, has_focus
-from prompt_toolkit.history import InMemoryHistory, FileHistory
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.history import FileHistory, InMemoryHistory
+from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import PygmentsLexer
-from prompt_toolkit.styles import Style
 
-from .ui_state import UIState, UIMode
-from .ui_events import UIEvent, EventType, get_event_bus
+from .ui_events import EventType, UIEvent, get_event_bus
+from .ui_state import UIMode, UIState
 
 if TYPE_CHECKING:
     from ...core.core import OpenInterpreter
@@ -62,12 +59,12 @@ class KeyBinding:
     """A key binding configuration"""
     action: KeyAction
     primary: str              # Primary key (e.g., 'c-l')
-    fallback: Optional[str] = None  # Fallback key (e.g., 'f5')
+    fallback: str | None = None  # Fallback key (e.g., 'f5')
     description: str = ""
 
 
 # Default key bindings with fallbacks
-DEFAULT_BINDINGS: Dict[KeyAction, KeyBinding] = {
+DEFAULT_BINDINGS: dict[KeyAction, KeyBinding] = {
     KeyAction.CANCEL: KeyBinding(
         action=KeyAction.CANCEL,
         primary='escape',
@@ -148,7 +145,7 @@ class InputHandler:
         self,
         interpreter: "OpenInterpreter",
         state: UIState,
-        history_file: Optional[str] = None,
+        history_file: str | None = None,
         editing_mode: str = "emacs",  # "emacs" or "vi"
     ):
         self.interpreter = interpreter
@@ -168,11 +165,11 @@ class InputHandler:
         self.bindings = DEFAULT_BINDINGS.copy()
 
         # Callbacks
-        self._on_cancel: Optional[Callable[[], None]] = None
-        self._on_submit: Optional[Callable[[str], None]] = None
-        self._on_mode_change: Optional[Callable[[UIMode], None]] = None
+        self._on_cancel: Callable[[], None] | None = None
+        self._on_submit: Callable[[str], None] | None = None
+        self._on_mode_change: Callable[[UIMode], None] | None = None
 
-    def set_binding(self, action: KeyAction, primary: str, fallback: Optional[str] = None) -> None:
+    def set_binding(self, action: KeyAction, primary: str, fallback: str | None = None) -> None:
         """Override a key binding"""
         if action in self.bindings:
             self.bindings[action] = KeyBinding(
@@ -185,6 +182,58 @@ class InputHandler:
     def create_key_bindings(self) -> KeyBindings:
         """Create prompt_toolkit key bindings"""
         kb = KeyBindings()
+
+        # Helpers to keep multiline behavior predictable
+        def _should_insert_newline(text: str) -> bool:
+            """
+            Treat Enter as submit for single-line input, but keep multiline editing
+            when the user has started a block (triple quotes) or already has newlines.
+            """
+            if not text:
+                return False
+            if text.startswith('"""') and not text.endswith('"""'):
+                return True
+            return "\n" in text or text.startswith('"""')
+
+        submit_binding = self.bindings.get(KeyAction.SUBMIT)
+        newline_binding = self.bindings.get(KeyAction.NEWLINE)
+
+        def _bind_keys(binding: KeyBinding | None, handler) -> None:
+            """
+            Register a binding's primary/fallback keys (supports sequences like
+            'escape enter' to avoid prompt_toolkit parse errors).
+            """
+            if not binding:
+                return
+
+            def _add(key_spec: str):
+                keys = key_spec.split() if isinstance(key_spec, str) else (key_spec,)
+                kb.add(*keys)(handler)
+
+            _add(binding.primary)
+            if binding.fallback:
+                _add(binding.fallback)
+
+        def submit_or_newline(event):
+            buffer = event.current_buffer
+            text = buffer.text
+
+            if _should_insert_newline(text):
+                buffer.insert_text("\n")
+                return
+
+            if self._on_submit:
+                self._on_submit(text)
+            buffer.validate_and_handle()
+
+        # Submit: Enter (and fallback)
+        _bind_keys(submit_binding, submit_or_newline)
+
+        # Explicit newline: Alt+Enter / Ctrl+O
+        def insert_newline(event):
+            event.current_buffer.insert_text("\n")
+
+        _bind_keys(newline_binding, insert_newline)
 
         # Cancel
         @kb.add('escape')
@@ -337,7 +386,7 @@ class InputHandler:
 def create_input_handler(
     interpreter: "OpenInterpreter",
     state: UIState,
-    history_file: Optional[str] = None,
+    history_file: str | None = None,
 ) -> InputHandler:
     """
     Factory function to create an InputHandler.

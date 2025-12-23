@@ -1,5 +1,15 @@
 llama.log
 
+# ChunkHound (semantic search index)
+.chunkhound/
+.chunkhound.json
+
+# MCP config
+.mcp.json
+
+# Pip install artifacts
+=*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

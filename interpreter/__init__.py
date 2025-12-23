@@ -55,8 +55,18 @@ if "--os" in sys.argv:
     run_async_main()
     exit()
 
-from .core.agents import AgentOrchestrator, ScoutAgent, SurgeonAgent
+from .core.agents import (
+    AgentOrchestrator,
+    ArchitectAgent,
+    ResearchAgent,
+    ResearchConfig,
+    ScoutAgent,
+    SurgeonAgent,
+    ValidatorAgent,
+)
 from .core.async_core import AsyncInterpreter
+from .core.computer.documents import Documents, ParsedDocument
+from .core.computer.search import Search, SearchResult
 from .core.computer.terminal.base_language import BaseLanguage
 from .core.core import OpenInterpreter
 

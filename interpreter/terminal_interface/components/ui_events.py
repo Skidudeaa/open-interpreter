@@ -191,7 +191,16 @@ class EventBus:
                 try:
                     self._handlers[event_type].remove(handler)
                 except ValueError:
-                    pass
+                    # Handler not found - may have been already removed
+                    try:
+                        from ..utils.ui_logger import log_ui_event
+
+                        log_ui_event(
+                            "EventBus",
+                            f"unsubscribe: handler not found for {event_type.value}",
+                        )
+                    except ImportError:
+                        pass
 
     def unsubscribe_all(self, handler: EventHandler) -> None:
         """Remove a global handler"""
@@ -199,7 +208,15 @@ class EventBus:
             try:
                 self._global_handlers.remove(handler)
             except ValueError:
-                pass
+                # Handler not found - may have been already removed
+                try:
+                    from ..utils.ui_logger import log_ui_event
+
+                    log_ui_event(
+                        "EventBus", "unsubscribe_all: global handler not found"
+                    )
+                except ImportError:
+                    pass
 
     def emit(self, event: UIEvent) -> bool:
         """

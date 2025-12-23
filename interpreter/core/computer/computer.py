@@ -8,11 +8,13 @@ from .clipboard.clipboard import Clipboard
 from .contacts.contacts import Contacts
 from .display.display import Display
 from .docs.docs import Docs
+from .documents.documents import Documents
 from .files.files import Files
 from .keyboard.keyboard import Keyboard
 from .mail.mail import Mail
 from .mouse.mouse import Mouse
 from .os.os import Os
+from .search.search import Search
 from .skills.skills import Skills
 from .sms.sms import SMS
 from .terminal.terminal import Terminal
@@ -42,6 +44,8 @@ class Computer:
         self.vision = Vision(self)
         self.skills = Skills(self)
         self.docs = Docs(self)
+        self.documents = Documents(self)
+        self.search = Search(self)
         self.ai = Ai(self)
         self.files = Files(self)
 
@@ -100,6 +104,8 @@ Do not import the computer module, or any of its sub-modules. They are already i
             self.vision,
             self.skills,
             self.docs,
+            self.documents,
+            self.search,
             self.ai,
             self.files,
         ]

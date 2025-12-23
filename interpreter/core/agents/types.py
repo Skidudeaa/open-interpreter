@@ -210,3 +210,55 @@ class WorkflowResult:
         for result in self.results.values():
             edits.extend(result.edits_proposed)
         return edits
+
+
+def create_result(
+    role: AgentRole,
+    success: bool = True,
+    content: Any = None,
+    output: str = "",
+    error: str | None = None,
+    files_found: list[str] | None = None,
+    symbols_found: list[str] | None = None,
+    edits_proposed: list[dict] | None = None,
+    context_for_next: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    execution_time: float = 0.0,
+    tokens_used: int = 0,
+) -> AgentResult:
+    """
+    Factory function for creating AgentResult instances.
+
+    Provides a cleaner API than the full dataclass constructor.
+
+    Args:
+        role: Agent role that produced this result
+        success: Whether execution succeeded
+        content: Role-specific structured content
+        output: Text output
+        error: Error message if any
+        files_found: List of files discovered
+        symbols_found: List of symbols/functions found
+        edits_proposed: List of proposed code edits
+        context_for_next: Context string for next agent
+        metadata: Additional metadata
+        execution_time: Execution time in seconds
+        tokens_used: Number of tokens used
+
+    Returns:
+        AgentResult instance
+    """
+    return AgentResult(
+        role=role,
+        success=success,
+        content=content,
+        output=output,
+        error=error,
+        files_found=files_found or [],
+        symbols_found=symbols_found or [],
+        edits_proposed=edits_proposed or [],
+        context_for_next=context_for_next,
+        metadata=metadata or {},
+        execution_time=execution_time,
+        tokens_used=tokens_used,
+    )

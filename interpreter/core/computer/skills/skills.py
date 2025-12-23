@@ -64,15 +64,6 @@ class Skills:
             if file.endswith(".py")
         ]
 
-    def run(self, skill):
-        """
-        DEPRECATED: Do not use this method.
-        Skills are already imported - call them directly as functions instead.
-        """
-        print(
-            "To run a skill, run its name as a function name (it is already imported)."
-        )
-
     def search(self, query):
         """
         Lists available skills (currently same as list()).

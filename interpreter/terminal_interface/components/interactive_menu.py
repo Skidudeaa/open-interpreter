@@ -9,7 +9,10 @@ Features:
 - Timeout protection to prevent infinite blocking
 """
 
+import logging
 import sys
+
+logger = logging.getLogger(__name__)
 
 # Use explicit imports to satisfy linters and ensure consistency
 import rich.console
@@ -148,7 +151,8 @@ def get_key(timeout: float = 2.0) -> str:
             if old_settings is not None:
                 try:
                     termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Failed to restore terminal settings: {e}")
                     pass  # Terminal may be in bad state, but at least we tried
 
     else:
@@ -306,8 +310,9 @@ class InteractiveMenu:
 
         except KeyboardInterrupt:
             return None
-        except Exception:
+        except Exception as e:
             # Any other error - fall back to simple input
+            logger.debug(f"Interactive menu error, falling back: {e}")
             return self._fallback_show(title)
 
     def _fallback_show(self, title: str | None = None) -> int | None:

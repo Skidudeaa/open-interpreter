@@ -13,8 +13,10 @@ complex coding tasks more effectively than a single agent.
 
 # Unified types (single source of truth)
 # Agent implementations
+from .architect_agent import ArchitectAgent
 from .base_agent import BaseAgent
 from .orchestrator import AgentOrchestrator
+from .research_agent import ResearchAgent, ResearchConfig
 from .scout_agent import ScoutAgent
 from .surgeon_agent import SurgeonAgent
 from .types import (
@@ -25,6 +27,7 @@ from .types import (
     WorkflowResult,
     WorkflowStep,
 )
+from .validator_agent import ValidatorAgent
 
 __all__ = [
     # Types
@@ -34,9 +37,13 @@ __all__ = [
     "AgentResult",
     "WorkflowStep",
     "WorkflowResult",
+    "ResearchConfig",
     # Agents
     "BaseAgent",
     "AgentOrchestrator",
     "ScoutAgent",
     "SurgeonAgent",
+    "ArchitectAgent",
+    "ValidatorAgent",
+    "ResearchAgent",
 ]

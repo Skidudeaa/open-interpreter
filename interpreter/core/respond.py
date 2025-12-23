@@ -1,10 +1,14 @@
 import json
+import logging
 import os
 import re
 import traceback
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 import litellm
+
+# Module logger
+logger = logging.getLogger(__name__)
 
 from ..terminal_interface.components.network_status import get_network_status
 from ..terminal_interface.components.ui_events import EventType, UIEvent, get_event_bus
@@ -113,6 +117,59 @@ def respond(interpreter):
             # Yield two newlines to separate the LLMs reply from previous messages.
             yield {"role": "assistant", "type": "message", "content": "\n\n"}
             insert_loop_message = False
+
+        ### AGENT ORCHESTRATION (if enabled) ###
+
+        # Route to agent orchestrator if enabled and appropriate
+        if (
+            interpreter.enable_agents
+            and hasattr(interpreter, "agent_orchestrator")
+            and interpreter.agent_orchestrator is not None
+        ):
+            try:
+                # Get the user's latest message for task detection
+                user_messages = [
+                    m for m in interpreter.messages if m.get("role") == "user"
+                ]
+                if user_messages:
+                    latest_task = user_messages[-1].get("content", "")
+
+                    # Let orchestrator determine if this should be handled by agents
+                    from .agents.orchestrator import WorkflowType
+
+                    workflow = interpreter.agent_orchestrator._detect_workflow(
+                        latest_task
+                    )
+
+                    # Only use agents for EXPLORE and EDIT workflows (VALIDATE/FULL need more agents)
+                    if workflow in (WorkflowType.EXPLORE, WorkflowType.EDIT):
+                        logger.debug(
+                            f"Routing to agent orchestrator: workflow={workflow.value}"
+                        )
+
+                        result = interpreter.agent_orchestrator.handle_task(
+                            latest_task,
+                            workflow=workflow,
+                            auto_apply=interpreter.auto_run,
+                        )
+
+                        # Yield the orchestrator's result as assistant message
+                        if result.success:
+                            yield {
+                                "role": "assistant",
+                                "type": "message",
+                                "content": result.get_summary()
+                                + "\n\n"
+                                + result.final_context,
+                            }
+                            # Don't continue with normal LLM flow if agents handled it
+                            return
+                        else:
+                            # Agent workflow failed, fall through to normal LLM
+                            logger.warning(f"Agent workflow failed: {result.errors}")
+            except Exception as e:
+                logger.warning(f"Agent orchestration failed, falling back to LLM: {e}")
+                # Fall through to normal LLM flow
 
         ### RUN THE LLM ###
 
@@ -421,7 +478,10 @@ def respond(interpreter):
                         _file_snapshots_before = capture_source_file_states(
                             interpreter.computer.cwd or "."
                         )
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(
+                            f"File snapshot capture failed (non-blocking): {e}"
+                        )
                         pass  # Non-blocking
 
                 # === VALIDATION HOOK (pre-execution) ===
@@ -461,7 +521,8 @@ def respond(interpreter):
                                     "format": "output",
                                     "content": f"[Validation] {error}\n",
                                 }
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"Validation failed (non-blocking): {e}")
                         pass  # Non-blocking - continue even if validation fails
 
                 # === EXECUTION WITH OPTIONAL TRACING ===
@@ -519,7 +580,10 @@ def respond(interpreter):
                                     source="respond",
                                 )
                             )
-                        except Exception:
+                        except Exception as e:
+                            logger.debug(
+                                f"Tracing completion failed (non-blocking): {e}"
+                            )
                             pass  # Non-blocking
 
                 # === SEMANTIC MEMORY HOOK (post-execution) ===
@@ -568,7 +632,10 @@ def respond(interpreter):
                                 source="respond",
                             )
                         )
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(
+                            f"Semantic memory recording failed (non-blocking): {e}"
+                        )
                         pass  # Non-blocking - don't crash on memory errors
 
                 # === FILE CHANGE DETECTION: AFTER ===
@@ -614,7 +681,10 @@ def respond(interpreter):
                                         else "",
                                     )
                                     interpreter.semantic_graph.record_edit(edit)
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(
+                            f"File change recording failed (non-blocking): {e}"
+                        )
                         pass  # Non-blocking
 
                 # === AUTO-TEST HOOK ===
@@ -712,7 +782,8 @@ def respond(interpreter):
                                 source="respond",
                             )
                         )
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"Auto-test failed (non-blocking): {e}")
                         pass  # Non-blocking
 
                 # === STATUS INDICATOR (post-execution) ===
@@ -802,7 +873,8 @@ def respond(interpreter):
                                     ),
                                 }
                             )
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"Trace feedback failed (non-blocking): {e}")
                         pass  # Non-blocking
 
         else:

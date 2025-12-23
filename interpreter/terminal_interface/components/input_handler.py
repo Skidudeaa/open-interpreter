@@ -327,10 +327,105 @@ class InputHandler:
         # Help
         @kb.add("f1")
         def show_help(event):
-            # TODO: Show help overlay
-            pass
+            # Show help overlay
+            self._show_help_overlay(event)
 
         return kb
+
+    def _show_help_overlay(self, event) -> None:
+        """Display help overlay with key bindings and commands."""
+        from rich.console import Console
+        from rich.panel import Panel
+        from rich.text import Text
+
+        console = Console()
+
+        # Build help content
+        help_text = Text()
+
+        # Title
+        help_text.append("Open Interpreter Help\n", style="bold cyan")
+        help_text.append("─" * 40 + "\n\n")
+
+        # Key Bindings section
+        help_text.append("⌨️  Key Bindings\n", style="bold yellow")
+        for action, binding in self.bindings.items():
+            key_str = binding.primary
+            if binding.fallback:
+                key_str += f" / {binding.fallback}"
+            help_text.append(f"  {key_str:18}", style="green")
+            help_text.append(f" {binding.description}\n")
+
+        help_text.append("\n")
+
+        # Magic Commands section
+        help_text.append("✨ Magic Commands\n", style="bold yellow")
+        magic_commands = [
+            ("%undo", "Undo last code execution"),
+            ("%redo", "Redo undone operation"),
+            ("%history", "Show command history"),
+            ("%save <file>", "Save conversation to file"),
+            ("%load <file>", "Load conversation from file"),
+            ("%reset", "Reset conversation"),
+            ("%tokens", "Show token usage"),
+            ("%context", "Show current context"),
+            ("%model <name>", "Change model"),
+        ]
+        for cmd, desc in magic_commands:
+            help_text.append(f"  {cmd:18}", style="green")
+            help_text.append(f" {desc}\n")
+
+        help_text.append("\n")
+
+        # Agent Controls section (if agents enabled)
+        if (
+            hasattr(self.interpreter, "enable_agents")
+            and self.interpreter.enable_agents
+        ):
+            help_text.append("🤖 Agent Controls\n", style="bold yellow")
+            agent_commands = [
+                ("Alt+A / F4", "Focus agent strip"),
+                ("Esc", "Cancel current agent"),
+                ("%agents", "List active agents"),
+                ("%agent <name>", "Run specific agent"),
+            ]
+            for cmd, desc in agent_commands:
+                help_text.append(f"  {cmd:18}", style="green")
+                help_text.append(f" {desc}\n")
+            help_text.append("\n")
+
+        # UI Modes section
+        help_text.append("🎨 UI Modes (Alt+P / F2 to cycle)\n", style="bold yellow")
+        modes = [
+            ("ZEN", "Minimal, distraction-free"),
+            ("STANDARD", "Default balanced view"),
+            ("POWER", "Full featured with panels"),
+            ("DEBUG", "Verbose output for debugging"),
+        ]
+        for mode, desc in modes:
+            current = " ◄" if self.state.mode.name == mode else ""
+            help_text.append(f"  {mode:10}", style="cyan" if current else "dim")
+            help_text.append(f" {desc}{current}\n")
+
+        help_text.append("\n")
+        help_text.append("Press any key to close...", style="dim italic")
+
+        # Display the help panel
+        panel = Panel(
+            help_text,
+            title="[bold white]Help[/bold white]",
+            subtitle="[dim]F1 to toggle[/dim]",
+            border_style="blue",
+            padding=(1, 2),
+        )
+
+        # Clear screen and show help
+        console.clear()
+        console.print(panel)
+
+        # Wait for any key press to close
+        # We'll use the event to get back to normal
+        event.app.invalidate()
 
     def _cycle_mode(self) -> None:
         """Cycle through UI modes"""

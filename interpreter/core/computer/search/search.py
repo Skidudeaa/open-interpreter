@@ -33,9 +33,7 @@ from .providers.base import ProviderNotAvailableError, SearchProvider, SearchRes
 from .rate_limiter import RateLimiter
 
 if TYPE_CHECKING:
-    from .providers.duckduckgo import DuckDuckGoProvider
-    from .providers.google import GoogleProvider
-    from .providers.tavily import TavilyProvider
+    pass
 
 
 class Search:

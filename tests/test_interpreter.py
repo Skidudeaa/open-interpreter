@@ -1,5 +1,4 @@
 import os
-import platform
 import signal
 import time
 from random import randint
@@ -25,9 +24,7 @@ except ImportError:
 
 import multiprocessing
 import threading
-import time
 
-import pytest
 from websocket import create_connection
 
 
@@ -112,7 +109,6 @@ def test_authenticated_acknowledging_breaking_server():
     import websockets
 
     async def test_fastapi_server():
-        import asyncio
 
         async with websockets.connect("ws://localhost:8000/") as websocket:
             # Connect to the websocket
@@ -260,7 +256,6 @@ def test_server():
     import websockets
 
     async def test_fastapi_server():
-        import asyncio
 
         async with websockets.connect("ws://localhost:8000/") as websocket:
             # Connect to the websocket
@@ -1262,7 +1257,7 @@ with open('numbers.txt', 'a+') as f:
     time.sleep(3)
 
     # Open the file and read its content
-    with open("numbers.txt", "r") as f:
+    with open("numbers.txt") as f:
         content = f.read()
 
     # Check if '1' and '5' are in the content

@@ -226,7 +226,6 @@ Use citations [1], [2], etc. throughout."""
         depth: str,
     ) -> ResearchReport:
         """Parse LLM synthesis into structured report."""
-        import re
 
         sections = []
         current_section = None

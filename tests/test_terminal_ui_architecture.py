@@ -12,51 +12,47 @@ Tests cover:
 All tests are designed to run without prompt_toolkit interaction.
 """
 
-import pytest
-import time
 import os
-import sys
-from unittest.mock import Mock, MagicMock, patch
+import time
 from collections import deque
 from queue import Queue
+from unittest.mock import Mock, patch
 
-# Import components under test
-from interpreter.terminal_interface.components.ui_state import (
-    UIState,
-    UIMode,
-    AgentState,
-    AgentStatus,
-    AgentRole,
-    ConversationState,
-    ContextState,
-)
-from interpreter.terminal_interface.components.ui_events import (
-    UIEvent,
-    EventType,
-    EventBus,
-    chunk_to_event,
-    get_event_bus,
-    reset_event_bus,
-)
+import pytest
+
 from interpreter.terminal_interface.components.sanitizer import (
+    SanitizeLevel,
+    get_sanitization_report,
+    has_dangerous_sequences,
+    is_safe_sgr,
     sanitize_output,
     strip_ansi,
-    has_dangerous_sequences,
-    get_sanitization_report,
-    SanitizeLevel,
-    is_safe_sgr,
-    SAFE_SGR_CODES,
 )
 from interpreter.terminal_interface.components.ui_backend import (
     BackendType,
-    UIBackend,
-    RichStreamBackend,
     PromptToolkitBackend,
+    RichStreamBackend,
     create_backend,
     is_tty,
     prompt_toolkit_available,
 )
+from interpreter.terminal_interface.components.ui_events import (
+    EventBus,
+    EventType,
+    UIEvent,
+    chunk_to_event,
+    get_event_bus,
+    reset_event_bus,
+)
 
+# Import components under test
+from interpreter.terminal_interface.components.ui_state import (
+    AgentRole,
+    AgentState,
+    AgentStatus,
+    UIMode,
+    UIState,
+)
 
 # ============================================================================
 # UIState Tests
@@ -1071,8 +1067,8 @@ class TestMagicCommandCompleter:
     def test_initialization(self):
         """Test completer initialization"""
         from interpreter.terminal_interface.components.completers import (
+            MAGIC_COMMANDS,
             MagicCommandCompleter,
-            MAGIC_COMMANDS
         )
 
         completer = MagicCommandCompleter()
@@ -1080,8 +1076,11 @@ class TestMagicCommandCompleter:
 
     def test_completion_with_percent(self):
         """Test completions for % commands"""
-        from interpreter.terminal_interface.components.completers import MagicCommandCompleter
         from prompt_toolkit.document import Document
+
+        from interpreter.terminal_interface.components.completers import (
+            MagicCommandCompleter,
+        )
 
         completer = MagicCommandCompleter()
 
@@ -1094,8 +1093,11 @@ class TestMagicCommandCompleter:
 
     def test_no_completion_without_percent(self):
         """Test no completions without % prefix"""
-        from interpreter.terminal_interface.components.completers import MagicCommandCompleter
         from prompt_toolkit.document import Document
+
+        from interpreter.terminal_interface.components.completers import (
+            MagicCommandCompleter,
+        )
 
         completer = MagicCommandCompleter()
         doc = Document("help", cursor_position=4)
@@ -1109,15 +1111,20 @@ class TestFilePathCompleter:
 
     def test_initialization(self):
         """Test file path completer initialization"""
-        from interpreter.terminal_interface.components.completers import FilePathCompleter
+        from interpreter.terminal_interface.components.completers import (
+            FilePathCompleter,
+        )
 
         completer = FilePathCompleter()
         assert completer._path_completer is not None
 
     def test_activation_on_path_chars(self):
         """Test completer activates on path characters"""
-        from interpreter.terminal_interface.components.completers import FilePathCompleter
         from prompt_toolkit.document import Document
+
+        from interpreter.terminal_interface.components.completers import (
+            FilePathCompleter,
+        )
 
         completer = FilePathCompleter()
 
@@ -1132,8 +1139,11 @@ class TestFilePathCompleter:
 
     def test_activation_after_keyword(self):
         """Test completer activates after path keywords"""
-        from interpreter.terminal_interface.components.completers import FilePathCompleter
         from prompt_toolkit.document import Document
+
+        from interpreter.terminal_interface.components.completers import (
+            FilePathCompleter,
+        )
 
         completer = FilePathCompleter()
 
@@ -1148,7 +1158,9 @@ class TestConversationCompleter:
 
     def test_initialization(self):
         """Test conversation completer initialization"""
-        from interpreter.terminal_interface.components.completers import ConversationCompleter
+        from interpreter.terminal_interface.components.completers import (
+            ConversationCompleter,
+        )
 
         mock_interpreter = Mock()
         mock_interpreter.messages = []
@@ -1158,8 +1170,10 @@ class TestConversationCompleter:
 
     def test_cache_update(self):
         """Test cache updates from messages"""
-        from interpreter.terminal_interface.components.completers import ConversationCompleter
-        from prompt_toolkit.document import Document
+
+        from interpreter.terminal_interface.components.completers import (
+            ConversationCompleter,
+        )
 
         mock_interpreter = Mock()
         mock_interpreter.messages = [
@@ -1178,8 +1192,11 @@ class TestConversationCompleter:
 
     def test_completion_suggestions(self):
         """Test completion suggestions from cache"""
-        from interpreter.terminal_interface.components.completers import ConversationCompleter
         from prompt_toolkit.document import Document
+
+        from interpreter.terminal_interface.components.completers import (
+            ConversationCompleter,
+        )
 
         mock_interpreter = Mock()
         mock_interpreter.messages = [
@@ -1200,7 +1217,9 @@ class TestCombinedCompleter:
 
     def test_initialization(self):
         """Test combined completer initialization"""
-        from interpreter.terminal_interface.components.completers import CombinedCompleter
+        from interpreter.terminal_interface.components.completers import (
+            CombinedCompleter,
+        )
 
         mock_interpreter = Mock()
         mock_interpreter.messages = []
@@ -1213,8 +1232,11 @@ class TestCombinedCompleter:
 
     def test_magic_priority(self):
         """Test magic commands take priority"""
-        from interpreter.terminal_interface.components.completers import CombinedCompleter
         from prompt_toolkit.document import Document
+
+        from interpreter.terminal_interface.components.completers import (
+            CombinedCompleter,
+        )
 
         mock_interpreter = Mock()
         mock_interpreter.messages = []
@@ -1233,7 +1255,9 @@ class TestCreateCompleter:
 
     def test_create_with_all_features(self):
         """Test creating completer with all features"""
-        from interpreter.terminal_interface.components.completers import create_completer
+        from interpreter.terminal_interface.components.completers import (
+            create_completer,
+        )
 
         mock_interpreter = Mock()
         mock_interpreter.messages = []
@@ -1250,8 +1274,10 @@ class TestCreateCompleter:
 
     def test_create_without_fuzzy(self):
         """Test creating completer without fuzzy matching"""
-        from interpreter.terminal_interface.components.completers import create_completer
-        from interpreter.terminal_interface.components.completers import CombinedCompleter
+        from interpreter.terminal_interface.components.completers import (
+            CombinedCompleter,
+            create_completer,
+        )
 
         mock_interpreter = Mock()
         mock_interpreter.messages = []

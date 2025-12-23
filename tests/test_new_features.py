@@ -7,7 +7,6 @@ Tests for the 3 new advanced features:
 import os
 import sys
 import tempfile
-import shutil
 from pathlib import Path
 
 # Add project root to path
@@ -130,7 +129,7 @@ class TestFileSnapshot:
 
             assert len(changed) == 1, f"Expected 1 deleted file, got {len(changed)}"
             old_content, new_content = changed[str(test_py)]
-            assert old_content == "# will be deleted", f"Wrong old content"
+            assert old_content == "# will be deleted", "Wrong old content"
             assert new_content == "", "New content should be empty for deleted file"
 
         print("✓ test_diff_file_states_deleted passed")
@@ -180,9 +179,7 @@ class TestCoreFlags:
 
     def test_activate_all_features(self):
         """Test that activate_all_features enables the new flags."""
-        import os
         import sys
-        import importlib
 
         # Save and clear OI_ACTIVATE_ALL to test default behavior
         original_value = os.environ.pop("OI_ACTIVATE_ALL", None)
@@ -228,7 +225,7 @@ class TestMemoryExports:
 
     def test_create_edit_from_file_change_works(self):
         """Test that create_edit_from_file_change creates an Edit."""
-        from interpreter.core.memory import create_edit_from_file_change, Edit
+        from interpreter.core.memory import Edit, create_edit_from_file_change
 
         edit = create_edit_from_file_change(
             file_path="/test/file.py",
@@ -250,8 +247,8 @@ class TestStatusBar:
 
     def test_features_banner_includes_new_features(self):
         """Test that FeaturesBanner shows auto-test and trace-fb."""
-        from interpreter.terminal_interface.components.status_bar import FeaturesBanner
         from interpreter.core.core import OpenInterpreter
+        from interpreter.terminal_interface.components.status_bar import FeaturesBanner
 
         interp = OpenInterpreter()
         interp.activate_all_features()

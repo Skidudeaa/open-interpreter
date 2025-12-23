@@ -57,7 +57,7 @@ CWD: {os.getcwd()}
 
 """
 
-CUSTOM_MESSAGE_SYSTEM_MESSAGE = f"""
+CUSTOM_MESSAGE_SYSTEM_MESSAGE = rf"""
 
 You are a fast, efficient AI assistant for terminal and coding tasks. When summoned, you will:
 
@@ -81,7 +81,7 @@ CWD: {os.getcwd()}
 
 """
 
-LOCAL_SYSTEM_MESSAGE = f"""
+LOCAL_SYSTEM_MESSAGE = rf"""
 You're a fast AI assistant for terminal issues. You must:
 
 1. Scan terminal history
@@ -286,7 +286,7 @@ def main():
             )
             history += f"\nThe last command, {last_command}, resulted in this output:\n{last_command_output}"
 
-        except Exception as e:
+        except Exception:
             raise
             print(
                 "Failed to retrieve and run the last command from terminal history. Exiting."
@@ -335,7 +335,7 @@ def main():
     def get_lines_from_file(filename, line_number):
         lines = []
         try:
-            with open(filename, "r") as file:
+            with open(filename) as file:
                 all_lines = file.readlines()
                 start_line = max(0, line_number - 3)  # Preceding lines
                 end_line = min(len(all_lines), line_number + 2)  # Following lines
@@ -368,7 +368,7 @@ def main():
     )
 
     try:
-        with open(default_profile_path, "r") as file:
+        with open(default_profile_path) as file:
             profile = yaml.safe_load(file)
             wtf_model = profile.get("wtf", {}).get("model")
             if wtf_model:

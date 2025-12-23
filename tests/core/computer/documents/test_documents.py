@@ -13,7 +13,6 @@ import unittest
 from unittest import mock
 
 from interpreter.core.computer.documents.parsers.base import (
-    BaseParser,
     DocumentType,
     ParsedDocument,
 )

@@ -4,7 +4,6 @@ Tests the actual execution flow with file detection and hooks.
 """
 import sys
 import tempfile
-import os
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))

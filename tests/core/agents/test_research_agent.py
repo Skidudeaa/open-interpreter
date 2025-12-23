@@ -12,7 +12,6 @@ Tests research functionality including:
 import unittest
 from unittest import mock
 
-from interpreter.core.agents.research_agent import ResearchAgent, ResearchConfig
 from interpreter.core.agents.research.sources import (
     SearchResults,
     SourceResult,
@@ -22,6 +21,7 @@ from interpreter.core.agents.research.synthesizer import (
     ResearchReport,
     ResearchSynthesizer,
 )
+from interpreter.core.agents.research_agent import ResearchAgent, ResearchConfig
 
 
 class TestResearchConfig(unittest.TestCase):

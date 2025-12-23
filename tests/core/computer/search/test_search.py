@@ -13,13 +13,11 @@ import time
 import unittest
 from unittest import mock
 
+from interpreter.core.computer.search.cache import SearchCache
 from interpreter.core.computer.search.providers.base import (
-    ProviderNotAvailableError,
-    SearchProvider,
     SearchResult,
 )
-from interpreter.core.computer.search.cache import SearchCache
-from interpreter.core.computer.search.rate_limiter import ProviderLimits, RateLimiter
+from interpreter.core.computer.search.rate_limiter import RateLimiter
 
 
 class TestSearchResult(unittest.TestCase):
@@ -201,7 +199,6 @@ class TestDuckDuckGoProvider(unittest.TestCase):
         """Test availability check when library not installed."""
         from interpreter.core.computer.search.providers.duckduckgo import (
             DuckDuckGoProvider,
-            _get_ddgs,
         )
 
         provider = DuckDuckGoProvider()

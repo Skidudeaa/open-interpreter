@@ -1,6 +1,7 @@
 import os
-import pytest
 from unittest import TestCase, mock
+
+import pytest
 
 from interpreter.core.async_core import AsyncInterpreter, Server
 

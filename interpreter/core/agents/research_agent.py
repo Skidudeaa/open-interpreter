@@ -188,7 +188,7 @@ Always provide:
 
         try:
             report = loop.run_until_complete(self._research_async(task, context))
-        except Exception as e:
+        except Exception:
             # Fallback to basic search if async fails
             report = self._research_sync(task)
 

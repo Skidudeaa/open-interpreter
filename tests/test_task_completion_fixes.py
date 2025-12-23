@@ -4,9 +4,10 @@ Tests for the task completion fixes:
 2. Empty LLM response handling
 3. Graceful stop handling
 """
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 
 # Add the parent directory to the path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -17,7 +18,6 @@ class TestLoopBreakerMatching:
 
     def test_genuine_loop_breaker_at_end(self):
         """Loop breaker at end of content should match."""
-        from interpreter.core.respond import respond
 
         # We can't easily test respond() directly, but we can test the logic
         # by importing and checking the function behavior
@@ -66,7 +66,7 @@ class TestEmptyResponseHandling:
 
     def test_llm_module_imports(self):
         """Ensure LLM module can be imported."""
-        from interpreter.core.llm.llm import Llm, fixed_litellm_completions
+        from interpreter.core.llm.llm import fixed_litellm_completions
         assert callable(fixed_litellm_completions)
 
 
@@ -76,9 +76,10 @@ class TestGracefulStopHandling:
     def test_interpreter_has_stop_event(self):
         """Async interpreter should have stop_event."""
         try:
-            from interpreter.core.async_core import AsyncInterpreter
             # Can't instantiate without FastAPI, but we can check the class
             import inspect
+
+            from interpreter.core.async_core import AsyncInterpreter
             source = inspect.getsource(AsyncInterpreter.__init__)
             assert "stop_event" in source
         except ImportError:
@@ -87,8 +88,9 @@ class TestGracefulStopHandling:
 
     def test_core_yields_interrupted_status(self):
         """Core should yield interrupted status when stopped."""
-        from interpreter.core.core import OpenInterpreter
         import inspect
+
+        from interpreter.core.core import OpenInterpreter
         source = inspect.getsource(OpenInterpreter._respond_and_store)
         # Check our fix is present
         assert "interrupted" in source
@@ -100,8 +102,9 @@ class TestConfirmationHandling:
 
     def test_terminal_interface_continues_after_decline(self):
         """Terminal interface should continue after code decline."""
-        from interpreter.terminal_interface import terminal_interface
         import inspect
+
+        from interpreter.terminal_interface import terminal_interface
         source = inspect.getsource(terminal_interface.terminal_interface)
 
         # Check our fix is present - it should continue instead of break
@@ -114,8 +117,9 @@ class TestTimeoutHandling:
 
     def test_timeout_param_added(self):
         """Timeout parameter should be added to completions."""
-        from interpreter.core.llm.llm import fixed_litellm_completions
         import inspect
+
+        from interpreter.core.llm.llm import fixed_litellm_completions
         source = inspect.getsource(fixed_litellm_completions)
 
         # Check our fix is present
@@ -128,8 +132,9 @@ class TestRetryLogic:
 
     def test_exponential_backoff_in_llm(self):
         """LLM should use exponential backoff."""
-        from interpreter.core.llm.llm import fixed_litellm_completions
         import inspect
+
+        from interpreter.core.llm.llm import fixed_litellm_completions
         source = inspect.getsource(fixed_litellm_completions)
 
         # Check exponential backoff is present
@@ -138,8 +143,9 @@ class TestRetryLogic:
     def test_async_core_has_better_retry(self):
         """Async core should have improved retry logic."""
         try:
-            from interpreter.core.async_core import AsyncInterpreter
             import inspect
+
+            from interpreter.core.async_core import AsyncInterpreter
             source = inspect.getsource(AsyncInterpreter.respond)
 
             # Check our improvements are present
@@ -154,8 +160,9 @@ class TestUIResponsiveness:
 
     def test_terminal_interface_has_rate_limiting(self):
         """Terminal interface should have refresh rate limiting."""
-        from interpreter.terminal_interface import terminal_interface
         import inspect
+
+        from interpreter.terminal_interface import terminal_interface
         source = inspect.getsource(terminal_interface.terminal_interface)
 
         # Check our rate limiting is present
@@ -164,8 +171,9 @@ class TestUIResponsiveness:
 
     def test_code_block_has_throttling(self):
         """Code block should have refresh throttling."""
-        from interpreter.terminal_interface.components.code_block import CodeBlock
         import inspect
+
+        from interpreter.terminal_interface.components.code_block import CodeBlock
         source = inspect.getsource(CodeBlock.refresh)
 
         # Check throttling is present
@@ -178,8 +186,11 @@ class TestJupyterTermination:
 
     def test_jupyter_terminate_waits_for_thread(self):
         """Jupyter terminate should wait for listener thread."""
-        from interpreter.core.computer.terminal.languages.jupyter_language import JupyterLanguage
         import inspect
+
+        from interpreter.core.computer.terminal.languages.jupyter_language import (
+            JupyterLanguage,
+        )
         source = inspect.getsource(JupyterLanguage.terminate)
 
         # Check our thread-safe terminate is present

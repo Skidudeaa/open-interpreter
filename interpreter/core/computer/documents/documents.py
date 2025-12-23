@@ -63,9 +63,9 @@ class Documents:
         self.computer = computer
 
         # Lazy-loaded parsers
-        self._pdf_parser: "PDFParser | None" = None
-        self._docx_parser: "DocxParser | None" = None
-        self._web_parser: "WebParser | None" = None
+        self._pdf_parser: PDFParser | None = None
+        self._docx_parser: DocxParser | None = None
+        self._web_parser: WebParser | None = None
 
     @property
     def pdf_parser(self) -> "PDFParser":

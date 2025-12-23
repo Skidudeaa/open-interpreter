@@ -8,7 +8,6 @@ Tavily is designed specifically for AI applications with:
 - Citation support
 """
 
-import os
 from typing import Any
 
 import requests

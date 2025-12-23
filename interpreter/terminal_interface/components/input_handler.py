@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
 try:
     from pygments.lexers.python import PythonLexer
+
     HAS_PYGMENTS = True
 except ImportError:
     HAS_PYGMENTS = False
@@ -38,27 +39,29 @@ except ImportError:
 
 class KeyAction(Enum):
     """Available key binding actions"""
-    CANCEL = auto()           # Cancel current operation
-    CLEAR = auto()            # Clear screen
-    EXIT = auto()             # Exit application
-    SUBMIT = auto()           # Submit input
-    NEWLINE = auto()          # Insert newline
-    MODE_TOGGLE = auto()      # Toggle UI mode
-    MODE_ZEN = auto()         # Switch to zen mode
-    MODE_POWER = auto()       # Switch to power mode
-    MODE_DEBUG = auto()       # Switch to debug mode
-    HISTORY_SEARCH = auto()   # Search history
-    COMPLETE = auto()         # Trigger completion
-    AGENT_FOCUS = auto()      # Focus agent strip
-    PANEL_TOGGLE = auto()     # Toggle context panel
-    HELP = auto()             # Show help
+
+    CANCEL = auto()  # Cancel current operation
+    CLEAR = auto()  # Clear screen
+    EXIT = auto()  # Exit application
+    SUBMIT = auto()  # Submit input
+    NEWLINE = auto()  # Insert newline
+    MODE_TOGGLE = auto()  # Toggle UI mode
+    MODE_ZEN = auto()  # Switch to zen mode
+    MODE_POWER = auto()  # Switch to power mode
+    MODE_DEBUG = auto()  # Switch to debug mode
+    HISTORY_SEARCH = auto()  # Search history
+    COMPLETE = auto()  # Trigger completion
+    AGENT_FOCUS = auto()  # Focus agent strip
+    PANEL_TOGGLE = auto()  # Toggle context panel
+    HELP = auto()  # Show help
 
 
 @dataclass
 class KeyBinding:
     """A key binding configuration"""
+
     action: KeyAction
-    primary: str              # Primary key (e.g., 'c-l')
+    primary: str  # Primary key (e.g., 'c-l')
     fallback: str | None = None  # Fallback key (e.g., 'f5')
     description: str = ""
 
@@ -67,64 +70,56 @@ class KeyBinding:
 DEFAULT_BINDINGS: dict[KeyAction, KeyBinding] = {
     KeyAction.CANCEL: KeyBinding(
         action=KeyAction.CANCEL,
-        primary='escape',
-        description='Cancel current operation'
+        primary="escape",
+        description="Cancel current operation",
     ),
     KeyAction.CLEAR: KeyBinding(
-        action=KeyAction.CLEAR,
-        primary='c-l',
-        description='Clear screen'
+        action=KeyAction.CLEAR, primary="c-l", description="Clear screen"
     ),
     KeyAction.EXIT: KeyBinding(
-        action=KeyAction.EXIT,
-        primary='c-d',
-        description='Exit (on empty input)'
+        action=KeyAction.EXIT, primary="c-d", description="Exit (on empty input)"
     ),
     KeyAction.SUBMIT: KeyBinding(
         action=KeyAction.SUBMIT,
-        primary='enter',
-        fallback='c-j',
-        description='Submit input'
+        primary="enter",
+        fallback="c-j",
+        description="Submit input",
     ),
     KeyAction.NEWLINE: KeyBinding(
         action=KeyAction.NEWLINE,
-        primary='escape enter',  # Alt+Enter
-        fallback='c-o',
-        description='Insert newline'
+        primary="escape enter",  # Alt+Enter
+        fallback="c-o",
+        description="Insert newline",
     ),
     KeyAction.MODE_TOGGLE: KeyBinding(
         action=KeyAction.MODE_TOGGLE,
-        primary='escape p',  # Alt+P
-        fallback='f2',
-        description='Toggle UI mode'
+        primary="escape p",  # Alt+P
+        fallback="f2",
+        description="Toggle UI mode",
     ),
     KeyAction.HISTORY_SEARCH: KeyBinding(
-        action=KeyAction.HISTORY_SEARCH,
-        primary='c-r',
-        description='Search history'
+        action=KeyAction.HISTORY_SEARCH, primary="c-r", description="Search history"
     ),
     KeyAction.COMPLETE: KeyBinding(
         action=KeyAction.COMPLETE,
-        primary='c-space',
-        fallback='tab',
-        description='Trigger completion'
+        primary="c-space",
+        fallback="tab",
+        description="Trigger completion",
     ),
     KeyAction.AGENT_FOCUS: KeyBinding(
         action=KeyAction.AGENT_FOCUS,
-        primary='escape a',  # Alt+A
-        fallback='f4',
-        description='Focus agent strip'
+        primary="escape a",  # Alt+A
+        fallback="f4",
+        description="Focus agent strip",
     ),
     KeyAction.PANEL_TOGGLE: KeyBinding(
         action=KeyAction.PANEL_TOGGLE,
-        primary='escape h',  # Alt+H
-        fallback='f3',
-        description='Toggle context panel'
+        primary="escape h",  # Alt+H
+        fallback="f3",
+        description="Toggle context panel",
     ),
     KeyAction.HELP: KeyBinding(
-        action=KeyAction.HELP,
-        primary='f1',
-        description='Show help'
+        action=KeyAction.HELP, primary="f1", description="Show help"
     ),
 }
 
@@ -169,14 +164,16 @@ class InputHandler:
         self._on_submit: Callable[[str], None] | None = None
         self._on_mode_change: Callable[[UIMode], None] | None = None
 
-    def set_binding(self, action: KeyAction, primary: str, fallback: str | None = None) -> None:
+    def set_binding(
+        self, action: KeyAction, primary: str, fallback: str | None = None
+    ) -> None:
         """Override a key binding"""
         if action in self.bindings:
             self.bindings[action] = KeyBinding(
                 action=action,
                 primary=primary,
                 fallback=fallback,
-                description=self.bindings[action].description
+                description=self.bindings[action].description,
             )
 
     def create_key_bindings(self) -> KeyBindings:
@@ -191,9 +188,14 @@ class InputHandler:
             """
             if not text:
                 return False
-            if text.startswith('"""') and not text.endswith('"""'):
+            # NOTE: We treat a bare triple-quote as "start multiline" (common user intent),
+            # but we do NOT force multiline for completed one-liners like: """code""".
+            stripped = text.strip()
+            if stripped == '"""':
                 return True
-            return "\n" in text or text.startswith('"""')
+            if text.startswith('"""') and not text.rstrip().endswith('"""'):
+                return True
+            return "\n" in text
 
         submit_binding = self.bindings.get(KeyAction.SUBMIT)
         newline_binding = self.bindings.get(KeyAction.NEWLINE)
@@ -236,56 +238,94 @@ class InputHandler:
         _bind_keys(newline_binding, insert_newline)
 
         # Cancel
-        @kb.add('escape')
+        @kb.add("escape")
         def cancel(event):
             if self._on_cancel:
                 self._on_cancel()
-            self.event_bus.emit(UIEvent(type=EventType.UI_CANCEL, source="input_handler"))
+            self.event_bus.emit(
+                UIEvent(type=EventType.UI_CANCEL, source="input_handler")
+            )
+
+        # Cancel/quit (Ctrl+C)
+        #
+        # - If there's typed input, clear it (like most shells).
+        # - If the interpreter is busy, cancel the current operation.
+        # - If we're idle with an empty buffer, exit the application.
+        @kb.add("c-c")
+        def cancel_or_exit(event):
+            buffer = event.current_buffer
+            if buffer.text.strip():
+                buffer.text = ""
+                event.app.invalidate()
+                return
+
+            if (
+                self.state.is_responding
+                or self.state.is_streaming
+                or self.state.has_active_agents
+            ):
+                if self._on_cancel:
+                    self._on_cancel()
+                self.event_bus.emit(
+                    UIEvent(type=EventType.UI_CANCEL, source="input_handler")
+                )
+                return
+
+            event.app.exit()
 
         # Clear screen
-        @kb.add('c-l')
+        @kb.add("c-l")
         def clear(event):
             event.app.renderer.clear()
 
         # Exit on Ctrl+D with empty buffer
-        @kb.add('c-d')
+        @kb.add("c-d")
         def exit_app(event):
-            if not event.current_buffer.text:
+            # Treat whitespace-only buffers as empty so quit works even after
+            # multiline input that left trailing newlines/spaces.
+            if not event.current_buffer.text.strip():
                 event.app.exit()
 
         # Mode toggle - Alt+P (as escape sequence) and F2
-        @kb.add('escape', 'p')
-        @kb.add('f2')
+        @kb.add("escape", "p")
+        @kb.add("f2")
         def toggle_mode(event):
             self._cycle_mode()
 
         # Agent focus - Alt+A and F4
-        @kb.add('escape', 'a')
-        @kb.add('f4')
+        @kb.add("escape", "a")
+        @kb.add("f4")
         def focus_agents(event):
-            self.event_bus.emit(UIEvent(
-                type=EventType.UI_PANEL_TOGGLE,
-                data={"panel": "agents"},
-                source="input_handler"
-            ))
+            self.event_bus.emit(
+                UIEvent(
+                    type=EventType.UI_PANEL_TOGGLE,
+                    data={"panel": "agents"},
+                    source="input_handler",
+                )
+            )
 
         # Panel toggle - Alt+H and F3
-        @kb.add('escape', 'h')
-        @kb.add('f3')
+        @kb.add("escape", "h")
+        @kb.add("f3")
         def toggle_panel(event):
             if "context" in self.state.panels_visible:
                 self.state.panels_visible.remove("context")
             else:
                 self.state.panels_visible.add("context")
-            self.event_bus.emit(UIEvent(
-                type=EventType.UI_PANEL_TOGGLE,
-                data={"panel": "context", "visible": "context" in self.state.panels_visible},
-                source="input_handler"
-            ))
+            self.event_bus.emit(
+                UIEvent(
+                    type=EventType.UI_PANEL_TOGGLE,
+                    data={
+                        "panel": "context",
+                        "visible": "context" in self.state.panels_visible,
+                    },
+                    source="input_handler",
+                )
+            )
             event.app.invalidate()
 
         # Help
-        @kb.add('f1')
+        @kb.add("f1")
         def show_help(event):
             # TODO: Show help overlay
             pass
@@ -302,11 +342,13 @@ class InputHandler:
         if self._on_mode_change:
             self._on_mode_change(self.state.mode)
 
-        self.event_bus.emit(UIEvent(
-            type=EventType.UI_MODE_CHANGE,
-            data={"mode": self.state.mode.name},
-            source="input_handler"
-        ))
+        self.event_bus.emit(
+            UIEvent(
+                type=EventType.UI_MODE_CHANGE,
+                data={"mode": self.state.mode.name},
+                source="input_handler",
+            )
+        )
 
     def create_prompt_session(self) -> PromptSession:
         """
@@ -326,10 +368,7 @@ class InputHandler:
             lexer = PygmentsLexer(PythonLexer)
 
         # Editing mode
-        edit_mode = (
-            EditingMode.VI if self.editing_mode == "vi"
-            else EditingMode.EMACS
-        )
+        edit_mode = EditingMode.VI if self.editing_mode == "vi" else EditingMode.EMACS
 
         session = PromptSession(
             history=self.history,

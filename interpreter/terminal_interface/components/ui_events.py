@@ -20,12 +20,13 @@ Usage:
         handle(event)
 """
 
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Callable, Dict, List, Optional, Any
-from queue import Queue, Empty
+from queue import Empty, Queue
 from threading import Lock
-import time
+from typing import Any
 
 
 class EventType(Enum):
@@ -42,40 +43,40 @@ class EventType(Enum):
     """
 
     # Message events (LLM streaming)
-    MESSAGE_START = auto()      # New message block starting
-    MESSAGE_CHUNK = auto()      # Text content chunk
-    MESSAGE_END = auto()        # Message complete
+    MESSAGE_START = auto()  # New message block starting
+    MESSAGE_CHUNK = auto()  # Text content chunk
+    MESSAGE_END = auto()  # Message complete
 
     # Code events
-    CODE_START = auto()         # New code block
-    CODE_CHUNK = auto()         # Code content
-    CODE_END = auto()           # Code block complete
+    CODE_START = auto()  # New code block
+    CODE_CHUNK = auto()  # Code content
+    CODE_END = auto()  # Code block complete
 
     # Console events (execution output)
-    CONSOLE_OUTPUT = auto()     # stdout
-    CONSOLE_ERROR = auto()      # stderr
+    CONSOLE_OUTPUT = auto()  # stdout
+    CONSOLE_ERROR = auto()  # stderr
     CONSOLE_ACTIVE_LINE = auto()  # Currently executing line
 
     # Agent events (from orchestrator)
-    AGENT_SPAWN = auto()        # New agent created
-    AGENT_OUTPUT = auto()       # Agent produced output
-    AGENT_COMPLETE = auto()     # Agent finished successfully
-    AGENT_ERROR = auto()        # Agent failed
-    AGENT_CANCELLED = auto()    # Agent was cancelled
+    AGENT_SPAWN = auto()  # New agent created
+    AGENT_OUTPUT = auto()  # Agent produced output
+    AGENT_COMPLETE = auto()  # Agent finished successfully
+    AGENT_ERROR = auto()  # Agent failed
+    AGENT_CANCELLED = auto()  # Agent was cancelled
 
     # UI events (user interaction)
-    UI_CANCEL = auto()          # User pressed Esc
-    UI_MODE_CHANGE = auto()     # Mode switched (zen/standard/power/debug)
-    UI_PANEL_TOGGLE = auto()    # Panel visibility toggled
+    UI_CANCEL = auto()  # User pressed Esc
+    UI_MODE_CHANGE = auto()  # Mode switched (zen/standard/power/debug)
+    UI_PANEL_TOGGLE = auto()  # Panel visibility toggled
 
     # System events
-    SYSTEM_START = auto()       # Interpreter started responding
-    SYSTEM_END = auto()         # Interpreter finished
-    SYSTEM_ERROR = auto()       # Error occurred
+    SYSTEM_START = auto()  # Interpreter started responding
+    SYSTEM_END = auto()  # Interpreter finished
+    SYSTEM_ERROR = auto()  # Error occurred
     SYSTEM_TOKEN_UPDATE = auto()  # Token count updated
 
     # Confirmation events (for code approval)
-    CONFIRMATION_REQUEST = auto()   # Asking user to approve code
+    CONFIRMATION_REQUEST = auto()  # Asking user to approve code
     CONFIRMATION_RESPONSE = auto()  # User responded
 
 
@@ -93,8 +94,9 @@ class UIEvent:
         timestamp: When the event was created
         source: Where the event originated ("respond", "orchestrator", "computer", "ui")
     """
+
     type: EventType
-    data: Dict[str, Any] = field(default_factory=dict)
+    data: dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
     source: str = "unknown"
 
@@ -138,15 +140,19 @@ class EventBus:
 
     def __init__(self, max_queue_size: int = 10000):
         self._queue: Queue[UIEvent] = Queue(maxsize=max_queue_size)
-        self._handlers: Dict[EventType, List[EventHandler]] = {}
-        self._global_handlers: List[EventHandler] = []
+        self._handlers: dict[EventType, list[EventHandler]] = {}
+        self._global_handlers: list[EventHandler] = []
         self._lock = Lock()
 
         # Rate limiting (optional)
-        self._last_emit_time: Dict[EventType, float] = {}
-        self._rate_limits: Dict[EventType, float] = {}  # EventType -> min seconds between events
+        self._last_emit_time: dict[EventType, float] = {}
+        self._rate_limits: dict[
+            EventType, float
+        ] = {}  # EventType -> min seconds between events
 
-    def set_rate_limit(self, event_type: EventType, min_interval_seconds: float) -> None:
+    def set_rate_limit(
+        self, event_type: EventType, min_interval_seconds: float
+    ) -> None:
         """
         Set minimum interval between events of this type.
         Useful for high-frequency events like CONSOLE_OUTPUT.
@@ -212,11 +218,12 @@ class EventBus:
             return True
         except Exception:
             # Queue is full - log and drop
-            from .ui_logger import log_ui_event
+            from ..utils.ui_logger import log_ui_event
+
             log_ui_event("EventBus", f"dropped event {event.type.value} - queue full")
             return False
 
-    def poll(self, timeout: Optional[float] = None) -> Optional[UIEvent]:
+    def poll(self, timeout: float | None = None) -> UIEvent | None:
         """
         Get the next event from the queue.
 
@@ -236,7 +243,7 @@ class EventBus:
         except Empty:
             return None
 
-    def drain(self, max_events: int = 100) -> List[UIEvent]:
+    def drain(self, max_events: int = 100) -> list[UIEvent]:
         """
         Get all pending events (up to max_events).
 
@@ -317,7 +324,7 @@ class EventBus:
         return self._queue.qsize()
 
 
-def chunk_to_event(chunk: Dict[str, Any]) -> Optional[UIEvent]:
+def chunk_to_event(chunk: dict[str, Any]) -> UIEvent | None:
     """
     Convert an interpreter chunk to a UIEvent.
 
@@ -339,19 +346,17 @@ def chunk_to_event(chunk: Dict[str, Any]) -> Optional[UIEvent]:
             return UIEvent(
                 type=EventType.MESSAGE_START,
                 data={"role": chunk_role},
-                source="respond"
+                source="respond",
             )
         elif chunk.get("end"):
             return UIEvent(
-                type=EventType.MESSAGE_END,
-                data={"role": chunk_role},
-                source="respond"
+                type=EventType.MESSAGE_END, data={"role": chunk_role}, source="respond"
             )
         elif "content" in chunk:
             return UIEvent(
                 type=EventType.MESSAGE_CHUNK,
                 data={"content": chunk["content"], "role": chunk_role},
-                source="respond"
+                source="respond",
             )
 
     # Code events
@@ -360,19 +365,15 @@ def chunk_to_event(chunk: Dict[str, Any]) -> Optional[UIEvent]:
             return UIEvent(
                 type=EventType.CODE_START,
                 data={"language": chunk.get("format", "python")},
-                source="respond"
+                source="respond",
             )
         elif chunk.get("end"):
-            return UIEvent(
-                type=EventType.CODE_END,
-                data={},
-                source="respond"
-            )
+            return UIEvent(type=EventType.CODE_END, data={}, source="respond")
         elif "content" in chunk:
             return UIEvent(
                 type=EventType.CODE_CHUNK,
                 data={"content": chunk["content"]},
-                source="respond"
+                source="respond",
             )
 
     # Console events
@@ -381,16 +382,18 @@ def chunk_to_event(chunk: Dict[str, Any]) -> Optional[UIEvent]:
             return UIEvent(
                 type=EventType.CONSOLE_ACTIVE_LINE,
                 data={"line": chunk.get("content")},
-                source="computer"
+                source="computer",
             )
         elif chunk_format == "output":
             content = chunk.get("content", "")
             # Detect stderr vs stdout
-            event_type = EventType.CONSOLE_ERROR if "error" in str(content).lower() else EventType.CONSOLE_OUTPUT
+            event_type = (
+                EventType.CONSOLE_ERROR
+                if "error" in str(content).lower()
+                else EventType.CONSOLE_OUTPUT
+            )
             return UIEvent(
-                type=event_type,
-                data={"content": content},
-                source="computer"
+                type=event_type, data={"content": content}, source="computer"
             )
 
     # Confirmation events
@@ -398,7 +401,7 @@ def chunk_to_event(chunk: Dict[str, Any]) -> Optional[UIEvent]:
         return UIEvent(
             type=EventType.CONFIRMATION_REQUEST,
             data={"code": chunk.get("content", {})},
-            source="respond"
+            source="respond",
         )
 
     # Status events
@@ -406,14 +409,14 @@ def chunk_to_event(chunk: Dict[str, Any]) -> Optional[UIEvent]:
         return UIEvent(
             type=EventType.SYSTEM_TOKEN_UPDATE,
             data=chunk.get("content", {}),
-            source="respond"
+            source="respond",
         )
 
     return None
 
 
 # Singleton event bus (optional, can also create per-session)
-_global_bus: Optional[EventBus] = None
+_global_bus: EventBus | None = None
 
 
 def get_event_bus() -> EventBus:

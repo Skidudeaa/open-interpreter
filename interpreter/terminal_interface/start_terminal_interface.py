@@ -2,8 +2,7 @@ import argparse
 import os
 import sys
 import time
-
-from importlib.metadata import version, PackageNotFoundError
+from importlib.metadata import version
 
 from interpreter.terminal_interface.contributing_conversations import (
     contribute_conversation_launch_logic,
@@ -430,7 +429,7 @@ Use """ to write multi-line messages.
     if interpreter.auto_run and (
         interpreter.safe_mode == "ask" or interpreter.safe_mode == "auto"
     ):
-        setattr(interpreter, "auto_run", False)
+        interpreter.auto_run = False
 
     ### Set attributes on interpreter, so that a profile script can read the arguments passed in via the CLI
 
@@ -577,7 +576,7 @@ Use """ to write multi-line messages.
     interpreter.in_terminal_interface = True
 
     # Initialize UI backend (Phase 1)
-    from .components.ui_backend import create_backend, BackendType
+    from .components.ui_backend import BackendType, create_backend
     from .components.ui_state import UIState
 
     ui_state = UIState()
@@ -648,10 +647,12 @@ def main():
     if not skip_resume and (resume_prompt := get_resume_prompt(interpreter)):
         try:
             response = input(f"\n{resume_prompt} ").strip().lower()
-            if response == 'y':
+            if response == "y":
                 sessions = session_mgr.list_sessions(limit=1)
-                if sessions and session_mgr.load_session(sessions[0]['id']):
-                    print(f"Resumed session with {len(interpreter.messages)} messages.\n")
+                if sessions and session_mgr.load_session(sessions[0]["id"]):
+                    print(
+                        f"Resumed session with {len(interpreter.messages)} messages.\n"
+                    )
         except (EOFError, KeyboardInterrupt):
             pass
 
@@ -679,7 +680,7 @@ def main():
                         feedback = False
                     else:
                         feedback = None
-                    if feedback != None and not interpreter.contribute_conversation:
+                    if feedback is not None and not interpreter.contribute_conversation:
                         if interpreter.llm.model == "i":
                             contribute = "y"
                         else:

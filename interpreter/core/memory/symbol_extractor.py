@@ -10,9 +10,6 @@ For other languages, tree-sitter can be used as an optional extension.
 
 import ast
 import difflib
-from dataclasses import dataclass
-from pathlib import Path
-from typing import List, Optional, Set, Tuple
 
 from .edit_record import SymbolReference
 
@@ -22,7 +19,9 @@ class PythonSymbolExtractor:
     Extracts code symbols from Python source code using AST.
     """
 
-    def extract_symbols(self, source_code: str, file_path: str = "") -> List[SymbolReference]:
+    def extract_symbols(
+        self, source_code: str, file_path: str = ""
+    ) -> list[SymbolReference]:
         """
         Extract all symbols from Python source code.
 
@@ -48,11 +47,8 @@ class PythonSymbolExtractor:
         return symbols
 
     def _node_to_symbol(
-        self,
-        node: ast.AST,
-        file_path: str,
-        source_code: str
-    ) -> Optional[SymbolReference]:
+        self, node: ast.AST, file_path: str, source_code: str
+    ) -> SymbolReference | None:
         """Convert an AST node to a SymbolReference if applicable."""
 
         if isinstance(node, ast.FunctionDef):
@@ -90,7 +86,7 @@ class PythonSymbolExtractor:
 
         elif isinstance(node, ast.Assign):
             # Module-level variable assignments
-            if hasattr(node, 'lineno'):
+            if hasattr(node, "lineno"):
                 for target in node.targets:
                     if isinstance(target, ast.Name):
                         return SymbolReference(
@@ -184,11 +180,8 @@ class DiffSymbolExtractor:
         self.python_extractor = PythonSymbolExtractor()
 
     def find_affected_symbols(
-        self,
-        original_code: str,
-        new_code: str,
-        file_path: str = ""
-    ) -> Tuple[List[SymbolReference], List[SymbolReference], List[SymbolReference]]:
+        self, original_code: str, new_code: str, file_path: str = ""
+    ) -> tuple[list[SymbolReference], list[SymbolReference], list[SymbolReference]]:
         """
         Find symbols affected by a code change.
 
@@ -201,7 +194,9 @@ class DiffSymbolExtractor:
             Tuple of (added_symbols, removed_symbols, modified_symbols)
         """
         # Extract symbols from both versions
-        original_symbols = self.python_extractor.extract_symbols(original_code, file_path)
+        original_symbols = self.python_extractor.extract_symbols(
+            original_code, file_path
+        )
         new_symbols = self.python_extractor.extract_symbols(new_code, file_path)
 
         # Create lookup dictionaries
@@ -226,19 +221,21 @@ class DiffSymbolExtractor:
             new = new_by_name[name]
 
             # Check if signature or line range changed significantly
-            if (orig.signature != new.signature or
-                abs(orig.line_start - new.line_start) > 0 or
-                abs((orig.line_end - orig.line_start) - (new.line_end - new.line_start)) > 0):
+            if (
+                orig.signature != new.signature
+                or abs(orig.line_start - new.line_start) > 0
+                or abs(
+                    (orig.line_end - orig.line_start) - (new.line_end - new.line_start)
+                )
+                > 0
+            ):
                 modified_symbols.append(new)
 
         return added_symbols, removed_symbols, modified_symbols
 
     def find_symbols_in_diff_range(
-        self,
-        code: str,
-        changed_lines: Set[int],
-        file_path: str = ""
-    ) -> List[SymbolReference]:
+        self, code: str, changed_lines: set[int], file_path: str = ""
+    ) -> list[SymbolReference]:
         """
         Find symbols that overlap with changed line numbers.
 
@@ -260,7 +257,7 @@ class DiffSymbolExtractor:
 
         return affected
 
-    def get_changed_lines_from_diff(self, original: str, new: str) -> Set[int]:
+    def get_changed_lines_from_diff(self, original: str, new: str) -> set[int]:
         """
         Get the line numbers that changed between two versions.
 
@@ -276,23 +273,23 @@ class DiffSymbolExtractor:
 
         changed_lines = set()
 
-        differ = difflib.unified_diff(original_lines, new_lines, lineterm='')
+        differ = difflib.unified_diff(original_lines, new_lines, lineterm="")
 
         current_line = 0
         for line in differ:
-            if line.startswith('@@'):
+            if line.startswith("@@"):
                 # Parse the line range
                 # Format: @@ -start,count +start,count @@
                 parts = line.split()
                 if len(parts) >= 3:
                     new_range = parts[2]  # +start,count
-                    if new_range.startswith('+'):
-                        range_parts = new_range[1:].split(',')
+                    if new_range.startswith("+"):
+                        range_parts = new_range[1:].split(",")
                         current_line = int(range_parts[0])
-            elif line.startswith('+') and not line.startswith('+++'):
+            elif line.startswith("+") and not line.startswith("+++"):
                 changed_lines.add(current_line)
                 current_line += 1
-            elif line.startswith(' '):
+            elif line.startswith(" "):
                 current_line += 1
             # Lines starting with '-' are removed, don't increment
 
@@ -300,10 +297,8 @@ class DiffSymbolExtractor:
 
 
 def extract_affected_symbols(
-    original_code: str,
-    new_code: str,
-    file_path: str = ""
-) -> Tuple[Optional[SymbolReference], List[SymbolReference]]:
+    original_code: str, new_code: str, file_path: str = ""
+) -> tuple[SymbolReference | None, list[SymbolReference]]:
     """
     Convenience function to extract affected symbols from a code change.
 
@@ -323,13 +318,22 @@ def extract_affected_symbols(
     if not all_affected:
         # Fall back to finding symbols in the diff range
         changed_lines = extractor.get_changed_lines_from_diff(original_code, new_code)
-        all_affected = extractor.find_symbols_in_diff_range(new_code, changed_lines, file_path)
+        all_affected = extractor.find_symbols_in_diff_range(
+            new_code, changed_lines, file_path
+        )
 
     if not all_affected:
         return None, []
 
     # Primary symbol is typically a function/class over a variable/import
-    priority_order = ['class', 'function', 'async_function', 'method', 'variable', 'import']
+    priority_order = [
+        "class",
+        "function",
+        "async_function",
+        "method",
+        "variable",
+        "import",
+    ]
 
     def priority(symbol: SymbolReference) -> int:
         try:

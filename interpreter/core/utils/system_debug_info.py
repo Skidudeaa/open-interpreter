@@ -1,8 +1,7 @@
 import platform
 import subprocess
+from importlib.metadata import PackageNotFoundError, distributions, version
 
-from importlib.metadata import version, PackageNotFoundError
-from importlib.metadata import distributions
 import psutil
 import toml
 
@@ -51,15 +50,14 @@ def get_ram_info():
 
 
 def get_package_mismatches(file_path="pyproject.toml"):
-    with open(file_path, "r") as file:
+    with open(file_path) as file:
         pyproject = toml.load(file)
     dependencies = pyproject["tool"]["poetry"]["dependencies"]
     dev_dependencies = pyproject["tool"]["poetry"]["group"]["dev"]["dependencies"]
     dependencies.update(dev_dependencies)
 
     installed_packages = {
-        dist.metadata["Name"].lower(): dist.version
-        for dist in distributions()
+        dist.metadata["Name"].lower(): dist.version for dist in distributions()
     }
     mismatches = []
     for package, version_info in dependencies.items():
@@ -101,7 +99,7 @@ def interpreter_info(interpreter):
         return f"""
 
         # Interpreter Info
-        
+
         Vision: {interpreter.llm.supports_vision}
         Model: {interpreter.llm.model}
         Function calling: {interpreter.llm.supports_functions}

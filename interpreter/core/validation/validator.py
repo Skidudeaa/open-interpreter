@@ -16,31 +16,34 @@ import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Any
 
+from .rollback import EditRollback
 from .syntax_checker import SyntaxChecker, SyntaxCheckResult
 from .test_discovery import TestDiscovery, TestRunResult
-from .rollback import EditRollback
 
 
 @dataclass
 class ValidationResult:
     """Complete result of edit validation."""
+
     valid: bool
-    syntax_result: Optional[SyntaxCheckResult] = None
-    type_check_result: Optional[Dict[str, Any]] = None
-    test_result: Optional[TestRunResult] = None
+    syntax_result: SyntaxCheckResult | None = None
+    type_check_result: dict[str, Any] | None = None
+    test_result: TestRunResult | None = None
 
     # Summary fields
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     def to_context_string(self) -> str:
         """Convert to string for LLM context."""
         parts = [f"## Validation Result: {'PASSED' if self.valid else 'FAILED'}"]
 
         if self.syntax_result:
-            parts.append(f"\n### Syntax: {'OK' if self.syntax_result.valid else 'FAILED'}")
+            parts.append(
+                f"\n### Syntax: {'OK' if self.syntax_result.valid else 'FAILED'}"
+            )
             if not self.syntax_result.valid:
                 for error in self.syntax_result.errors:
                     parts.append(f"- {error}")
@@ -53,8 +56,12 @@ class ValidationResult:
                     parts.append(f"- {error}")
 
         if self.test_result:
-            parts.append(f"\n### Tests: {'PASSED' if self.test_result.passed else 'FAILED'}")
-            parts.append(f"- {self.test_result.passed_tests}/{self.test_result.total_tests} passed")
+            parts.append(
+                f"\n### Tests: {'PASSED' if self.test_result.passed else 'FAILED'}"
+            )
+            parts.append(
+                f"- {self.test_result.passed_tests}/{self.test_result.total_tests} passed"
+            )
             if self.test_result.failed_test_names:
                 parts.append("- Failed tests:")
                 for name in self.test_result.failed_test_names[:5]:
@@ -87,7 +94,7 @@ class EditValidator:
 
     def __init__(
         self,
-        project_root: Optional[str] = None,
+        project_root: str | None = None,
         run_tests: bool = True,
         run_type_check: bool = True,
         test_timeout: int = 300,
@@ -112,7 +119,7 @@ class EditValidator:
         self.rollback = EditRollback(project_root=self.project_root)
 
         # Check for type checker
-        self._mypy_available = shutil.which('mypy') is not None
+        self._mypy_available = shutil.which("mypy") is not None
 
     def validate_edit(
         self,
@@ -162,7 +169,9 @@ class EditValidator:
 
             if not test_result.passed:
                 result.valid = False
-                result.errors.append(f"Tests failed: {test_result.failed_tests} failures")
+                result.errors.append(
+                    f"Tests failed: {test_result.failed_tests} failures"
+                )
 
         return result
 
@@ -187,31 +196,27 @@ class EditValidator:
         self,
         file_path: str,
         content: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Run mypy type check on the content."""
-        if not file_path.endswith('.py'):
+        if not file_path.endswith(".py"):
             return {"passed": True, "skipped": True}
 
         # Write to temp file
-        with tempfile.NamedTemporaryFile(
-            mode='w',
-            suffix='.py',
-            delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write(content)
             temp_path = f.name
 
         try:
             result = subprocess.run(
-                ['mypy', '--no-error-summary', '--no-color-output', temp_path],
+                ["mypy", "--no-error-summary", "--no-color-output", temp_path],
                 capture_output=True,
                 text=True,
                 timeout=60,
             )
 
             errors = []
-            for line in result.stdout.split('\n'):
-                if 'error:' in line:
+            for line in result.stdout.split("\n"):
+                if "error:" in line:
                     # Clean up temp path in error messages
                     clean_line = line.replace(temp_path, file_path)
                     errors.append(clean_line)
@@ -254,7 +259,7 @@ class EditValidator:
 
         try:
             # Apply new content
-            with open(full_path, 'w', encoding='utf-8') as f:
+            with open(full_path, "w", encoding="utf-8") as f:
                 f.write(new_content)
 
             # Find and run related tests
@@ -317,7 +322,7 @@ class SandboxValidator:
         """
         self.parent = parent_validator
         self.copy_full_project = copy_full_project
-        self._sandbox_dir: Optional[str] = None
+        self._sandbox_dir: str | None = None
 
     def __enter__(self):
         self._create_sandbox()
@@ -349,7 +354,7 @@ class SandboxValidator:
         sandbox_path = Path(self._sandbox_dir) / file_path
         sandbox_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(sandbox_path, 'w', encoding='utf-8') as f:
+        with open(sandbox_path, "w", encoding="utf-8") as f:
             f.write(new_content)
 
         # Create a validator for the sandbox
@@ -380,8 +385,15 @@ class SandboxValidator:
                 self._sandbox_dir,
                 dirs_exist_ok=True,
                 ignore=shutil.ignore_patterns(
-                    '__pycache__', '*.pyc', '.git', 'node_modules',
-                    '.venv', 'venv', '*.egg-info', 'dist', 'build',
+                    "__pycache__",
+                    "*.pyc",
+                    ".git",
+                    "node_modules",
+                    ".venv",
+                    "venv",
+                    "*.egg-info",
+                    "dist",
+                    "build",
                 ),
             )
 
@@ -397,7 +409,7 @@ def validate_edit(
     file_path: str,
     original_content: str,
     new_content: str,
-    project_root: Optional[str] = None,
+    project_root: str | None = None,
 ) -> ValidationResult:
     """
     Validate a code edit.

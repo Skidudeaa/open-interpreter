@@ -7,17 +7,18 @@ based on activity scoring, with manual override support.
 Part of Phase 4: Adaptive Mode System
 """
 
-from dataclasses import dataclass, field
-from typing import Optional, Callable, List
-from enum import Enum, auto
 import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from enum import Enum, auto
 
-from .ui_state import UIState, UIMode
-from .ui_events import UIEvent, EventType
+from .ui_events import EventType, UIEvent
+from .ui_state import UIMode, UIState
 
 
 class EscalationReason(Enum):
     """Reasons for mode escalation"""
+
     AGENT_SPAWN = auto()
     AGENT_ERROR = auto()
     LONG_EXECUTION = auto()
@@ -30,6 +31,7 @@ class EscalationReason(Enum):
 @dataclass
 class ModeTransition:
     """Record of a mode transition"""
+
     from_mode: UIMode
     to_mode: UIMode
     reason: EscalationReason
@@ -97,20 +99,20 @@ class UIModeManager:
         self.state = state
         self._score = 0
         self._last_decay_time = time.time()
-        self._locked_mode: Optional[UIMode] = None  # Manual override
-        self._history: List[ModeTransition] = []
+        self._locked_mode: UIMode | None = None  # Manual override
+        self._history: list[ModeTransition] = []
         self._max_history = 50
 
         # Callbacks
-        self._on_mode_change: Optional[Callable[[UIMode, UIMode, str], None]] = None
-        self._on_toast: Optional[Callable[[str], None]] = None
+        self._on_mode_change: Callable[[UIMode, UIMode, str], None] | None = None
+        self._on_toast: Callable[[str], None] | None = None
 
         # Error tracking for escalation
         self._error_count = 0
         self._last_error_time = 0.0
 
         # Execution tracking
-        self._execution_start: Optional[float] = None
+        self._execution_start: float | None = None
 
     @property
     def score(self) -> int:
@@ -129,11 +131,11 @@ class UIModeManager:
         return self._locked_mode is not None
 
     @property
-    def locked_mode(self) -> Optional[UIMode]:
+    def locked_mode(self) -> UIMode | None:
         """Get the locked mode, if any."""
         return self._locked_mode
 
-    def process_event(self, event: UIEvent) -> Optional[ModeTransition]:
+    def process_event(self, event: UIEvent) -> ModeTransition | None:
         """
         Process a UI event and potentially trigger mode escalation.
 
@@ -211,7 +213,9 @@ class UIModeManager:
             if now - self._last_error_time > 120:  # 2 minutes
                 self._error_count = 0
 
-    def _check_escalation(self, reason: Optional[EscalationReason]) -> Optional[ModeTransition]:
+    def _check_escalation(
+        self, reason: EscalationReason | None
+    ) -> ModeTransition | None:
         """
         Check if score warrants mode escalation.
 
@@ -326,6 +330,24 @@ class UIModeManager:
         """Unlock mode (re-enable auto-escalation)."""
         self._locked_mode = None
 
+    def reset(self, mode: UIMode = UIMode.ZEN):
+        """
+        Reset the mode manager to initial state.
+
+        Call this on new conversation to prevent long sessions
+        from getting stuck in high modes.
+
+        Args:
+            mode: Mode to reset to (default: ZEN)
+        """
+        self._score = self.THRESHOLDS[mode]
+        self._last_decay_time = time.time()
+        self._locked_mode = None
+        self._error_count = 0
+        self.state.mode = mode
+        # Optionally clear history
+        self._history = []
+
     def toggle_power_mode(self) -> ModeTransition:
         """Toggle between STANDARD and POWER mode."""
         if self.state.mode == UIMode.POWER:
@@ -370,7 +392,7 @@ class UIModeManager:
             "next_threshold": self._get_next_threshold(),
         }
 
-    def _get_next_threshold(self) -> Optional[int]:
+    def _get_next_threshold(self) -> int | None:
         """Get threshold for next mode escalation."""
         levels = [UIMode.ZEN, UIMode.STANDARD, UIMode.POWER, UIMode.DEBUG]
         current_idx = levels.index(self.state.mode)
@@ -378,7 +400,7 @@ class UIModeManager:
             return self.THRESHOLDS[levels[current_idx + 1]]
         return None
 
-    def get_history(self, limit: int = 10) -> List[ModeTransition]:
+    def get_history(self, limit: int = 10) -> list[ModeTransition]:
         """Get recent mode transition history."""
         return self._history[-limit:]
 

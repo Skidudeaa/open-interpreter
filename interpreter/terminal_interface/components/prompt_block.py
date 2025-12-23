@@ -9,9 +9,8 @@ Features:
 
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
-from rich.text import Text
 
-from .theme import THEME, PROMPT_SYMBOLS
+from .theme import PROMPT_SYMBOLS, THEME
 
 
 class PromptBlock:
@@ -25,9 +24,9 @@ class PromptBlock:
     """
 
     STYLE_COLORS = {
-        "default": THEME["secondary"],      # Cyan
-        "multiline": THEME["primary"],      # Violet
-        "confirmation": THEME["warning"],   # Amber
+        "default": THEME["secondary"],  # Cyan
+        "multiline": THEME["primary"],  # Violet
+        "confirmation": THEME["warning"],  # Amber
     }
 
     def __init__(self, style: str = "default", console: Console = None):
@@ -89,7 +88,9 @@ class PromptBlock:
             Selected choice string
         """
         choice_str = "/".join(choices)
-        styled_prompt = f"[{THEME['secondary']}]{PROMPT_SYMBOLS['default']}[/{THEME['secondary']}]"
+        styled_prompt = (
+            f"[{THEME['secondary']}]{PROMPT_SYMBOLS['default']}[/{THEME['secondary']}]"
+        )
 
         return Prompt.ask(
             f"{styled_prompt} {message} [{choice_str}]",
@@ -107,14 +108,20 @@ class PromptBlock:
         """
         message = "Would you like to run this code?"
         hint = "[bold green]y[/bold green]/[red]n[/red]/[cyan]e[/cyan]dit"
-        styled_message = f"[{THEME['warning']}]?[/{THEME['warning']}] {message} [{hint}]"
+        styled_message = (
+            f"[{THEME['warning']}]?[/{THEME['warning']}] {message} [{hint}]"
+        )
 
         while True:
-            response = Prompt.ask(
-                styled_message,
-                default="y",
-                console=self.console,
-            ).lower().strip()
+            response = (
+                Prompt.ask(
+                    styled_message,
+                    default="y",
+                    console=self.console,
+                )
+                .lower()
+                .strip()
+            )
 
             if response in ("y", "yes"):
                 return "y"

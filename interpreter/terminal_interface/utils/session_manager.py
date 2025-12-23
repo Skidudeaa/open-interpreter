@@ -9,12 +9,12 @@ Features:
 
 import atexit
 import json
-import os
 import signal
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 
 # Session storage directory
 def get_sessions_dir() -> Path:
@@ -115,18 +115,18 @@ class SessionManager:
         session_data = {
             "id": self.session_id,
             "created": datetime.now().isoformat(),
-            "model": getattr(self.interpreter.llm, 'model', 'unknown'),
+            "model": getattr(self.interpreter.llm, "model", "unknown"),
             "messages": self.interpreter.messages,
             "system_message": self.interpreter.system_message,
             "settings": {
                 "auto_run": self.interpreter.auto_run,
                 "safe_mode": self.interpreter.safe_mode,
                 "os_mode": self.interpreter.os,
-            }
+            },
         }
 
         session_path = get_session_path(self.session_id)
-        with open(session_path, 'w') as f:
+        with open(session_path, "w") as f:
             json.dump(session_data, f, indent=2, default=str)
 
         return self.session_id
@@ -147,7 +147,7 @@ class SessionManager:
             return False
 
         try:
-            with open(session_path, 'r') as f:
+            with open(session_path) as f:
                 session_data = json.load(f)
 
             self.session_id = session_data["id"]
@@ -167,7 +167,7 @@ class SessionManager:
         except (json.JSONDecodeError, KeyError):
             return False
 
-    def list_sessions(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def list_sessions(self, limit: int = 10) -> list[dict[str, Any]]:
         """
         List recent sessions.
 
@@ -182,14 +182,16 @@ class SessionManager:
 
         for session_file in sorted(sessions_dir.glob("*.json"), reverse=True)[:limit]:
             try:
-                with open(session_file, 'r') as f:
+                with open(session_file) as f:
                     data = json.load(f)
-                    sessions.append({
-                        "id": data.get("id", session_file.stem),
-                        "created": data.get("created", "unknown"),
-                        "model": data.get("model", "unknown"),
-                        "message_count": len(data.get("messages", [])),
-                    })
+                    sessions.append(
+                        {
+                            "id": data.get("id", session_file.stem),
+                            "created": data.get("created", "unknown"),
+                            "model": data.get("model", "unknown"),
+                            "message_count": len(data.get("messages", [])),
+                        }
+                    )
             except (json.JSONDecodeError, KeyError):
                 pass
 
@@ -215,7 +217,7 @@ class SessionManager:
                 pass
 
 
-def get_resume_prompt(interpreter) -> Optional[str]:
+def get_resume_prompt(interpreter) -> str | None:
     """
     Check if there's a recent session to resume.
 

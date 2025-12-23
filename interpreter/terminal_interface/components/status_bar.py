@@ -13,9 +13,9 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from .theme import THEME, BOX_STYLES, ROLE_ICONS
-from .ui_state import UIState
 from .context_meter import ContextMeter
+from .theme import BOX_STYLES, ROLE_ICONS, THEME
+from .ui_state import UIState
 
 
 class StatusBar:
@@ -28,7 +28,9 @@ class StatusBar:
     └──────────────────────────────────────────────────────────────┘
     """
 
-    def __init__(self, interpreter=None, console: Console = None, ui_state: UIState = None):
+    def __init__(
+        self, interpreter=None, console: Console = None, ui_state: UIState = None
+    ):
         self.interpreter = interpreter
         self.console = console or Console()
         self.ui_state = ui_state
@@ -41,9 +43,9 @@ class StatusBar:
             padding=0,
             expand=True,
         )
-        table.add_column(ratio=1)           # Left: Model
+        table.add_column(ratio=1)  # Left: Model
         table.add_column(justify="center", ratio=2)  # Center: Messages
-        table.add_column(justify="right", ratio=1)   # Right: Modes
+        table.add_column(justify="right", ratio=1)  # Right: Modes
 
         # Left section: Model info
         model_section = self._build_model_section()
@@ -66,7 +68,7 @@ class StatusBar:
 
     def _build_model_section(self) -> Text:
         """Build the model name display."""
-        robot_icon = ROLE_ICONS.get("assistant", "\U0001F916")
+        robot_icon = ROLE_ICONS.get("assistant", "\U0001f916")
 
         if self.interpreter and hasattr(self.interpreter, "llm"):
             model = self.interpreter.llm.model or "No model"
@@ -83,7 +85,7 @@ class StatusBar:
         parts = []
 
         # Message count
-        speech_icon = "\U0001F4AC"  # Speech balloon
+        speech_icon = "\U0001f4ac"  # Speech balloon
         if self.interpreter and hasattr(self.interpreter, "messages"):
             count = len(self.interpreter.messages)
         else:
@@ -95,14 +97,19 @@ class StatusBar:
         if self.ui_state and self.ui_state.active_agents:
             agent_count = len(self.ui_state.active_agents)
             running_count = sum(
-                1 for agent in self.ui_state.active_agents.values()
+                1
+                for agent in self.ui_state.active_agents.values()
                 if agent.status.name == "RUNNING"
             )
-            robot_icon = "\U0001F916"  # Robot
+            robot_icon = "\U0001f916"  # Robot
             if running_count > 0:
-                parts.append(f"{robot_icon} {agent_count} agent{'s' if agent_count != 1 else ''} ({running_count} active)")
+                parts.append(
+                    f"{robot_icon} {agent_count} agent{'s' if agent_count != 1 else ''} ({running_count} active)"
+                )
             else:
-                parts.append(f"{robot_icon} {agent_count} agent{'s' if agent_count != 1 else ''}")
+                parts.append(
+                    f"{robot_icon} {agent_count} agent{'s' if agent_count != 1 else ''}"
+                )
 
         # Context meter (if ui_state provided and tokens > 0)
         meter_text = None
@@ -127,7 +134,7 @@ class StatusBar:
 
     def _build_message_section(self) -> Text:
         """Build the message count display (deprecated, use _build_center_section)."""
-        speech_icon = "\U0001F4AC"  # Speech balloon
+        speech_icon = "\U0001f4ac"  # Speech balloon
 
         if self.interpreter and hasattr(self.interpreter, "messages"):
             count = len(self.interpreter.messages)
@@ -149,7 +156,9 @@ class StatusBar:
             # Safe mode
             safe_mode = getattr(self.interpreter, "safe_mode", "off")
             if safe_mode != "off":
-                modes.append(f"[{THEME['warning']}]SAFE:{safe_mode}[/{THEME['warning']}]")
+                modes.append(
+                    f"[{THEME['warning']}]SAFE:{safe_mode}[/{THEME['warning']}]"
+                )
 
             # OS control mode
             if getattr(self.interpreter, "os", False):
@@ -236,7 +245,7 @@ class FeaturesBanner:
             return None
 
         check = "\u2713"  # ✓
-        bolt = "\u26A1"   # ⚡
+        bolt = "\u26a1"  # ⚡
 
         parts = []
         for f in features:

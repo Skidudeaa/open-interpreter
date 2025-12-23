@@ -4,31 +4,57 @@ File state capture and diffing for edit detection.
 Captures file states before/after code execution to detect
 arbitrary file modifications made by executed code.
 """
+
 import hashlib
 from pathlib import Path
-from typing import Dict, Tuple, Set
 
 # Source file extensions to track
-SOURCE_EXTENSIONS: Set[str] = {
-    '.py', '.js', '.ts', '.jsx', '.tsx',   # Code
-    '.json', '.yaml', '.yml', '.toml',      # Config
-    '.md', '.rst', '.txt',                  # Docs
-    '.html', '.css', '.scss',               # Web
-    '.sql', '.sh', '.bash',                 # Scripts
+SOURCE_EXTENSIONS: set[str] = {
+    ".py",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",  # Code
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",  # Config
+    ".md",
+    ".rst",
+    ".txt",  # Docs
+    ".html",
+    ".css",
+    ".scss",  # Web
+    ".sql",
+    ".sh",
+    ".bash",  # Scripts
 }
 
 # Directories to skip
-SKIP_DIRS: Set[str] = {
-    'venv', 'env', '.venv', 'node_modules', '__pycache__',
-    '.git', '.svn', '.hg', 'dist', 'build', '.tox', '.pytest_cache',
-    '.mypy_cache', '.ruff_cache', 'eggs', '.eggs', '*.egg-info',
+SKIP_DIRS: set[str] = {
+    "venv",
+    "env",
+    ".venv",
+    "node_modules",
+    "__pycache__",
+    ".git",
+    ".svn",
+    ".hg",
+    "dist",
+    "build",
+    ".tox",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "eggs",
+    ".eggs",
+    "*.egg-info",
 }
 
 
 def capture_source_file_states(
-    root_dir: str,
-    max_files: int = 500
-) -> Dict[str, Tuple[float, str, str]]:
+    root_dir: str, max_files: int = 500
+) -> dict[str, tuple[float, str, str]]:
     """
     Capture mtime, hash, and content of source files.
 
@@ -51,14 +77,16 @@ def capture_source_file_states(
             if src_file.suffix.lower() not in SOURCE_EXTENSIONS:
                 continue
             # Skip non-source directories
-            if any(part in SKIP_DIRS or part.startswith('.') for part in src_file.parts):
+            if any(
+                part in SKIP_DIRS or part.startswith(".") for part in src_file.parts
+            ):
                 continue
             try:
                 stat = src_file.stat()
-                content = src_file.read_text(errors='ignore')
+                content = src_file.read_text(errors="ignore")
                 content_hash = hashlib.md5(content.encode()).hexdigest()
                 states[str(src_file)] = (stat.st_mtime, content_hash, content)
-            except (OSError, IOError, UnicodeDecodeError):
+            except (OSError, UnicodeDecodeError):
                 continue
     except Exception:
         pass  # Non-blocking
@@ -67,9 +95,8 @@ def capture_source_file_states(
 
 
 def diff_file_states(
-    before: Dict[str, Tuple[float, str, str]],
-    after: Dict[str, Tuple[float, str, str]]
-) -> Dict[str, Tuple[str, str]]:
+    before: dict[str, tuple[float, str, str]], after: dict[str, tuple[float, str, str]]
+) -> dict[str, tuple[str, str]]:
     """
     Compare before/after states, return changed files.
 

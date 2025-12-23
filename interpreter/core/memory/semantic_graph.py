@@ -12,19 +12,11 @@ if DuckDB is not available.
 """
 
 import json
-import os
-from datetime import datetime
-from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
 import logging
+from pathlib import Path
+from typing import Any
 
-from .edit_record import (
-    Edit,
-    EditType,
-    EditResult,
-    ConversationContext,
-    SymbolReference,
-)
+from .edit_record import Edit
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +29,7 @@ class SemanticEditGraph:
     and user intent to build institutional knowledge about a codebase.
     """
 
-    def __init__(self, db_path: Optional[str] = None, use_duckdb: bool = True):
+    def __init__(self, db_path: str | None = None, use_duckdb: bool = True):
         """
         Initialize the semantic edit graph.
 
@@ -58,6 +50,7 @@ class SemanticEditGraph:
         """Check if DuckDB is installed."""
         try:
             import duckdb
+
             return True
         except ImportError:
             logger.info("DuckDB not available, falling back to SQLite")
@@ -89,7 +82,8 @@ class SemanticEditGraph:
 
     def _create_schema_duckdb(self):
         """Create DuckDB schema for edit storage."""
-        self._connection.execute("""
+        self._connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS edits (
                 id VARCHAR PRIMARY KEY,
                 file_path VARCHAR NOT NULL,
@@ -102,9 +96,11 @@ class SemanticEditGraph:
                 execution_trace_id VARCHAR,
                 data JSON NOT NULL
             )
-        """)
+        """
+        )
 
-        self._connection.execute("""
+        self._connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS symbols (
                 id INTEGER PRIMARY KEY,
                 edit_id VARCHAR NOT NULL,
@@ -114,9 +110,11 @@ class SemanticEditGraph:
                 is_primary BOOLEAN DEFAULT FALSE,
                 FOREIGN KEY (edit_id) REFERENCES edits(id)
             )
-        """)
+        """
+        )
 
-        self._connection.execute("""
+        self._connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS conversations (
                 id INTEGER PRIMARY KEY,
                 edit_id VARCHAR NOT NULL,
@@ -126,27 +124,37 @@ class SemanticEditGraph:
                 intent_summary TEXT,
                 FOREIGN KEY (edit_id) REFERENCES edits(id)
             )
-        """)
+        """
+        )
 
         # Create indexes for common queries
-        self._connection.execute("""
+        self._connection.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_edits_file_path ON edits(file_path)
-        """)
-        self._connection.execute("""
+        """
+        )
+        self._connection.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_edits_timestamp ON edits(timestamp)
-        """)
-        self._connection.execute("""
+        """
+        )
+        self._connection.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(symbol_name)
-        """)
-        self._connection.execute("""
+        """
+        )
+        self._connection.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_conversations_id ON conversations(conversation_id)
-        """)
+        """
+        )
 
     def _create_schema_sqlite(self):
         """Create SQLite schema for edit storage."""
         cursor = self._connection.cursor()
 
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS edits (
                 id TEXT PRIMARY KEY,
                 file_path TEXT NOT NULL,
@@ -159,9 +167,11 @@ class SemanticEditGraph:
                 execution_trace_id TEXT,
                 data TEXT NOT NULL
             )
-        """)
+        """
+        )
 
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS symbols (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 edit_id TEXT NOT NULL,
@@ -171,9 +181,11 @@ class SemanticEditGraph:
                 is_primary INTEGER DEFAULT 0,
                 FOREIGN KEY (edit_id) REFERENCES edits(id)
             )
-        """)
+        """
+        )
 
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS conversations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 edit_id TEXT NOT NULL,
@@ -183,13 +195,22 @@ class SemanticEditGraph:
                 intent_summary TEXT,
                 FOREIGN KEY (edit_id) REFERENCES edits(id)
             )
-        """)
+        """
+        )
 
         # Create indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_edits_file_path ON edits(file_path)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_edits_timestamp ON edits(timestamp)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(symbol_name)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_conversations_id ON conversations(conversation_id)")
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_edits_file_path ON edits(file_path)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_edits_timestamp ON edits(timestamp)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(symbol_name)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_conversations_id ON conversations(conversation_id)"
+        )
 
         self._connection.commit()
 
@@ -215,115 +236,139 @@ class SemanticEditGraph:
 
     def _record_edit_duckdb(self, edit: Edit, data_json: str):
         """Record edit using DuckDB."""
-        self._connection.execute("""
+        self._connection.execute(
+            """
             INSERT INTO edits (
                 id, file_path, edit_type, user_intent, confidence,
                 timestamp, git_commit_hash, parent_edit_id, execution_trace_id, data
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, [
-            edit.id,
-            edit.file_path,
-            edit.edit_type.value,
-            edit.user_intent,
-            edit.confidence,
-            edit.timestamp,
-            edit.git_commit_hash,
-            edit.parent_edit_id,
-            edit.execution_trace_id,
-            data_json,
-        ])
+        """,
+            [
+                edit.id,
+                edit.file_path,
+                edit.edit_type.value,
+                edit.user_intent,
+                edit.confidence,
+                edit.timestamp,
+                edit.git_commit_hash,
+                edit.parent_edit_id,
+                edit.execution_trace_id,
+                data_json,
+            ],
+        )
 
         # Record symbols
         if edit.primary_symbol:
-            self._connection.execute("""
+            self._connection.execute(
+                """
                 INSERT INTO symbols (edit_id, symbol_name, symbol_kind, file_path, is_primary)
                 VALUES (?, ?, ?, ?, TRUE)
-            """, [
-                edit.id,
-                edit.primary_symbol.name,
-                edit.primary_symbol.kind,
-                edit.primary_symbol.file_path,
-            ])
+            """,
+                [
+                    edit.id,
+                    edit.primary_symbol.name,
+                    edit.primary_symbol.kind,
+                    edit.primary_symbol.file_path,
+                ],
+            )
 
         for symbol in edit.affected_symbols:
-            self._connection.execute("""
+            self._connection.execute(
+                """
                 INSERT INTO symbols (edit_id, symbol_name, symbol_kind, file_path, is_primary)
                 VALUES (?, ?, ?, ?, FALSE)
-            """, [edit.id, symbol.name, symbol.kind, symbol.file_path])
+            """,
+                [edit.id, symbol.name, symbol.kind, symbol.file_path],
+            )
 
         # Record conversation context
         if edit.conversation_context:
             ctx = edit.conversation_context
-            self._connection.execute("""
+            self._connection.execute(
+                """
                 INSERT INTO conversations (
                     edit_id, conversation_id, turn_index, user_message, intent_summary
                 ) VALUES (?, ?, ?, ?, ?)
-            """, [
-                edit.id,
-                ctx.conversation_id,
-                ctx.turn_index,
-                ctx.user_message,
-                ctx.intent_summary,
-            ])
+            """,
+                [
+                    edit.id,
+                    ctx.conversation_id,
+                    ctx.turn_index,
+                    ctx.user_message,
+                    ctx.intent_summary,
+                ],
+            )
 
     def _record_edit_sqlite(self, edit: Edit, data_json: str):
         """Record edit using SQLite."""
         cursor = self._connection.cursor()
 
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO edits (
                 id, file_path, edit_type, user_intent, confidence,
                 timestamp, git_commit_hash, parent_edit_id, execution_trace_id, data
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            edit.id,
-            edit.file_path,
-            edit.edit_type.value,
-            edit.user_intent,
-            edit.confidence,
-            edit.timestamp.isoformat(),
-            edit.git_commit_hash,
-            edit.parent_edit_id,
-            edit.execution_trace_id,
-            data_json,
-        ))
+        """,
+            (
+                edit.id,
+                edit.file_path,
+                edit.edit_type.value,
+                edit.user_intent,
+                edit.confidence,
+                edit.timestamp.isoformat(),
+                edit.git_commit_hash,
+                edit.parent_edit_id,
+                edit.execution_trace_id,
+                data_json,
+            ),
+        )
 
         # Record symbols
         if edit.primary_symbol:
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO symbols (edit_id, symbol_name, symbol_kind, file_path, is_primary)
                 VALUES (?, ?, ?, ?, 1)
-            """, (
-                edit.id,
-                edit.primary_symbol.name,
-                edit.primary_symbol.kind,
-                edit.primary_symbol.file_path,
-            ))
+            """,
+                (
+                    edit.id,
+                    edit.primary_symbol.name,
+                    edit.primary_symbol.kind,
+                    edit.primary_symbol.file_path,
+                ),
+            )
 
         for symbol in edit.affected_symbols:
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO symbols (edit_id, symbol_name, symbol_kind, file_path, is_primary)
                 VALUES (?, ?, ?, ?, 0)
-            """, (edit.id, symbol.name, symbol.kind, symbol.file_path))
+            """,
+                (edit.id, symbol.name, symbol.kind, symbol.file_path),
+            )
 
         # Record conversation context
         if edit.conversation_context:
             ctx = edit.conversation_context
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO conversations (
                     edit_id, conversation_id, turn_index, user_message, intent_summary
                 ) VALUES (?, ?, ?, ?, ?)
-            """, (
-                edit.id,
-                ctx.conversation_id,
-                ctx.turn_index,
-                ctx.user_message,
-                ctx.intent_summary,
-            ))
+            """,
+                (
+                    edit.id,
+                    ctx.conversation_id,
+                    ctx.turn_index,
+                    ctx.user_message,
+                    ctx.intent_summary,
+                ),
+            )
 
         self._connection.commit()
 
-    def get_edit(self, edit_id: str) -> Optional[Edit]:
+    def get_edit(self, edit_id: str) -> Edit | None:
         """
         Retrieve an edit by ID.
 
@@ -347,11 +392,8 @@ class SemanticEditGraph:
         return None
 
     def query_by_symbol(
-        self,
-        symbol_name: str,
-        limit: int = 10,
-        include_related: bool = True
-    ) -> List[Edit]:
+        self, symbol_name: str, limit: int = 10, include_related: bool = True
+    ) -> list[Edit]:
         """
         Find edits that affected a specific symbol.
 
@@ -372,26 +414,27 @@ class SemanticEditGraph:
                 ORDER BY e.timestamp DESC
                 LIMIT ?
             """
-            results = self._connection.execute(query, [f"%{symbol_name}%", limit]).fetchall()
+            results = self._connection.execute(
+                query, [f"%{symbol_name}%", limit]
+            ).fetchall()
         else:
             cursor = self._connection.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT DISTINCT e.data
                 FROM edits e
                 JOIN symbols s ON e.id = s.edit_id
                 WHERE s.symbol_name LIKE ?
                 ORDER BY e.timestamp DESC
                 LIMIT ?
-            """, (f"%{symbol_name}%", limit))
+            """,
+                (f"%{symbol_name}%", limit),
+            )
             results = cursor.fetchall()
 
         return [Edit.from_dict(json.loads(row[0])) for row in results]
 
-    def query_by_file(
-        self,
-        file_path: str,
-        limit: int = 20
-    ) -> List[Edit]:
+    def query_by_file(self, file_path: str, limit: int = 20) -> list[Edit]:
         """
         Find all edits for a specific file.
 
@@ -403,29 +446,31 @@ class SemanticEditGraph:
             List of Edit objects, most recent first
         """
         if self._use_duckdb:
-            results = self._connection.execute("""
+            results = self._connection.execute(
+                """
                 SELECT data FROM edits
                 WHERE file_path = ?
                 ORDER BY timestamp DESC
                 LIMIT ?
-            """, [file_path, limit]).fetchall()
+            """,
+                [file_path, limit],
+            ).fetchall()
         else:
             cursor = self._connection.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT data FROM edits
                 WHERE file_path = ?
                 ORDER BY timestamp DESC
                 LIMIT ?
-            """, (file_path, limit))
+            """,
+                (file_path, limit),
+            )
             results = cursor.fetchall()
 
         return [Edit.from_dict(json.loads(row[0])) for row in results]
 
-    def query_by_intent(
-        self,
-        intent_keywords: str,
-        limit: int = 10
-    ) -> List[Edit]:
+    def query_by_intent(self, intent_keywords: str, limit: int = 10) -> list[Edit]:
         """
         Find edits with matching intent.
 
@@ -437,28 +482,31 @@ class SemanticEditGraph:
             List of Edit objects
         """
         if self._use_duckdb:
-            results = self._connection.execute("""
+            results = self._connection.execute(
+                """
                 SELECT data FROM edits
                 WHERE user_intent LIKE ?
                 ORDER BY timestamp DESC
                 LIMIT ?
-            """, [f"%{intent_keywords}%", limit]).fetchall()
+            """,
+                [f"%{intent_keywords}%", limit],
+            ).fetchall()
         else:
             cursor = self._connection.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT data FROM edits
                 WHERE user_intent LIKE ?
                 ORDER BY timestamp DESC
                 LIMIT ?
-            """, (f"%{intent_keywords}%", limit))
+            """,
+                (f"%{intent_keywords}%", limit),
+            )
             results = cursor.fetchall()
 
         return [Edit.from_dict(json.loads(row[0])) for row in results]
 
-    def query_by_conversation(
-        self,
-        conversation_id: str
-    ) -> List[Edit]:
+    def query_by_conversation(self, conversation_id: str) -> list[Edit]:
         """
         Find all edits from a specific conversation.
 
@@ -469,31 +517,33 @@ class SemanticEditGraph:
             List of Edit objects in chronological order
         """
         if self._use_duckdb:
-            results = self._connection.execute("""
+            results = self._connection.execute(
+                """
                 SELECT e.data
                 FROM edits e
                 JOIN conversations c ON e.id = c.edit_id
                 WHERE c.conversation_id = ?
                 ORDER BY c.turn_index ASC
-            """, [conversation_id]).fetchall()
+            """,
+                [conversation_id],
+            ).fetchall()
         else:
             cursor = self._connection.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT e.data
                 FROM edits e
                 JOIN conversations c ON e.id = c.edit_id
                 WHERE c.conversation_id = ?
                 ORDER BY c.turn_index ASC
-            """, (conversation_id,))
+            """,
+                (conversation_id,),
+            )
             results = cursor.fetchall()
 
         return [Edit.from_dict(json.loads(row[0])) for row in results]
 
-    def get_institutional_knowledge(
-        self,
-        file_path: str,
-        max_edits: int = 10
-    ) -> str:
+    def get_institutional_knowledge(self, file_path: str, max_edits: int = 10) -> str:
         """
         Generate a summary of historical context for a file.
 
@@ -521,7 +571,9 @@ class SemanticEditGraph:
         # Add summary statistics
         edit_types = {}
         for edit in edits:
-            edit_types[edit.edit_type.value] = edit_types.get(edit.edit_type.value, 0) + 1
+            edit_types[edit.edit_type.value] = (
+                edit_types.get(edit.edit_type.value, 0) + 1
+            )
 
         parts.append("### Summary")
         parts.append(f"Total edits: {len(edits)}")
@@ -530,11 +582,7 @@ class SemanticEditGraph:
 
         return "\n".join(parts)
 
-    def get_related_edits(
-        self,
-        edit: Edit,
-        limit: int = 5
-    ) -> List[Edit]:
+    def get_related_edits(self, edit: Edit, limit: int = 5) -> list[Edit]:
         """
         Find edits related to a given edit based on shared symbols.
 
@@ -567,7 +615,7 @@ class SemanticEditGraph:
 
         return related_edits[:limit]
 
-    def get_edit_chain(self, edit_id: str) -> List[Edit]:
+    def get_edit_chain(self, edit_id: str) -> list[Edit]:
         """
         Get the chain of edits (parent edits and refinements).
 
@@ -595,7 +643,7 @@ class SemanticEditGraph:
 
         return chain
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """
         Get statistics about the edit graph.
 
@@ -604,12 +652,14 @@ class SemanticEditGraph:
         """
         if self._use_duckdb:
             total = self._connection.execute("SELECT COUNT(*) FROM edits").fetchone()[0]
-            by_type = self._connection.execute("""
+            by_type = self._connection.execute(
+                """
                 SELECT edit_type, COUNT(*) as count
                 FROM edits
                 GROUP BY edit_type
                 ORDER BY count DESC
-            """).fetchall()
+            """
+            ).fetchall()
             unique_files = self._connection.execute(
                 "SELECT COUNT(DISTINCT file_path) FROM edits"
             ).fetchone()[0]
@@ -620,12 +670,14 @@ class SemanticEditGraph:
             cursor = self._connection.cursor()
             cursor.execute("SELECT COUNT(*) FROM edits")
             total = cursor.fetchone()[0]
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT edit_type, COUNT(*) as count
                 FROM edits
                 GROUP BY edit_type
                 ORDER BY count DESC
-            """)
+            """
+            )
             by_type = cursor.fetchall()
             cursor.execute("SELECT COUNT(DISTINCT file_path) FROM edits")
             unique_files = cursor.fetchone()[0]

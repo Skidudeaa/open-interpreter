@@ -8,14 +8,13 @@ Supports selection tracking for keyboard navigation.
 Part of Phase 2: Agent Visualization
 """
 
-from typing import Optional, List
 from rich.console import Console
 from rich.panel import Panel
-from rich.tree import Tree
 from rich.text import Text
+from rich.tree import Tree
 
-from .ui_state import UIState, AgentState, AgentStatus, AgentRole
-from .theme import THEME, BOX_STYLES
+from .theme import BOX_STYLES, THEME
+from .ui_state import AgentRole, AgentState, AgentStatus, UIState
 
 
 class AgentTree:
@@ -72,7 +71,7 @@ class AgentTree:
         self.console = console or Console()
         self.preview_lines = 3  # Number of output lines to show per agent
 
-    def render(self) -> Optional[Panel]:
+    def render(self) -> Panel | None:
         """
         Render the agent tree panel.
 
@@ -131,14 +130,16 @@ class AgentTree:
             agent: AgentState instance
         """
         # Build agent header
-        header = self._build_agent_header(agent, agent_id == self.state.selected_agent_id)
+        header = self._build_agent_header(
+            agent, agent_id == self.state.selected_agent_id
+        )
 
         # Add node to tree
         branch = parent_tree.add(header)
 
         # Add output preview if available
         if agent.last_lines:
-            preview_lines = list(agent.last_lines)[-self.preview_lines:]
+            preview_lines = list(agent.last_lines)[-self.preview_lines :]
             for line in preview_lines:
                 # Truncate long lines
                 if len(line) > 60:
@@ -149,7 +150,7 @@ class AgentTree:
         # Add error summary if in error state
         if agent.status == AgentStatus.ERROR and agent.error_summary:
             error_text = Text("Error: ", style=f"bold {THEME['error']}")
-            error_text.append(agent.error_summary, style=THEME['error'])
+            error_text.append(agent.error_summary, style=THEME["error"])
             branch.add(error_text)
 
         # Find and add child agents
@@ -203,7 +204,7 @@ class AgentTree:
         if panel:
             self.console.print(panel)
 
-    def get_agent_hierarchy(self) -> List[tuple]:
+    def get_agent_hierarchy(self) -> list[tuple]:
         """
         Get a flat list of agents in tree order.
 

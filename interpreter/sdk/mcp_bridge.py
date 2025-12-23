@@ -22,16 +22,15 @@ Example - Exposing agent as MCP server:
 import asyncio
 import json
 import subprocess
-from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Type, Union
+from typing import Any
 
 
 class MCPTransport(Enum):
     """MCP transport types."""
+
     STDIO = "stdio"
     HTTP = "http"
     SSE = "sse"
@@ -42,12 +41,13 @@ class MCPTool:
     """
     Represents an MCP tool that can be called.
     """
+
     name: str
     description: str
-    input_schema: Dict[str, Any]
+    input_schema: dict[str, Any]
     server_name: str = ""
 
-    def to_llm_tool(self) -> Dict[str, Any]:
+    def to_llm_tool(self) -> dict[str, Any]:
         """Convert to LLM tool format."""
         return {
             "name": self.name,
@@ -61,6 +61,7 @@ class MCPResource:
     """
     Represents an MCP resource.
     """
+
     uri: str
     name: str
     description: str = ""
@@ -72,21 +73,23 @@ class MCPServer:
     """
     Configuration for an MCP server.
     """
+
     name: str
     command: str
-    args: List[str] = field(default_factory=list)
-    env: Dict[str, str] = field(default_factory=dict)
+    args: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
     transport: MCPTransport = MCPTransport.STDIO
-    url: Optional[str] = None  # For HTTP transport
+    url: str | None = None  # For HTTP transport
 
 
 @dataclass
 class MCPCallResult:
     """Result of calling an MCP tool."""
+
     success: bool
     content: Any
-    error: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class MCPClient:
@@ -98,9 +101,9 @@ class MCPClient:
 
     def __init__(self, server: MCPServer):
         self.server = server
-        self._process: Optional[subprocess.Popen] = None
-        self._tools: Dict[str, MCPTool] = {}
-        self._resources: Dict[str, MCPResource] = {}
+        self._process: subprocess.Popen | None = None
+        self._tools: dict[str, MCPTool] = {}
+        self._resources: dict[str, MCPResource] = {}
         self._connected = False
         self._message_id = 0
 
@@ -126,7 +129,7 @@ class MCPClient:
             else:
                 return False
 
-        except Exception as e:
+        except Exception:
             self._connected = False
             return False
 
@@ -143,14 +146,17 @@ class MCPClient:
         )
 
         # Initialize connection
-        init_result = await self._send_request("initialize", {
-            "protocolVersion": "0.1.0",
-            "clientInfo": {
-                "name": "open-interpreter",
-                "version": "0.1.0",
+        init_result = await self._send_request(
+            "initialize",
+            {
+                "protocolVersion": "0.1.0",
+                "clientInfo": {
+                    "name": "open-interpreter",
+                    "version": "0.1.0",
+                },
+                "capabilities": {},
             },
-            "capabilities": {},
-        })
+        )
 
         if init_result:
             self._connected = True
@@ -166,7 +172,8 @@ class MCPClient:
         # Just verify the server is reachable
         try:
             import urllib.request
-            url = self.server.url or f"http://localhost:8080"
+
+            url = self.server.url or "http://localhost:8080"
             req = urllib.request.Request(f"{url}/health")
             with urllib.request.urlopen(req, timeout=5) as response:
                 self._connected = response.status == 200
@@ -190,7 +197,7 @@ class MCPClient:
         self._tools.clear()
         self._resources.clear()
 
-    async def _send_request(self, method: str, params: Dict) -> Optional[Dict]:
+    async def _send_request(self, method: str, params: dict) -> dict | None:
         """Send a JSON-RPC request to the server."""
         if not self._process:
             return None
@@ -238,7 +245,7 @@ class MCPClient:
     async def call_tool(
         self,
         name: str,
-        arguments: Dict[str, Any],
+        arguments: dict[str, Any],
     ) -> MCPCallResult:
         """
         Call an MCP tool.
@@ -257,10 +264,13 @@ class MCPClient:
                 error="Not connected to server",
             )
 
-        result = await self._send_request("tools/call", {
-            "name": name,
-            "arguments": arguments,
-        })
+        result = await self._send_request(
+            "tools/call",
+            {
+                "name": name,
+                "arguments": arguments,
+            },
+        )
 
         if result is None:
             return MCPCallResult(
@@ -281,11 +291,11 @@ class MCPClient:
             content=result.get("content", result),
         )
 
-    def get_tools(self) -> List[MCPTool]:
+    def get_tools(self) -> list[MCPTool]:
         """Get all available tools."""
         return list(self._tools.values())
 
-    def get_tool(self, name: str) -> Optional[MCPTool]:
+    def get_tool(self, name: str) -> MCPTool | None:
         """Get a specific tool by name."""
         return self._tools.get(name)
 
@@ -311,6 +321,7 @@ class MCPToolAdapter:
         Returns:
             Async callable function
         """
+
         async def tool_func(**kwargs) -> str:
             result = await self.client.call_tool(tool.name, kwargs)
             if result.success:
@@ -324,7 +335,7 @@ class MCPToolAdapter:
         tool_func.__doc__ = tool.description
         return tool_func
 
-    def get_tool_definitions(self) -> List[Dict[str, Any]]:
+    def get_tool_definitions(self) -> list[dict[str, Any]]:
         """
         Get tool definitions for LLM consumption.
 
@@ -340,14 +351,14 @@ class MCPServerHandler:
     """
 
     def __init__(self):
-        self._agents: Dict[str, Any] = {}
-        self._tools: Dict[str, Callable] = {}
+        self._agents: dict[str, Any] = {}
+        self._tools: dict[str, Callable] = {}
 
     def register_agent(
         self,
         agent: Any,
-        name: Optional[str] = None,
-        exposed_methods: Optional[List[str]] = None,
+        name: str | None = None,
+        exposed_methods: list[str] | None = None,
     ) -> None:
         """
         Register an agent to be exposed via MCP.
@@ -372,7 +383,7 @@ class MCPServerHandler:
         name: str,
         func: Callable,
         description: str = "",
-        input_schema: Optional[Dict] = None,
+        input_schema: dict | None = None,
     ) -> None:
         """
         Register a standalone tool.
@@ -385,21 +396,23 @@ class MCPServerHandler:
         """
         self._tools[name] = func
 
-    def get_tools_list(self) -> List[Dict]:
+    def get_tools_list(self) -> list[dict]:
         """Get list of available tools in MCP format."""
         tools = []
         for name, func in self._tools.items():
-            tools.append({
-                "name": name,
-                "description": getattr(func, "__doc__", "") or f"Tool: {name}",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {},
-                },
-            })
+            tools.append(
+                {
+                    "name": name,
+                    "description": getattr(func, "__doc__", "") or f"Tool: {name}",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {},
+                    },
+                }
+            )
         return tools
 
-    async def handle_request(self, request: Dict) -> Dict:
+    async def handle_request(self, request: dict) -> dict:
         """
         Handle an incoming MCP request.
 
@@ -507,14 +520,14 @@ class MCPBridge:
     """
 
     def __init__(self):
-        self._clients: Dict[str, MCPClient] = {}
-        self._adapters: Dict[str, MCPToolAdapter] = {}
+        self._clients: dict[str, MCPClient] = {}
+        self._adapters: dict[str, MCPToolAdapter] = {}
         self._server_handler = MCPServerHandler()
         self._server_running = False
 
     async def connect_server(
         self,
-        server: Union[MCPServer, Dict[str, Any]],
+        server: MCPServer | dict[str, Any],
     ) -> bool:
         """
         Connect to an MCP server.
@@ -554,24 +567,24 @@ class MCPBridge:
         for name in list(self._clients.keys()):
             await self.disconnect_server(name)
 
-    def get_connected_servers(self) -> List[str]:
+    def get_connected_servers(self) -> list[str]:
         """Get list of connected server names."""
         return list(self._clients.keys())
 
-    def get_all_tools(self) -> List[MCPTool]:
+    def get_all_tools(self) -> list[MCPTool]:
         """Get all available tools from all servers."""
         tools = []
         for client in self._clients.values():
             tools.extend(client.get_tools())
         return tools
 
-    def get_tools_for_server(self, server_name: str) -> List[MCPTool]:
+    def get_tools_for_server(self, server_name: str) -> list[MCPTool]:
         """Get tools from a specific server."""
         if server_name in self._clients:
             return self._clients[server_name].get_tools()
         return []
 
-    def get_tool_definitions(self) -> List[Dict[str, Any]]:
+    def get_tool_definitions(self) -> list[dict[str, Any]]:
         """Get all tool definitions in LLM format."""
         definitions = []
         for adapter in self._adapters.values():
@@ -582,7 +595,7 @@ class MCPBridge:
         self,
         server_name: str,
         tool_name: str,
-        arguments: Dict[str, Any],
+        arguments: dict[str, Any],
     ) -> MCPCallResult:
         """
         Call a tool on a specific server.
@@ -607,7 +620,7 @@ class MCPBridge:
     async def call_tool_any(
         self,
         tool_name: str,
-        arguments: Dict[str, Any],
+        arguments: dict[str, Any],
     ) -> MCPCallResult:
         """
         Call a tool, searching across all servers.
@@ -632,7 +645,7 @@ class MCPBridge:
     def register_agent(
         self,
         agent: Any,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         """
         Register an agent to be exposed as MCP tools.
@@ -699,7 +712,7 @@ class MCPBridge:
         """Stop the MCP server."""
         self._server_running = False
 
-    def create_interpreter_tools(self) -> Dict[str, Callable]:
+    def create_interpreter_tools(self) -> dict[str, Callable]:
         """
         Create tool functions for use with Open Interpreter.
 
@@ -717,11 +730,12 @@ class MCPBridge:
 
 # Convenience functions
 
+
 async def connect_mcp_server(
     name: str,
     command: str,
-    args: Optional[List[str]] = None,
-    env: Optional[Dict[str, str]] = None,
+    args: list[str] | None = None,
+    env: dict[str, str] | None = None,
 ) -> MCPBridge:
     """
     Quick connect to an MCP server.
@@ -746,7 +760,7 @@ async def connect_mcp_server(
     return bridge
 
 
-def create_mcp_server_from_agent(agent: Any, name: Optional[str] = None) -> MCPBridge:
+def create_mcp_server_from_agent(agent: Any, name: str | None = None) -> MCPBridge:
     """
     Create an MCP server from an agent.
 

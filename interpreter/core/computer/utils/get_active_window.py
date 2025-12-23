@@ -31,7 +31,6 @@ def get_active_window():
                 }
     elif platform.system() == "Linux":
         from ewmh import EWMH
-        from Xlib.display import Display
 
         ewmh = EWMH()
         win = ewmh.getActiveWindow()

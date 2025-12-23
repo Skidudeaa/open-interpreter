@@ -4,8 +4,9 @@ It leverages Llama 3.1 70b served by Groq and requires the environment variable 
 """
 
 # Configure Open Interpreter
+from datetime import UTC, datetime
+
 from interpreter import interpreter
-from datetime import datetime, timezone
 
 interpreter.llm.model = "groq/llama-3.1-70b-versatile"
 interpreter.computer.import_computer_api = False
@@ -15,7 +16,7 @@ interpreter.llm.context_window = 100000
 interpreter.llm.max_tokens = 4096
 
 # Add the current date and time in UTC
-current_datetime = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+current_datetime = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 custom_tool = """
 import requests
@@ -24,12 +25,12 @@ from urllib.parse import quote
 
 def search_screenpipe(query, limit=5, start_time=None, end_time=None):
     base_url = f"http://localhost:3030/search?q={quote(query)}&content_type=ocr&limit={limit}"
-    
+
     if start_time:
         base_url += f"&start_time={quote(start_time)}"
     if end_time:
         base_url += f"&end_time={quote(end_time)}"
-    
+
     response = requests.get(base_url)
     if response.status_code == 200:
         data = response.json()
@@ -94,5 +95,5 @@ for result in results:
     print(f"Timestamp: {{result['content']['timestamp']}}")
 ```
 
-Write valid code. 
+Write valid code.
 """

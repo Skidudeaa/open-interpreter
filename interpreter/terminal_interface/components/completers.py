@@ -14,18 +14,16 @@ Usage:
     session = PromptSession(completer=completer)
 """
 
-from typing import TYPE_CHECKING, Optional, List, Iterable, Dict
 import os
-from pathlib import Path
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 from prompt_toolkit.completion import (
     Completer,
     Completion,
     FuzzyCompleter,
-    FuzzyWordCompleter,
     PathCompleter,
     WordCompleter,
-    merge_completers,
 )
 from prompt_toolkit.document import Document
 
@@ -34,7 +32,7 @@ if TYPE_CHECKING:
 
 
 # Magic commands with descriptions
-MAGIC_COMMANDS: Dict[str, str] = {
+MAGIC_COMMANDS: dict[str, str] = {
     "%help": "Show available commands",
     "%debug": "Toggle debug mode",
     "%reset": "Reset conversation",
@@ -59,15 +57,17 @@ class MagicCommandCompleter(Completer):
     Provides fuzzy matching for command names with descriptions.
     """
 
-    def __init__(self, commands: Optional[Dict[str, str]] = None):
+    def __init__(self, commands: dict[str, str] | None = None):
         self.commands = commands or MAGIC_COMMANDS
 
-    def get_completions(self, document: Document, complete_event) -> Iterable[Completion]:
+    def get_completions(
+        self, document: Document, complete_event
+    ) -> Iterable[Completion]:
         text = document.text_before_cursor
         word = document.get_word_before_cursor()
 
         # Only complete if starts with %
-        if not text.lstrip().startswith('%'):
+        if not text.lstrip().startswith("%"):
             return
 
         # Get the partial command
@@ -95,12 +95,12 @@ class ConversationCompleter(Completer):
 
     def __init__(self, interpreter: "OpenInterpreter"):
         self.interpreter = interpreter
-        self._cache: List[str] = []
+        self._cache: list[str] = []
         self._cache_size = 0
 
     def _update_cache(self) -> None:
         """Update completion cache from conversation"""
-        messages = getattr(self.interpreter, 'messages', [])
+        messages = getattr(self.interpreter, "messages", [])
         if len(messages) == self._cache_size:
             return
 
@@ -108,7 +108,7 @@ class ConversationCompleter(Completer):
         suggestions = set()
 
         for msg in messages:
-            content = msg.get('content', '')
+            content = msg.get("content", "")
             if isinstance(content, str):
                 # Extract words (identifiers, paths, etc.)
                 words = content.split()
@@ -116,13 +116,15 @@ class ConversationCompleter(Completer):
                     # Skip very short or very long words
                     if 3 <= len(word) <= 50:
                         # Clean up punctuation
-                        clean = word.strip('.,!?()[]{}:;"\'')
+                        clean = word.strip(".,!?()[]{}:;\"'")
                         if clean and not clean.isdigit():
                             suggestions.add(clean)
 
         self._cache = sorted(suggestions)
 
-    def get_completions(self, document: Document, complete_event) -> Iterable[Completion]:
+    def get_completions(
+        self, document: Document, complete_event
+    ) -> Iterable[Completion]:
         self._update_cache()
 
         word = document.get_word_before_cursor()
@@ -148,7 +150,17 @@ class FilePathCompleter(Completer):
     - After common path keywords (open, read, write, etc.)
     """
 
-    PATH_KEYWORDS = {'open', 'read', 'write', 'load', 'save', 'file', 'path', 'from', 'to'}
+    PATH_KEYWORDS = {
+        "open",
+        "read",
+        "write",
+        "load",
+        "save",
+        "file",
+        "path",
+        "from",
+        "to",
+    }
 
     def __init__(self):
         self._path_completer = PathCompleter(
@@ -156,7 +168,9 @@ class FilePathCompleter(Completer):
             only_directories=False,
         )
 
-    def get_completions(self, document: Document, complete_event) -> Iterable[Completion]:
+    def get_completions(
+        self, document: Document, complete_event
+    ) -> Iterable[Completion]:
         text = document.text_before_cursor
         word = document.get_word_before_cursor()
 
@@ -164,11 +178,11 @@ class FilePathCompleter(Completer):
         should_complete = False
 
         # Starts with path indicator
-        if word.startswith(('/', '~', './')):
+        if word.startswith(("/", "~", "./")):
             should_complete = True
 
         # Contains path separator
-        if os.sep in word or '/' in word:
+        if os.sep in word or "/" in word:
             should_complete = True
 
         # After path keyword
@@ -195,16 +209,20 @@ class CombinedCompleter(Completer):
         self.path_completer = FilePathCompleter()
         self.conversation_completer = ConversationCompleter(interpreter)
 
-    def get_completions(self, document: Document, complete_event) -> Iterable[Completion]:
+    def get_completions(
+        self, document: Document, complete_event
+    ) -> Iterable[Completion]:
         text = document.text_before_cursor.lstrip()
 
         # Magic commands first
-        if text.startswith('%'):
+        if text.startswith("%"):
             yield from self.magic_completer.get_completions(document, complete_event)
             return
 
         # File paths
-        path_completions = list(self.path_completer.get_completions(document, complete_event))
+        path_completions = list(
+            self.path_completer.get_completions(document, complete_event)
+        )
         if path_completions:
             yield from path_completions
             return
@@ -255,9 +273,7 @@ def create_completer(
     return combined
 
 
-def create_magic_completer(
-    extra_commands: Optional[Dict[str, str]] = None
-) -> Completer:
+def create_magic_completer(extra_commands: dict[str, str] | None = None) -> Completer:
     """
     Create a completer for magic commands only.
 

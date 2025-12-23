@@ -34,24 +34,20 @@ def handle_undo(self, arguments):
 
     # Print out a preview of what messages were removed.
     for message in removed_messages:
-        if "content" in message and message["content"] != None:
+        if "content" in message and message["content"] is not None:
             if message.get("type") == "code":
                 # Show code preview with language
                 lang = message.get("format", "code")
                 code_preview = message["content"][:60].replace("\n", " ")
                 if len(message["content"]) > 60:
                     code_preview += "..."
-                self.display_message(
-                    f"**Removed code** ({lang}): `{code_preview}`"
-                )
+                self.display_message(f"**Removed code** ({lang}): `{code_preview}`")
             else:
                 self.display_message(
                     f"**Removed message:** `\"{message['content'][:30]}...\"`"
                 )
         elif "function_call" in message:
-            self.display_message(
-                f"**Removed function call**"
-            )
+            self.display_message("**Removed function call**")
 
     print("")  # Aesthetics.
 
@@ -174,7 +170,7 @@ def handle_load_message(self, json_path):
         json_path = "messages.json"
     if not json_path.endswith(".json"):
         json_path += ".json"
-    with open(json_path, "r") as f:
+    with open(json_path) as f:
         self.messages = json.load(f)
 
     self.display_message(f"> messages json loaded from {os.path.abspath(json_path)}")
@@ -195,9 +191,7 @@ def handle_count_tokens(self, prompt):
         )
 
     outputs.append(
-        (
-            f"> Tokens sent with next request as context: {conversation_tokens} (Estimated Cost: ${conversation_cost})"
-        )
+        f"> Tokens sent with next request as context: {conversation_tokens} (Estimated Cost: ${conversation_cost})"
     )
 
     if prompt:
@@ -216,7 +210,7 @@ def handle_count_tokens(self, prompt):
         )
 
     outputs.append(
-        f"**Note**: This functionality is currently experimental and may not be accurate. Please report any issues you find to the [Open Interpreter GitHub repository](https://github.com/OpenInterpreter/open-interpreter)."
+        "**Note**: This functionality is currently experimental and may not be accurate. Please report any issues you find to the [Open Interpreter GitHub repository](https://github.com/OpenInterpreter/open-interpreter)."
     )
 
     self.display_message("\n".join(outputs))

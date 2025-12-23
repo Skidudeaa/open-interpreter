@@ -7,14 +7,13 @@ Reads from UIState.active_agents and updates via EventBus.
 Part of Phase 2: Agent Visualization
 """
 
-from typing import Optional
-from rich.console import Console, Group
+from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from .ui_state import UIState, AgentStatus, AgentRole
-from .theme import THEME, BOX_STYLES
+from .theme import BOX_STYLES, THEME
+from .ui_state import AgentRole, AgentStatus, UIState
 
 
 class AgentStrip:
@@ -43,12 +42,12 @@ class AgentStrip:
 
     # Role-specific emoji icons
     ROLE_ICONS = {
-        AgentRole.SCOUT: "🔍",        # Magnifying glass
-        AgentRole.SURGEON: "🔧",      # Wrench
-        AgentRole.ARCHITECT: "🏗️",    # Building construction
-        AgentRole.VALIDATOR: "✅",    # Check mark button
-        AgentRole.HISTORIAN: "📚",    # Books
-        AgentRole.CUSTOM: "🤖",       # Robot
+        AgentRole.SCOUT: "🔍",  # Magnifying glass
+        AgentRole.SURGEON: "🔧",  # Wrench
+        AgentRole.ARCHITECT: "🏗️",  # Building construction
+        AgentRole.VALIDATOR: "✅",  # Check mark button
+        AgentRole.HISTORIAN: "📚",  # Books
+        AgentRole.CUSTOM: "🤖",  # Robot
     }
 
     # Status-specific colors (theme keys)
@@ -71,7 +70,7 @@ class AgentStrip:
         self.state = state
         self.console = console or Console()
 
-    def render(self) -> Optional[Panel]:
+    def render(self) -> Panel | None:
         """
         Render the agent strip panel.
 
@@ -94,7 +93,9 @@ class AgentStrip:
         # Build agent badges
         badges = []
         for agent_id, agent in self.state.active_agents.items():
-            badge = self._build_agent_badge(agent, agent_id == self.state.selected_agent_id)
+            badge = self._build_agent_badge(
+                agent, agent_id == self.state.selected_agent_id
+            )
             badges.append(badge)
 
         # Join badges with spaces
@@ -179,7 +180,8 @@ class AgentStrip:
     def get_running_count(self) -> int:
         """Get the count of currently running agents."""
         return sum(
-            1 for agent in self.state.active_agents.values()
+            1
+            for agent in self.state.active_agents.values()
             if agent.status == AgentStatus.RUNNING
         )
 

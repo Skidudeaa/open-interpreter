@@ -18,9 +18,9 @@ import json
 # from beeper import Beeper
 import time
 import traceback
-from typing import Any, Dict, List
+from typing import Any
 
-from fastapi import FastAPI, Header, WebSocket
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from uvicorn import Config, Server
@@ -205,7 +205,7 @@ def server(interpreter, port=8000):  # Default port is 8000 if not specified
     )
 
     @app.post("/settings")
-    async def settings(payload: Dict[str, Any]):
+    async def settings(payload: dict[str, Any]):
         for key, value in payload.items():
             print("Updating interpreter settings with the following:")
             print(key, value)

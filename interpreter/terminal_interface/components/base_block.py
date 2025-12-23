@@ -5,8 +5,9 @@ Provides shared console, timing tracking, and live display functionality.
 Uses lazy initialization of Live display to prevent context conflicts.
 """
 
-import time
 import threading
+import time
+
 from rich.console import Console
 from rich.live import Live
 
@@ -32,35 +33,54 @@ class BaseBlock:
         self.start_time = time.time()
         self._live = None  # Lazy initialization - don't start until needed
         self._live_started = False
+        self._live_failed = False  # Track if init failed (allows retry)
         self._live_lock = threading.Lock()
+        self._fallback_printed = False  # Track if we've already printed fallback
 
     def _ensure_live(self) -> bool:
         """
         Ensure Live display is started. Returns True if Live is available.
         Uses lazy initialization to avoid conflicts with other Live contexts.
+        Retries on transient failures (doesn't permanently lock out).
         """
-        if self._live_started:
-            return self._live is not None
+        if self._live_started and self._live is not None:
+            return True
 
         with self._live_lock:
             # Double-check after acquiring lock
-            if self._live_started:
-                return self._live is not None
+            if self._live_started and self._live is not None:
+                return True
 
             try:
                 self._live = Live(
                     auto_refresh=False,
                     console=self.get_console(),
-                    vertical_overflow="visible"
+                    vertical_overflow="visible",
                 )
                 self._live.start()
                 self._live_started = True
+                self._live_failed = False
                 return True
-            except Exception:
-                # If Live display fails, mark as started but unavailable
+            except Exception as e:
+                # Transient failure - don't lock out permanently, allow retry
                 self._live = None
-                self._live_started = True
+                self._live_failed = True
+                # Print error so user knows something is wrong
+                import sys
+
+                print(f"[UI] Live display failed: {e}", file=sys.stderr)
                 return False
+
+    def fallback_print(self, content, force: bool = False):
+        """Print content directly when Live display isn't available.
+
+        Only prints once during streaming to avoid spam. Use force=True for final render.
+        """
+        if self._fallback_printed and not force:
+            return
+        self._fallback_printed = True
+        console = self.get_console()
+        console.print(content)
 
     @property
     def live(self):
@@ -77,6 +97,7 @@ class BaseBlock:
         with self._live_lock:
             self._live = value
             self._live_started = value is not None
+            self._live_failed = False
 
     @classmethod
     def get_console(cls) -> Console:
@@ -114,17 +135,30 @@ class BaseBlock:
 
     def end(self):
         """End the live display safely."""
+        import logging
+
+        logger = logging.getLogger(__name__)
+
         with self._live_lock:
             if self._live is not None:
                 try:
                     self.refresh(cursor=False)
-                except Exception:
-                    pass  # Ignore refresh errors during cleanup
+                except Exception as e:
+                    logger.debug(f"BaseBlock.end: refresh failed: {e}")
                 try:
                     self._live.stop()
-                except Exception:
-                    pass  # Ignore stop errors (may already be stopped)
+                except Exception as e:
+                    logger.debug(
+                        f"BaseBlock.end: stop failed (may already be stopped): {e}"
+                    )
                 self._live = None
+            elif self._live_failed:
+                # If Live failed, do a final fallback print
+                try:
+                    self._fallback_printed = False  # Reset to force final print
+                    self.refresh(cursor=False)
+                except Exception as e:
+                    logger.debug(f"BaseBlock.end: fallback refresh failed: {e}")
 
     def refresh(self, cursor=True):
         """Refresh the display. Subclasses must implement."""

@@ -9,12 +9,12 @@ Instead of scrolling thousands of lines, this panel:
 4. Buffers all output for post-execution access
 """
 
-from rich.console import Console, Group
+from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
 
-from .theme import THEME, BOX_STYLES
+from .theme import BOX_STYLES, THEME
 
 
 class LiveOutputPanel:
@@ -29,7 +29,7 @@ class LiveOutputPanel:
     """
 
     MAX_VISIBLE_LINES = 8
-    SCROLL_ICON = "\U0001F4DC"  # Scroll emoji
+    SCROLL_ICON = "\U0001f4dc"  # Scroll emoji
 
     def __init__(self, console: Console = None):
         self.console = console or Console()
@@ -109,7 +109,7 @@ class LiveOutputPanel:
             visible_lines = self.lines
             showing = total_lines
         else:
-            visible_lines = self.lines[-self.MAX_VISIBLE_LINES:]
+            visible_lines = self.lines[-self.MAX_VISIBLE_LINES :]
             showing = self.MAX_VISIBLE_LINES
 
         # Build content
@@ -172,7 +172,7 @@ class OutputBuffer:
             return "\n".join(self.lines)
 
         # Truncate
-        visible = self.lines[-self.max_display_lines:]
+        visible = self.lines[-self.max_display_lines :]
         hidden = total - self.max_display_lines
         header = f"[dim]... {hidden} earlier lines hidden ...[/dim]\n"
         return header + "\n".join(visible)

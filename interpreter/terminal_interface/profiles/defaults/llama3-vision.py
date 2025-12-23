@@ -9,7 +9,7 @@ from interpreter import interpreter
 interpreter.system_message = """You are an AI assistant that writes markdown code snippets to answer the user's request. You speak very concisely and quickly, you say nothing irrelevant to the user's request. For example:
 
 User: Open the chrome app.
-Assistant: On it. 
+Assistant: On it.
 ```python
 import webbrowser
 webbrowser.open('https://chrome.google.com')
@@ -38,16 +38,16 @@ for file in desktop_dir.iterdir():
     if file.suffix in ['.jpg', '.png', '.jpeg', '.gif', '.bmp']:
         # Get a description of the image
         description = computer.vision.query(query="Describe this image in 4 words.", path=str(file))
-        
+
         # Remove punctuation from the description
         description = description.translate(str.maketrans('', '', string.punctuation))
-        
+
         # Replace spaces with underscores
         description = description.replace(' ', '_')
-        
+
         # Form the new filename
         new_filename = f"{description}{file.suffix}"
-        
+
         # Rename the file
         file.rename(desktop_dir / new_filename)
 ```

@@ -18,24 +18,20 @@ import time
 
 from rich.console import Group
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
 from .base_block import BaseBlock
 from .table_display import detect_and_format_table
-from .theme import (
-    THEME,
-    BOX_STYLES,
-    get_language_icon,
-    get_status_display,
-)
+from .theme import BOX_STYLES, THEME, get_language_icon, get_status_display
 
 # Regex patterns for traceback detection
-TRACEBACK_PATTERN = re.compile(r'^Traceback \(most recent call last\):')
+TRACEBACK_PATTERN = re.compile(r"^Traceback \(most recent call last\):")
 FILE_LINE_PATTERN = re.compile(r'^  File "(.+)", line (\d+), in (.+)$')
-ERROR_LINE_PATTERN = re.compile(r'^(\w+Error|\w+Exception|KeyboardInterrupt|SystemExit).*$')
+ERROR_LINE_PATTERN = re.compile(
+    r"^(\w+Error|\w+Exception|KeyboardInterrupt|SystemExit).*$"
+)
 
 
 class CodeBlock(BaseBlock):
@@ -89,9 +85,9 @@ class CodeBlock(BaseBlock):
         self._min_refresh_interval = 0.033  # ~30 fps max
 
         # Phase 3: Block navigation integration
-        self.block_id: str = ""       # Unique ID for CodeNavigator
+        self.block_id: str = ""  # Unique ID for CodeNavigator
         self.is_selected: bool = False  # True if selected for navigation
-        self._is_folded: bool = False   # True if output is collapsed
+        self._is_folded: bool = False  # True if output is collapsed
         self.fold_preview_lines: int = 3  # Lines to show when folded
 
     def set_status(self, status: str):
@@ -185,6 +181,9 @@ class CodeBlock(BaseBlock):
         if self.live:
             self.live.update(group)
             self.live.refresh()
+        else:
+            # Fallback: print directly when Live isn't available
+            self.fallback_print(group)
 
     def _build_header(self) -> Table:
         """Build the language header with status indicator."""
@@ -269,7 +268,7 @@ class CodeBlock(BaseBlock):
             table_formatted = detect_and_format_table(raw_output)
             if table_formatted:
                 # Return pre-formatted table as panel content
-                table_icon = "\U0001F4CA"  # Bar chart
+                table_icon = "\U0001f4ca"  # Bar chart
                 return Panel(
                     Text.from_ansi(table_formatted),
                     title=f"{table_icon} Table Output",
@@ -297,7 +296,7 @@ class CodeBlock(BaseBlock):
             showing = len(visible_lines)
         elif len(visible_lines) > self.MAX_OUTPUT_LINES:
             # Not folded but too long: show last N lines
-            visible_lines = visible_lines[-self.MAX_OUTPUT_LINES:]
+            visible_lines = visible_lines[-self.MAX_OUTPUT_LINES :]
             showing = self.MAX_OUTPUT_LINES
         else:
             showing = len(visible_lines)
@@ -320,11 +319,17 @@ class CodeBlock(BaseBlock):
                 if match:
                     # Highlight file path and line number
                     styled_content.append('  File "', style=f"dim {THEME['error']}")
-                    styled_content.append(match.group(1), style=f"{THEME['warning']}")  # file path
+                    styled_content.append(
+                        match.group(1), style=f"{THEME['warning']}"
+                    )  # file path
                     styled_content.append('", line ', style=f"dim {THEME['error']}")
-                    styled_content.append(match.group(2), style=f"bold {THEME['secondary']}")  # line num
-                    styled_content.append(', in ', style=f"dim {THEME['error']}")
-                    styled_content.append(match.group(3), style=f"{THEME['primary']}")  # function
+                    styled_content.append(
+                        match.group(2), style=f"bold {THEME['secondary']}"
+                    )  # line num
+                    styled_content.append(", in ", style=f"dim {THEME['error']}")
+                    styled_content.append(
+                        match.group(3), style=f"{THEME['primary']}"
+                    )  # function
                 else:
                     styled_content.append(line, style=f"dim {THEME['error']}")
             else:
@@ -332,7 +337,7 @@ class CodeBlock(BaseBlock):
                 styled_content.append(line, style=THEME["computer"])
 
         # Build header with line count and fold indicator
-        scroll_icon = "\U0001F4DC"  # Scroll emoji
+        scroll_icon = "\U0001f4dc"  # Scroll emoji
         fold_icon = "▶" if self._is_folded else "▼"  # Arrow for fold state
 
         if self._is_folded:
@@ -343,7 +348,9 @@ class CodeBlock(BaseBlock):
             title = f"{scroll_icon} Output"
 
         # Check if output contains errors for border styling
-        has_errors = any(otype in ("error", "stderr", "traceback") for _, otype in visible_lines)
+        has_errors = any(
+            otype in ("error", "stderr", "traceback") for _, otype in visible_lines
+        )
         border_color = THEME["error"] if has_errors else THEME["text_muted"]
 
         return Panel(
@@ -360,7 +367,7 @@ class CodeBlock(BaseBlock):
         """Build the timing footer with progress indicator for long-running code."""
         elapsed_secs = self.get_elapsed()
         elapsed_str = self.get_elapsed_str()
-        timer_icon = "\u23F1"  # Stopwatch
+        timer_icon = "\u23f1"  # Stopwatch
 
         # For long-running code (>5s), show a more prominent progress indicator
         if self.status == "running" and elapsed_secs > 5:
@@ -371,7 +378,7 @@ class CodeBlock(BaseBlock):
 
             footer = Text()
             footer.append(f"  {spinner} ", style=f"bold {THEME['secondary']}")
-            footer.append(f"Running... ", style=THEME["secondary"])
+            footer.append("Running... ", style=THEME["secondary"])
             footer.append(f"{timer_icon} {elapsed_str}  ", style="dim")
             return footer
 
@@ -448,7 +455,9 @@ class CodeBlock(BaseBlock):
     def get_output_page_info(self) -> tuple:
         """Get current page info (current_page, total_pages, total_lines)."""
         total_lines = len(self._output_lines)
-        total_pages = max(1, (total_lines + self.MAX_OUTPUT_LINES - 1) // self.MAX_OUTPUT_LINES)
+        total_pages = max(
+            1, (total_lines + self.MAX_OUTPUT_LINES - 1) // self.MAX_OUTPUT_LINES
+        )
         return (self._output_page + 1, total_pages, total_lines)
 
     def get_full_output(self) -> str:

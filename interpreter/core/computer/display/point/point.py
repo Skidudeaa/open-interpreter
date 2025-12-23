@@ -2,7 +2,6 @@ import hashlib
 import io
 import os
 import subprocess
-from typing import List
 
 import cv2
 import nltk
@@ -11,7 +10,6 @@ import torch
 from PIL import Image, ImageDraw, ImageEnhance, ImageFont
 from sentence_transformers import SentenceTransformer, util
 
-from .....terminal_interface.utils.oi_dir import oi_dir
 from ...utils.computer_vision import pytesseract_get_text_bounding_boxes
 
 try:
@@ -52,12 +50,12 @@ def point(description, screenshot=None, debug=False, hashes=None):
 def find_icon(description, screenshot=None, debug=False, hashes=None):
     if debug:
         print("STARTING")
-    if screenshot == None:
+    if screenshot is None:
         image_data = take_screenshot_to_pil()
     else:
         image_data = screenshot
 
-    if hashes == None:
+    if hashes is None:
         hashes = {}
 
     image_width, image_height = image_data.size
@@ -444,16 +442,15 @@ def find_icon(description, screenshot=None, debug=False, hashes=None):
 # torch.set_num_threads(4)
 
 fast_model = True
+model_path = os.path.join(os.path.dirname(__file__), "vit_model.pt")
 
 # First, we load the respective CLIP model
 model = SentenceTransformer("clip-ViT-B-32")
 
 
-import os
-
 import timm
 
-if fast_model == False:
+if not fast_model:
     # Check if the model file exists
     if not os.path.isfile(model_path):
         # If not, create and save the model
@@ -478,7 +475,7 @@ if fast_model == False:
     data_config = timm.data.resolve_model_data_config(model)
     transforms = timm.data.create_transform(**data_config, is_training=False)
 
-    def embed_images(images: List[Image.Image], model, transforms):
+    def embed_images(images: list[Image.Image], model, transforms):
         # Stack images along the batch dimension
         image_batch = torch.stack([transforms(image) for image in images])
         # Get embeddings

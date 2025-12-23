@@ -69,9 +69,10 @@ class SpinnerBlock:
             self.live.start()
             self.is_active = True
         except Exception:
-            # If spinner fails to start, continue without it
+            # If spinner fails to start, print simple fallback so user knows something is happening
             self.is_active = False
             self.live = None
+            self.console.print(f"[{self.color}]● {self.text}...[/{self.color}]")
 
     def update(self, text: str):
         """
@@ -142,6 +143,7 @@ def with_spinner(spinner_type: str = "thinking", text: str = None):
             # do work
             pass
     """
+
     class SpinnerContext:
         def __init__(self):
             self.spinner = SpinnerBlock(spinner_type)

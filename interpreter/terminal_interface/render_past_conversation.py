@@ -2,10 +2,8 @@
 This is all messed up.... Uses the old streaming structure.
 """
 
-
 from .components.code_block import CodeBlock
 from .components.message_block import MessageBlock
-from .utils.display_markdown_message import display_markdown_message
 
 
 def render_past_conversation(messages):
@@ -54,7 +52,11 @@ def render_past_conversation(messages):
                 active_block.active_line = chunk["active_line"]
 
         # Console
-        if chunk["type"] == "console" and active_block and hasattr(active_block, 'output'):
+        if (
+            chunk["type"] == "console"
+            and active_block
+            and hasattr(active_block, "output")
+        ):
             ran_code_block = True
             render_cursor = False
             active_block.output += "\n" + chunk["content"]

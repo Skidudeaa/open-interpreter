@@ -8,23 +8,20 @@ Provides semantic memory capabilities including:
 - ConversationLinker: Links edits to conversation context
 """
 
+from .conversation_linker import ConversationLinker, create_edit_from_file_change
 from .edit_record import (
-    Edit,
-    EditType,
-    EditResult,
     ConversationContext,
+    Edit,
+    EditResult,
+    EditType,
     SymbolReference,
     TestResult,
 )
 from .semantic_graph import SemanticEditGraph
 from .symbol_extractor import (
-    PythonSymbolExtractor,
     DiffSymbolExtractor,
+    PythonSymbolExtractor,
     extract_affected_symbols,
-)
-from .conversation_linker import (
-    ConversationLinker,
-    create_edit_from_file_change,
 )
 
 __all__ = [

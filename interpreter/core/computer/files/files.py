@@ -3,7 +3,8 @@ import difflib
 from ...utils.lazy_import import lazy_import
 
 # Lazy import of aifs, imported when needed
-aifs = lazy_import('aifs')
+aifs = lazy_import("aifs")
+
 
 class Files:
     def __init__(self, computer):
@@ -19,7 +20,7 @@ class Files:
         """
         Edits a file on the filesystem, replacing the original text with the replacement text.
         """
-        with open(path, "r") as file:
+        with open(path) as file:
             filedata = file.read()
 
         if original_text not in filedata:

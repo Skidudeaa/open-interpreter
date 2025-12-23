@@ -1,14 +1,10 @@
 import glob
-import inspect
-import json
 import os
 import re
-import subprocess
 from pathlib import Path
 
 from ....terminal_interface.utils.oi_dir import oi_dir
 from ...utils.lazy_import import lazy_import
-from ..utils.recipient_utils import format_to_recipient
 
 # Lazy import, imported when needed to speed up start time
 aifs = lazy_import("aifs")
@@ -38,6 +34,7 @@ class Skills:
     To create a new skill:
         computer.skills.new_skill.create()
     """
+
     def __init__(self, computer):
         self.computer = computer
         self.path = str(Path(oi_dir) / "skills")
@@ -51,8 +48,10 @@ class Skills:
             list[str]: Names of available skills with () to indicate they're callable
         """
         if not self.computer.import_skills:
-            print("Skills are disabled. To enable skills, either use a profile like 'the01' that supports skills, "
-                  "or create an instance of OpenInterpreter with import_skills=True")
+            print(
+                "Skills are disabled. To enable skills, either use a profile like 'the01' that supports skills, "
+                "or create an instance of OpenInterpreter with import_skills=True"
+            )
             return []
 
         if not self.computer._has_imported_skills:
@@ -83,8 +82,10 @@ class Skills:
             list[str]: Names of available skills with () to indicate they're callable
         """
         if not self.computer.import_skills:
-            print("Skills are disabled. To enable skills, either use a profile like 'the01' that supports skills, "
-                  "or create an instance of OpenInterpreter with import_skills=True")
+            print(
+                "Skills are disabled. To enable skills, either use a profile like 'the01' that supports skills, "
+                "or create an instance of OpenInterpreter with import_skills=True"
+            )
             return []
 
         if not self.computer._has_imported_skills:
@@ -126,7 +127,7 @@ class Skills:
 
         code_to_run = ""
         for file in glob.glob(os.path.join(self.path, "*.py")):
-            with open(file, "r") as f:
+            with open(file) as f:
                 code_to_run += f.read() + "\n"
 
         if self.computer.interpreter.debug:
@@ -137,7 +138,7 @@ class Skills:
         if "traceback" in str(output).lower():
             # Import them individually
             for file in glob.glob(os.path.join(self.path, "*.py")):
-                with open(file, "r") as f:
+                with open(file) as f:
                     code_to_run = f.read() + "\n"
 
                 if self.computer.interpreter.debug:
@@ -169,7 +170,7 @@ INSTRUCTIONS
 You are creating a new skill. Follow these steps exactly to get me to tell you its name:
 1. Ask me what the name of this skill is.
 2. After I explicitly tell you the name of the skill (I may tell you to proceed which is not the name— if I do say that, you probably need more information from me, so tell me that), after you get the proper name, execute `computer.skills.new_skill.name = "{INSERT THE SKILL NAME FROM QUESTION #1}"`.
-        
+
         """.strip()
         )
 

@@ -7,19 +7,20 @@ for output sections. Integrates with ConversationState for tracking.
 Part of Phase 3: Context Panel
 """
 
-from typing import Optional, List, Callable
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import Enum, auto
 
-from .ui_state import UIState, UIMode
+from .ui_state import UIState
 
 
 class BlockType(Enum):
     """Types of navigable blocks"""
-    MESSAGE = auto()    # User or assistant message
-    CODE = auto()       # Code block
-    OUTPUT = auto()     # Code output
-    ERROR = auto()      # Error output
+
+    MESSAGE = auto()  # User or assistant message
+    CODE = auto()  # Code block
+    OUTPUT = auto()  # Code output
+    ERROR = auto()  # Error output
 
 
 @dataclass
@@ -29,13 +30,14 @@ class NavigableBlock:
 
     Used for j/k navigation and fold/unfold tracking.
     """
-    id: str                          # Unique block ID
-    block_type: BlockType            # Type of block
-    index: int                       # Position in conversation
-    is_folded: bool = False          # True if output is collapsed
-    line_count: int = 0              # Number of lines (for output)
-    preview_lines: int = 3           # Lines to show when folded
-    parent_id: Optional[str] = None  # Parent block (e.g., code block for output)
+
+    id: str  # Unique block ID
+    block_type: BlockType  # Type of block
+    index: int  # Position in conversation
+    is_folded: bool = False  # True if output is collapsed
+    line_count: int = 0  # Number of lines (for output)
+    preview_lines: int = 3  # Lines to show when folded
+    parent_id: str | None = None  # Parent block (e.g., code block for output)
 
 
 class CodeNavigator:
@@ -64,14 +66,14 @@ class CodeNavigator:
             state: The UIState instance
         """
         self.state = state
-        self._blocks: List[NavigableBlock] = []
+        self._blocks: list[NavigableBlock] = []
         self._block_id_counter = 0
 
         # Callbacks for actions
-        self._on_selection_change: Optional[Callable[[Optional[str]], None]] = None
-        self._on_fold_change: Optional[Callable[[str, bool], None]] = None
-        self._on_copy_request: Optional[Callable[[str], None]] = None
-        self._on_rerun_request: Optional[Callable[[str], None]] = None
+        self._on_selection_change: Callable[[str | None], None] | None = None
+        self._on_fold_change: Callable[[str, bool], None] | None = None
+        self._on_copy_request: Callable[[str], None] | None = None
+        self._on_rerun_request: Callable[[str], None] | None = None
 
     @property
     def selected_index(self) -> int:
@@ -84,7 +86,7 @@ class CodeNavigator:
         self.state.conversation.current_block_index = value
 
     @property
-    def selected_block(self) -> Optional[NavigableBlock]:
+    def selected_block(self) -> NavigableBlock | None:
         """Get the currently selected block."""
         if 0 <= self.selected_index < len(self._blocks):
             return self._blocks[self.selected_index]
@@ -99,7 +101,7 @@ class CodeNavigator:
         self,
         block_type: BlockType,
         line_count: int = 0,
-        parent_id: Optional[str] = None,
+        parent_id: str | None = None,
     ) -> str:
         """
         Register a new navigable block.
@@ -130,7 +132,9 @@ class CodeNavigator:
         self._blocks.append(block)
         return block_id
 
-    def update_block(self, block_id: str, line_count: int = None, is_folded: bool = None):
+    def update_block(
+        self, block_id: str, line_count: int = None, is_folded: bool = None
+    ):
         """
         Update a block's properties.
 
@@ -274,7 +278,10 @@ class CodeNavigator:
     def fold_all(self):
         """Fold all output blocks."""
         for block in self._blocks:
-            if block.block_type in (BlockType.OUTPUT, BlockType.ERROR) and not block.is_folded:
+            if (
+                block.block_type in (BlockType.OUTPUT, BlockType.ERROR)
+                and not block.is_folded
+            ):
                 block.is_folded = True
                 self._notify_fold_change(block.id, True)
 
@@ -308,7 +315,7 @@ class CodeNavigator:
 
     # Callback setters
 
-    def set_selection_handler(self, handler: Callable[[Optional[str]], None]):
+    def set_selection_handler(self, handler: Callable[[str | None], None]):
         """Set callback for selection changes."""
         self._on_selection_change = handler
 
@@ -356,14 +363,14 @@ class CodeNavigator:
                 return block.line_count
         return 0
 
-    def get_block_by_id(self, block_id: str) -> Optional[NavigableBlock]:
+    def get_block_by_id(self, block_id: str) -> NavigableBlock | None:
         """Get a block by its ID."""
         for block in self._blocks:
             if block.id == block_id:
                 return block
         return None
 
-    def get_blocks_by_type(self, block_type: BlockType) -> List[NavigableBlock]:
+    def get_blocks_by_type(self, block_type: BlockType) -> list[NavigableBlock]:
         """Get all blocks of a specific type."""
         return [b for b in self._blocks if b.block_type == block_type]
 

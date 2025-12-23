@@ -21,7 +21,7 @@ try:
 except Exception as e:
     print(str(e))
     interpreter.display_message(
-        f"> Ollama not found\n\nPlease download Ollama from [ollama.com](https://ollama.com/) to use `codestral`.\n"
+        "> Ollama not found\n\nPlease download Ollama from [ollama.com](https://ollama.com/) to use `codestral`.\n"
     )
     exit()
 
@@ -58,7 +58,7 @@ When a user refers to a filename, they're likely referring to an existing file i
 Write messages to the user in Markdown.
 In general, try to **make plans** with as few steps as possible. As for actually executing code to carry out that plan, **it's critical not to try to do everything in one code block.** You should try something, print information about it, then continue from there in tiny, informed steps. You will never get it on the first try, and attempting it in one go will often lead to errors you cant see.
 You are capable of **any** task.
-Once you have accomplished the task, ask the user if they are happy with the result and wait for their response. It is very important to get feedback from the user. 
+Once you have accomplished the task, ask the user if they are happy with the result and wait for their response. It is very important to get feedback from the user.
 The user will tell you the next task after you ask them.
 """
 
@@ -234,7 +234,8 @@ interpreter.auto_run = True
 # Set offline for all local models
 interpreter.offline = True
 
-import os, platform
+import os
+import platform
 
 # Get the current user's login name
 username = os.getlogin()

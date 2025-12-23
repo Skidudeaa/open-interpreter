@@ -1,12 +1,4 @@
 import base64
-import io
-import os
-import platform
-import pprint
-import subprocess
-import time
-import warnings
-from contextlib import redirect_stdout
 from io import BytesIO
 
 import requests
@@ -143,7 +135,7 @@ class Display:
         #         )
         #     return screenshot  # Still return a PIL image
 
-        if quadrant == None:
+        if quadrant is None:
             if active_app_only:
                 active_window = pywinctl.getActiveWindow()
                 if active_window:
@@ -251,7 +243,7 @@ class Display:
                 print(message)
 
                 # Take a screenshot
-                if screenshot == None:
+                if screenshot is None:
                     screenshot = self.screenshot(show=False)
 
                 # Downscale the screenshot to 1920x1080
@@ -278,7 +270,7 @@ class Display:
         """
         Searches for specified text within a screenshot or the current screen if no screenshot is provided.
         """
-        if screenshot == None:
+        if screenshot is None:
             screenshot = self.screenshot(show=False)
 
         if not self.computer.offline:
@@ -310,7 +302,7 @@ class Display:
         """
         Extracts and returns text from a screenshot or the current screen as a list of lists, each representing a line of text.
         """
-        if screenshot == None:
+        if screenshot is None:
             screenshot = self.screenshot(show=False, force_image=True)
 
         if not self.computer.offline:
@@ -439,5 +431,5 @@ def take_screenshot_to_pil(screen=0, combine_screens=True):
 
 
 def get_displays():
-    monitors = get_monitors()
+    monitors = screeninfo.get_monitors()
     return monitors

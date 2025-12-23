@@ -14,12 +14,13 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Set, Dict, Any
+from typing import Any
 
 
 @dataclass
 class TestFile:
     """Information about a test file."""
+
     path: str
     test_count: int = 0
     imports_target: bool = False
@@ -29,6 +30,7 @@ class TestFile:
 @dataclass
 class TestRunResult:
     """Result of running tests."""
+
     passed: bool
     total_tests: int
     passed_tests: int
@@ -36,7 +38,7 @@ class TestRunResult:
     skipped_tests: int
     duration_seconds: float
     output: str
-    failed_test_names: List[str] = field(default_factory=list)
+    failed_test_names: list[str] = field(default_factory=list)
 
 
 class TestDiscovery:
@@ -51,8 +53,8 @@ class TestDiscovery:
 
     def __init__(
         self,
-        project_root: Optional[str] = None,
-        test_patterns: Optional[List[str]] = None,
+        project_root: str | None = None,
+        test_patterns: list[str] | None = None,
     ):
         """
         Initialize test discovery.
@@ -71,11 +73,7 @@ class TestDiscovery:
         # Common test directory names
         self.test_directories = ["tests", "test", "spec", "specs"]
 
-    def find_related_tests(
-        self,
-        file_path: str,
-        max_tests: int = 20
-    ) -> List[TestFile]:
+    def find_related_tests(self, file_path: str, max_tests: int = 20) -> list[TestFile]:
         """
         Find tests related to a file.
 
@@ -120,7 +118,7 @@ class TestDiscovery:
 
         return related_tests[:max_tests]
 
-    def find_same_directory_tests(self, file_path: str) -> List[TestFile]:
+    def find_same_directory_tests(self, file_path: str) -> list[TestFile]:
         """Find tests in the same directory as the file."""
         dir_path = Path(file_path).parent
         full_dir = Path(self.project_root) / dir_path
@@ -130,16 +128,18 @@ class TestDiscovery:
             for pattern in self.test_patterns:
                 for test_path in full_dir.glob(pattern):
                     rel_path = str(test_path.relative_to(self.project_root))
-                    tests.append(TestFile(
-                        path=rel_path,
-                        test_count=self._count_tests_in_file(rel_path),
-                    ))
+                    tests.append(
+                        TestFile(
+                            path=rel_path,
+                            test_count=self._count_tests_in_file(rel_path),
+                        )
+                    )
 
         return tests
 
     def run_tests(
         self,
-        test_files: List[TestFile],
+        test_files: list[TestFile],
         timeout_seconds: int = 300,
         verbose: bool = False,
     ) -> TestRunResult:
@@ -232,7 +232,7 @@ class TestDiscovery:
                 output=f"Error running tests: {e}",
             )
 
-    def collect_tests(self, test_file: str) -> List[str]:
+    def collect_tests(self, test_file: str) -> list[str]:
         """
         Collect test names from a file without running them.
 
@@ -265,23 +265,25 @@ class TestDiscovery:
         except Exception:
             return []
 
-    def _find_all_test_files(self) -> List[str]:
+    def _find_all_test_files(self) -> list[str]:
         """Find all test files in the project."""
         test_files = []
 
         for root, dirs, files in os.walk(self.project_root):
             # Skip common non-test directories
-            dirs[:] = [d for d in dirs if d not in {
-                '__pycache__', '.git', 'node_modules', '.venv', 'venv'
-            }]
+            dirs[:] = [
+                d
+                for d in dirs
+                if d not in {"__pycache__", ".git", "node_modules", ".venv", "venv"}
+            ]
 
             for pattern in self.test_patterns:
                 for file in files:
                     import fnmatch
+
                     if fnmatch.fnmatch(file, pattern):
                         rel_path = os.path.relpath(
-                            os.path.join(root, file),
-                            self.project_root
+                            os.path.join(root, file), self.project_root
                         )
                         test_files.append(rel_path)
 
@@ -294,16 +296,13 @@ class TestDiscovery:
         return module.replace("/", ".")
 
     def _test_imports_module(
-        self,
-        test_path: str,
-        module_name: str,
-        file_path: str
+        self, test_path: str, module_name: str, file_path: str
     ) -> bool:
         """Check if a test file imports the target module."""
         full_path = Path(self.project_root) / test_path
 
         try:
-            with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(full_path, encoding="utf-8", errors="ignore") as f:
                 content = f.read()
 
             # Check for import statements
@@ -313,10 +312,10 @@ class TestDiscovery:
 
             file_stem = Path(file_path).stem
             patterns = [
-                rf'\bimport\s+{re.escape(module_name)}\b',
-                rf'\bfrom\s+{re.escape(module_name)}\s+import\b',
-                rf'\bfrom\s+\S*\.{re.escape(file_stem)}\s+import\b',
-                rf'\bimport\s+\S*\.{re.escape(file_stem)}\b',
+                rf"\bimport\s+{re.escape(module_name)}\b",
+                rf"\bfrom\s+{re.escape(module_name)}\s+import\b",
+                rf"\bfrom\s+\S*\.{re.escape(file_stem)}\s+import\b",
+                rf"\bimport\s+\S*\.{re.escape(file_stem)}\b",
             ]
 
             for pattern in patterns:
@@ -333,19 +332,21 @@ class TestDiscovery:
         full_path = Path(self.project_root) / test_path
 
         try:
-            with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(full_path, encoding="utf-8", errors="ignore") as f:
                 content = f.read()
 
             # Count test functions and methods
             # def test_*
             # async def test_*
-            count = len(re.findall(r'^\s*(async\s+)?def\s+test_', content, re.MULTILINE))
+            count = len(
+                re.findall(r"^\s*(async\s+)?def\s+test_", content, re.MULTILINE)
+            )
             return count
 
         except Exception:
             return 0
 
-    def _parse_pytest_output(self, output: str) -> Dict[str, Any]:
+    def _parse_pytest_output(self, output: str) -> dict[str, Any]:
         """Parse pytest output to extract test counts."""
         result = {
             "total": 0,
@@ -358,8 +359,7 @@ class TestDiscovery:
 
         # Look for summary line like: "5 passed, 2 failed in 1.23s"
         summary_match = re.search(
-            r'(\d+)\s+passed.*?(\d+)\s+failed.*?in\s+([\d.]+)s',
-            output
+            r"(\d+)\s+passed.*?(\d+)\s+failed.*?in\s+([\d.]+)s", output
         )
         if summary_match:
             result["passed"] = int(summary_match.group(1))
@@ -368,29 +368,31 @@ class TestDiscovery:
             result["total"] = result["passed"] + result["failed"]
 
         # Simpler patterns
-        passed_match = re.search(r'(\d+)\s+passed', output)
+        passed_match = re.search(r"(\d+)\s+passed", output)
         if passed_match:
             result["passed"] = int(passed_match.group(1))
 
-        failed_match = re.search(r'(\d+)\s+failed', output)
+        failed_match = re.search(r"(\d+)\s+failed", output)
         if failed_match:
             result["failed"] = int(failed_match.group(1))
 
-        skipped_match = re.search(r'(\d+)\s+skipped', output)
+        skipped_match = re.search(r"(\d+)\s+skipped", output)
         if skipped_match:
             result["skipped"] = int(skipped_match.group(1))
 
         result["total"] = result["passed"] + result["failed"] + result["skipped"]
 
         # Extract failed test names
-        failed_names = re.findall(r'FAILED\s+(\S+)', output)
+        failed_names = re.findall(r"FAILED\s+(\S+)", output)
         result["failed_names"] = failed_names
 
         return result
 
 
 # Convenience function
-def find_and_run_tests(file_path: str, project_root: Optional[str] = None) -> TestRunResult:
+def find_and_run_tests(
+    file_path: str, project_root: str | None = None
+) -> TestRunResult:
     """
     Find and run tests related to a file.
 

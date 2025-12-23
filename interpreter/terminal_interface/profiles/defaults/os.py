@@ -143,7 +143,7 @@ try:
 except Exception:
     # Non blocking
     pass
-    
+
 }}
 
 """.strip()

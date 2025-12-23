@@ -8,15 +8,13 @@ Reads from UIState.context.
 Part of Phase 3: Context Panel
 """
 
-from typing import Optional, List, Tuple
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich.tree import Tree
 
-from .ui_state import UIState, UIMode, ContextState
-from .theme import THEME, BOX_STYLES
+from .theme import BOX_STYLES, THEME
+from .ui_state import ContextState, UIMode, UIState
 
 
 class ContextPanel:
@@ -74,8 +72,8 @@ class ContextPanel:
         self.state = state
         self.console = console or Console()
         self.max_value_length = 30  # Truncate long values
-        self.max_variables = 10     # Max variables to show
-        self.max_functions = 8      # Max functions to show
+        self.max_variables = 10  # Max variables to show
+        self.max_functions = 8  # Max functions to show
 
     def should_show(self) -> bool:
         """
@@ -86,7 +84,7 @@ class ContextPanel:
         """
         return self.state.context_panel_visible
 
-    def render(self) -> Optional[Panel]:
+    def render(self) -> Panel | None:
         """
         Render the context panel.
 
@@ -163,7 +161,7 @@ class ContextPanel:
         table.add_column("Variables", justify="left")
 
         # Sort by name, limit count
-        sorted_vars = sorted(variables.items())[:self.max_variables]
+        sorted_vars = sorted(variables.items())[: self.max_variables]
         remaining = len(variables) - self.max_variables
 
         for name, type_preview in sorted_vars:
@@ -227,7 +225,7 @@ class ContextPanel:
         """Truncate a value preview to max length."""
         if len(value) <= self.max_value_length:
             return value
-        return value[:self.max_value_length - 3] + "..."
+        return value[: self.max_value_length - 3] + "..."
 
     def _build_functions_section(self, functions: dict) -> Table:
         """
@@ -249,7 +247,7 @@ class ContextPanel:
         table.add_column("Functions", justify="left")
 
         # Sort by name, limit count
-        sorted_funcs = sorted(functions.items())[:self.max_functions]
+        sorted_funcs = sorted(functions.items())[: self.max_functions]
         remaining = len(functions) - self.max_functions
 
         for name, signature in sorted_funcs:
@@ -334,7 +332,7 @@ class ContextPanel:
         else:
             return f"{mb / 1024:.2f} GB"
 
-    def _combine_sections(self, sections: List[Table]) -> Table:
+    def _combine_sections(self, sections: list[Table]) -> Table:
         """
         Combine multiple sections into a single table.
 

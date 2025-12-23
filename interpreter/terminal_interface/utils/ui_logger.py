@@ -8,10 +8,11 @@ Enable debug logging via OI_UI_DEBUG=true environment variable.
 import logging
 import os
 import sys
+from collections.abc import Callable
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 # Logger configuration
 UI_DEBUG = os.environ.get("OI_UI_DEBUG", "").lower() in ("true", "1", "yes")
@@ -34,17 +35,15 @@ def setup_ui_logger() -> logging.Logger:
         # File handler
         file_handler = logging.FileHandler(get_log_path())
         file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        ))
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        )
         logger.addHandler(file_handler)
 
         # Console handler for errors only
         console_handler = logging.StreamHandler(sys.stderr)
         console_handler.setLevel(logging.ERROR)
-        console_handler.setFormatter(logging.Formatter(
-            "[UI Error] %(message)s"
-        ))
+        console_handler.setFormatter(logging.Formatter("[UI Error] %(message)s"))
         logger.addHandler(console_handler)
 
     else:
@@ -71,7 +70,7 @@ def log_exception(component: str, operation: str, error: Exception):
     """
     ui_logger.debug(
         f"[{component}] {operation} failed: {type(error).__name__}: {error}",
-        exc_info=UI_DEBUG
+        exc_info=UI_DEBUG,
     )
 
 
@@ -89,6 +88,7 @@ def safe_ui_call(component: str, operation: str, default: Any = None):
         operation: Operation name for logging
         default: Default return value on failure
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -97,7 +97,9 @@ def safe_ui_call(component: str, operation: str, default: Any = None):
             except Exception as e:
                 log_exception(component, operation, e)
                 return default
+
         return wrapper
+
     return decorator
 
 
@@ -114,7 +116,7 @@ class UIErrorContext:
         self.component = component
         self.operation = operation
         self.reraise = reraise
-        self.error: Optional[Exception] = None
+        self.error: Exception | None = None
 
     def __enter__(self):
         return self
@@ -150,13 +152,15 @@ _collected_errors = []
 
 def collect_error(component: str, operation: str, error: Exception):
     """Collect an error for later diagnostic reporting."""
-    _collected_errors.append({
-        "timestamp": datetime.now().isoformat(),
-        "component": component,
-        "operation": operation,
-        "error_type": type(error).__name__,
-        "error_message": str(error),
-    })
+    _collected_errors.append(
+        {
+            "timestamp": datetime.now().isoformat(),
+            "component": component,
+            "operation": operation,
+            "error_type": type(error).__name__,
+            "error_message": str(error),
+        }
+    )
 
     # Keep only last 100 errors
     if len(_collected_errors) > 100:

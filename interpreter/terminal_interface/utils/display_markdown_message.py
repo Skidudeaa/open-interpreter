@@ -18,7 +18,7 @@ def display_markdown_message(message):
         else:
             try:
                 rich_print(Markdown(line))
-            except UnicodeEncodeError as e:
+            except UnicodeEncodeError:
                 # Replace the problematic character or handle the error as needed
                 print("Error displaying line:", line)
 

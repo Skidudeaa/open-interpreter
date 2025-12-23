@@ -6,9 +6,6 @@ import tempfile
 
 from PIL import Image
 
-from ...utils.lazy_import import lazy_import
-from ..utils.computer_vision import pytesseract_get_text
-
 # transformers = lazy_import("transformers") # Doesn't work for some reason! We import it later.
 
 
@@ -22,17 +19,18 @@ class Vision:
     def load(self, load_moondream=True, load_easyocr=True):
         # print("Loading vision models (Moondream, EasyOCR)...\n")
 
-        with contextlib.redirect_stdout(
-            open(os.devnull, "w")
-        ), contextlib.redirect_stderr(open(os.devnull, "w")):
-            if self.easyocr == None and load_easyocr:
+        with (
+            contextlib.redirect_stdout(open(os.devnull, "w")),
+            contextlib.redirect_stderr(open(os.devnull, "w")),
+        ):
+            if self.easyocr is None and load_easyocr:
                 import easyocr
 
                 self.easyocr = easyocr.Reader(
                     ["en"]
                 )  # this needs to run only once to load the model into memory
 
-            if self.model == None and load_moondream:
+            if self.model is None and load_moondream:
                 import transformers  # Wait until we use it. Transformers can't be lazy loaded for some reason!
 
                 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -131,7 +129,7 @@ class Vision:
         Uses Moondream to ask query of the image (which can be a base64, path, or lmc message)
         """
 
-        if self.model == None and self.tokenizer == None:
+        if self.model is None and self.tokenizer is None:
             try:
                 success = self.load(load_easyocr=False)
             except ImportError:

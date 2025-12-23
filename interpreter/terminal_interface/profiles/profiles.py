@@ -50,7 +50,7 @@ def profile(interpreter, filename_or_url):
             os.rename(profile_path, f"{base}_custom{extension}")
         profile = get_default_profile(filename_or_url)
 
-    if profile == None:
+    if profile is None:
         try:
             profile = get_profile(filename_or_url, profile_path)
         except Exception:
@@ -89,7 +89,7 @@ def get_profile(filename_or_url, profile_path):
 
     # Try local
     if os.path.exists(profile_path):
-        with open(profile_path, "r", encoding="utf-8") as file:
+        with open(profile_path, encoding="utf-8") as file:
             if extension == ".py":
                 python_script = file.read()
 
@@ -162,7 +162,7 @@ def apply_profile(interpreter, profile, profile_path):
             print("Migration complete.")
             print("")
             if profile_path.endswith("default.yaml"):
-                with open(profile_path, "r") as file:
+                with open(profile_path) as file:
                     text = file.read()
                 text = text.replace(
                     "version: " + str(profile["version"]), f"version: {OI_VERSION}"
@@ -213,7 +213,7 @@ def apply_profile(interpreter, profile, profile_path):
 
 
 def migrate_profile(old_path, new_path):
-    with open(old_path, "r") as old_file:
+    with open(old_path) as old_file:
         profile = yaml.safe_load(old_file)
     # Mapping old attribute names to new ones
     attribute_mapping = {
@@ -530,7 +530,7 @@ version: {OI_VERSION}  # Profile version (do not modify)
         """.strip()
 
     # Read the current profile file, after it was formatted above
-    with open(new_path, "r") as old_file:
+    with open(new_path) as old_file:
         old_profile = old_file.read()
 
     # Remove all lines that start with a # comment from the old profile, and old version numbers
@@ -632,7 +632,7 @@ def reset_profile(specific_default_profile=None):
             if not create_oi_directory:
                 print(f"{filename} has been reset.")
         else:
-            with open(target_file, "r") as file:
+            with open(target_file) as file:
                 current_profile = file.read()
             if current_profile not in historical_profiles:
                 user_input = input(f"Would you like to reset/update {filename}? (y/n) ")
@@ -659,7 +659,7 @@ def get_default_profile(specific_default_profile):
         profile_path = os.path.join(oi_default_profiles_path, filename)
         extension = os.path.splitext(filename)[-1]
 
-        with open(profile_path, "r", encoding="utf-8") as file:
+        with open(profile_path, encoding="utf-8") as file:
             if extension == ".py":
                 python_script = file.read()
 
@@ -688,7 +688,7 @@ def determine_user_version():
         # Check if the default.yaml profile exists and has a version key
         default_profile_path = os.path.join(oi_dir, "profiles", "default.yaml")
         if os.path.exists(default_profile_path):
-            with open(default_profile_path, "r") as file:
+            with open(default_profile_path) as file:
                 default_profile = yaml.safe_load(file)
                 if "version" in default_profile:
                     return default_profile["version"]
@@ -741,7 +741,7 @@ def migrate_app_directory(old_dir, new_dir, profile_dir):
     for filename in os.listdir(profiles_new_path):
         if filename.endswith(".yaml"):
             file_path = os.path.join(profiles_new_path, filename)
-            with open(file_path, "r") as file:
+            with open(file_path) as file:
                 lines = file.readlines()
 
             # Check if a version line already exists
@@ -766,7 +766,7 @@ def migrate_user_app_directory():
 
 def write_key_to_profile(key, value):
     try:
-        with open(user_default_profile_path, "r") as file:
+        with open(user_default_profile_path) as file:
             lines = file.readlines()
 
         version_line_index = None
@@ -788,5 +788,10 @@ def write_key_to_profile(key, value):
 
         with open(user_default_profile_path, "w") as file:
             file.writelines(new_lines)
-    except Exception:
-        pass  # Fail silently
+    except Exception as e:
+        # Log but don't crash - profile writes are non-critical
+        import logging
+
+        logging.getLogger(__name__).debug(
+            f"write_key_to_profile: Failed to write {key} to profile: {e}"
+        )

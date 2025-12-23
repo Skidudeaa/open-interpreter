@@ -4,7 +4,6 @@ import subprocess
 
 from ..utils.run_applescript import run_applescript, run_applescript_capture
 
-
 makeDateFunction = """
 on makeDate(yr, mon, day, hour, min, sec)
 	set theDate to current date
@@ -19,6 +18,7 @@ on makeDate(yr, mon, day, hour, min, sec)
 	return theDate
 end makeDate
 """
+
 
 class Calendar:
     def __init__(self, computer):
@@ -55,23 +55,23 @@ class Calendar:
 
         -- Access the Calendar app
         tell application "{self.calendar_app}"
-            
+
             -- Initialize a list to hold summaries and dates of all events from all calendars
             set allEventsInfo to {{}}
-            
+
             -- Loop through each calendar
             repeat with aCalendar in calendars
-                
+
                 -- Fetch events from this calendar that fall within the specified date range
                 set theseEvents to (every event of aCalendar where its start date is greater than theDate and its start date is less than endDate)
-                
+
                 -- Loop through theseEvents to extract necessary details
                 repeat with anEvent in theseEvents
                     -- Initialize variables to "None" to handle missing information gracefully
                     set attendeesString to "None"
                     set theNotes to "None"
                     set theLocation to "None"
-                    
+
                     -- Try to get attendees, but fail gracefully
                     try
                         set attendeeNames to {{}}
@@ -84,7 +84,7 @@ class Calendar:
                     on error
                         set attendeesString to "None"
                     end try
-                    
+
                     -- Try to get notes, but fail gracefully
                     try
                         set theNotes to notes of anEvent
@@ -92,7 +92,7 @@ class Calendar:
                     on error
                         set theNotes to "None"
                     end try
-                    
+
                     -- Try to get location, but fail gracefully
                     try
                         set theLocation to location of anEvent
@@ -100,7 +100,7 @@ class Calendar:
                     on error
                         set theLocation to "None"
                     end try
-                    
+
                     -- Create a record with the detailed information of the event
                     set eventInfo to {{|summary|:summary of anEvent, |startDate|:start date of anEvent, |endDate|:end date of anEvent, |attendees|:attendeesString, notes:theNotes, |location|:theLocation}}
                     -- Append this record to the allEventsInfo list
@@ -114,7 +114,7 @@ class Calendar:
             repeat with anEventInfo in allEventsInfo
                 -- Always include Event, Start Date, and End Date
                 set eventOutput to "Event: " & (summary of anEventInfo) & " | Start Date: " & (|startDate| of anEventInfo) & " | End Date: " & (|endDate| of anEventInfo)
-                
+
                 -- Conditionally include other details if they are not "None"
                 if (attendees of anEventInfo) is not "None" then
                     set eventOutput to eventOutput & " | Attendees: " & (attendees of anEventInfo)
@@ -125,7 +125,7 @@ class Calendar:
                 if (location of anEventInfo) is not "None" then
                     set eventOutput to eventOutput & " | Location: " & (location of anEventInfo)
                 end if
-                
+
                 -- Add the event's output to the overall outputText, followed by a newline for separation
                 set outputText to outputText & eventOutput & "
         "
@@ -246,13 +246,13 @@ class Calendar:
         tell application "{self.calendar_app}"
             -- Specify the name of the calendar where the event is located
             set myCalendar to calendar "{calendar}"
-            
+
             -- Define the exact start date and name of the event to find and delete
             set eventSummary to "{event_title}"
-            
+
             -- Find the event by start date and summary
             set theEvents to (every event of myCalendar where its start date is eventStartDate and its summary is eventSummary)
-            
+
             -- Check if any events were found
             if (count of theEvents) is equal to 0 then
                 return "No matching event found to delete."

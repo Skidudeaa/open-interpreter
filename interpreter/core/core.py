@@ -2,6 +2,7 @@
 This file defines the Interpreter class.
 It's the main file. `from interpreter import interpreter` will import an instance of this class.
 """
+
 import json
 import os as os_module
 import threading
@@ -9,7 +10,11 @@ import time
 from datetime import datetime
 
 # Check for OI_ACTIVATE_ALL at module load time (before 'os' param shadows it)
-_OI_ACTIVATE_ALL = os_module.environ.get("OI_ACTIVATE_ALL", "").lower() in ("true", "1", "yes")
+_OI_ACTIVATE_ALL = os_module.environ.get("OI_ACTIVATE_ALL", "").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 
 from ..terminal_interface.local_setup import local_setup
 from ..terminal_interface.terminal_interface import terminal_interface
@@ -29,6 +34,7 @@ _module_lock = threading.Lock()
 # Semantic memory imports (lazy-loaded for performance)
 _memory_module = None
 
+
 def _get_memory_module():
     """Lazy load the memory module (thread-safe)."""
     global _memory_module
@@ -38,21 +44,26 @@ def _get_memory_module():
         # Double-check after acquiring lock
         if _memory_module is None:
             from .memory import (
-                SemanticEditGraph, ConversationLinker, Edit, EditType,
-                create_edit_from_file_change
+                ConversationLinker,
+                Edit,
+                EditType,
+                SemanticEditGraph,
+                create_edit_from_file_change,
             )
+
             _memory_module = {
-                'SemanticEditGraph': SemanticEditGraph,
-                'ConversationLinker': ConversationLinker,
-                'Edit': Edit,
-                'EditType': EditType,
-                'create_edit_from_file_change': create_edit_from_file_change,
+                "SemanticEditGraph": SemanticEditGraph,
+                "ConversationLinker": ConversationLinker,
+                "Edit": Edit,
+                "EditType": EditType,
+                "create_edit_from_file_change": create_edit_from_file_change,
             }
     return _memory_module
 
 
 # Validation module (lazy-loaded for performance)
 _validation_module = None
+
 
 def _get_validation_module():
     """Lazy load the validation module (thread-safe)."""
@@ -63,16 +74,18 @@ def _get_validation_module():
         # Double-check after acquiring lock
         if _validation_module is None:
             from .validation import EditValidator, SyntaxChecker, ValidationResult
+
             _validation_module = {
-                'EditValidator': EditValidator,
-                'SyntaxChecker': SyntaxChecker,
-                'ValidationResult': ValidationResult,
+                "EditValidator": EditValidator,
+                "SyntaxChecker": SyntaxChecker,
+                "ValidationResult": ValidationResult,
             }
     return _validation_module
 
 
 # Tracing module (lazy-loaded for performance)
 _tracing_module = None
+
 
 def _get_tracing_module():
     """Lazy load the tracing module (thread-safe)."""
@@ -82,16 +95,18 @@ def _get_tracing_module():
     with _module_lock:
         # Double-check after acquiring lock
         if _tracing_module is None:
-            from .tracing import ExecutionTracer, ExecutionTrace
+            from .tracing import ExecutionTrace, ExecutionTracer
+
             _tracing_module = {
-                'ExecutionTracer': ExecutionTracer,
-                'ExecutionTrace': ExecutionTrace,
+                "ExecutionTracer": ExecutionTracer,
+                "ExecutionTrace": ExecutionTrace,
             }
     return _tracing_module
 
 
 # Agents module (lazy-loaded for performance)
 _agents_module = None
+
 
 def _get_agents_module():
     """Lazy load the agents module (thread-safe)."""
@@ -102,10 +117,11 @@ def _get_agents_module():
         # Double-check after acquiring lock
         if _agents_module is None:
             from .agents import AgentOrchestrator, ScoutAgent, SurgeonAgent
+
             _agents_module = {
-                'AgentOrchestrator': AgentOrchestrator,
-                'ScoutAgent': ScoutAgent,
-                'SurgeonAgent': SurgeonAgent,
+                "AgentOrchestrator": AgentOrchestrator,
+                "ScoutAgent": ScoutAgent,
+                "SurgeonAgent": SurgeonAgent,
             }
     return _agents_module
 
@@ -247,6 +263,14 @@ class OpenInterpreter:
         self._agent_orchestrator = None
         self.enable_agents = False  # Disabled by default
 
+        # Plugin system (lazy-initialized)
+        self._plugin_registry = None
+        self.enable_plugins = False  # Disabled by default
+
+        # Lock for thread-safe property lazy loading
+        # Prevents race conditions when multiple threads access lazy properties
+        self._property_lock = threading.Lock()
+
         # Auto-test (run tests after file modifications)
         self.enable_auto_test = False  # Disabled by default
 
@@ -261,73 +285,138 @@ class OpenInterpreter:
             self.enable_agents = True
             self.enable_auto_test = True
             self.enable_trace_feedback = True
+            self.enable_plugins = True
 
     @property
     def semantic_graph(self):
         """
         Lazy-initialized semantic edit graph for tracking code changes.
+        Thread-safe with double-checked locking.
         """
         if self._semantic_graph is None and self.enable_semantic_memory:
-            memory_module = _get_memory_module()
-            self._semantic_graph = memory_module['SemanticEditGraph'](
-                db_path=self.semantic_memory_path
-            )
+            with self._property_lock:
+                # Double-check after acquiring lock
+                if self._semantic_graph is None and self.enable_semantic_memory:
+                    memory_module = _get_memory_module()
+                    self._semantic_graph = memory_module["SemanticEditGraph"](
+                        db_path=self.semantic_memory_path
+                    )
         return self._semantic_graph
 
     @property
     def conversation_linker(self):
         """
         Lazy-initialized conversation linker for tracking edit context.
+        Thread-safe with double-checked locking.
         """
         if self._conversation_linker is None and self.enable_semantic_memory:
-            memory_module = _get_memory_module()
-            self._conversation_linker = memory_module['ConversationLinker'](self)
+            with self._property_lock:
+                # Double-check after acquiring lock
+                if self._conversation_linker is None and self.enable_semantic_memory:
+                    memory_module = _get_memory_module()
+                    self._conversation_linker = memory_module["ConversationLinker"](
+                        self
+                    )
         return self._conversation_linker
 
     @property
     def validator(self):
         """
         Lazy-initialized edit validator for syntax and test checking.
+        Thread-safe with double-checked locking.
         """
         if self._validator is None and self.enable_validation:
-            validation_module = _get_validation_module()
-            self._validator = validation_module['EditValidator']()
+            with self._property_lock:
+                # Double-check after acquiring lock
+                if self._validator is None and self.enable_validation:
+                    validation_module = _get_validation_module()
+                    self._validator = validation_module["EditValidator"]()
         return self._validator
 
     @property
     def syntax_checker(self):
         """
         Lazy-initialized syntax checker for quick validation.
+        Thread-safe with double-checked locking.
         """
         if self._syntax_checker is None and self.enable_validation:
-            validation_module = _get_validation_module()
-            self._syntax_checker = validation_module['SyntaxChecker']()
+            with self._property_lock:
+                # Double-check after acquiring lock
+                if self._syntax_checker is None and self.enable_validation:
+                    validation_module = _get_validation_module()
+                    self._syntax_checker = validation_module["SyntaxChecker"]()
         return self._syntax_checker
 
     @property
     def tracer(self):
         """
         Lazy-initialized execution tracer for capturing runtime behavior.
+        Thread-safe with double-checked locking.
         """
         if self._tracer is None and self.enable_tracing:
-            tracing_module = _get_tracing_module()
-            self._tracer = tracing_module['ExecutionTracer']()
+            with self._property_lock:
+                # Double-check after acquiring lock
+                if self._tracer is None and self.enable_tracing:
+                    tracing_module = _get_tracing_module()
+                    self._tracer = tracing_module["ExecutionTracer"]()
         return self._tracer
 
     @property
     def agent_orchestrator(self):
         """
         Lazy-initialized agent orchestrator for multi-agent workflows.
+        Thread-safe with double-checked locking.
         """
         if self._agent_orchestrator is None and self.enable_agents:
-            agents_module = _get_agents_module()
-            self._agent_orchestrator = agents_module['AgentOrchestrator'](self)
+            with self._property_lock:
+                # Double-check after acquiring lock
+                if self._agent_orchestrator is None and self.enable_agents:
+                    agents_module = _get_agents_module()
+                    self._agent_orchestrator = agents_module["AgentOrchestrator"](self)
         return self._agent_orchestrator
+
+    @property
+    def plugin_registry(self):
+        """
+        Lazy-initialized plugin registry for extending interpreter behavior.
+        Thread-safe with double-checked locking.
+
+        The plugin registry allows hooking into execution lifecycle:
+        - BEFORE_EXECUTE, AFTER_EXECUTE
+        - BEFORE_LLM, AFTER_LLM
+        - ON_ERROR, ON_TOOL_CALL
+        """
+        if self._plugin_registry is None and self.enable_plugins:
+            with self._property_lock:
+                # Double-check after acquiring lock
+                if self._plugin_registry is None and self.enable_plugins:
+                    try:
+                        from ..sdk.plugins import PluginRegistry
+
+                        self._plugin_registry = PluginRegistry()
+                    except ImportError:
+                        pass  # SDK plugins not available
+        return self._plugin_registry
+
+    def register_plugin(self, plugin):
+        """
+        Register a plugin with the interpreter.
+
+        Args:
+            plugin: An AgentPlugin instance
+
+        Returns:
+            self for method chaining
+        """
+        self.enable_plugins = True
+        if self.plugin_registry is not None:
+            self.plugin_registry.register(plugin)
+        return self
 
     def activate_all_features(self):
         """
         Enable all advanced features: semantic memory, validation, tracing, agents,
-        auto-test, and trace feedback.
+        auto-test, trace feedback, and plugins.
         Returns self for method chaining.
         """
         self.enable_semantic_memory = True
@@ -336,6 +425,7 @@ class OpenInterpreter:
         self.enable_agents = True
         self.enable_auto_test = True
         self.enable_trace_feedback = True
+        self.enable_plugins = True
         return self
 
     def local_setup(self):
@@ -379,8 +469,9 @@ class OpenInterpreter:
 
             if not blocking:
                 chat_thread = threading.Thread(
-                    target=self.chat, args=(message, display, stream, True),
-                    daemon=True  # Don't prevent process exit
+                    target=self.chat,
+                    args=(message, display, stream, True),
+                    daemon=True,  # Don't prevent process exit
                 )  # True as in blocking = True
                 chat_thread.start()
                 return
@@ -537,7 +628,7 @@ class OpenInterpreter:
                 # If active_line is None, we finished running code.
                 if (
                     chunk.get("format") == "active_line"
-                    and chunk.get("content", "") == None
+                    and chunk.get("content", "") is None
                 ):
                     # If output wasn't yet produced, add an empty output
                     if self.messages[-1]["role"] != "computer":
@@ -557,7 +648,7 @@ class OpenInterpreter:
                         yield {**last_flag_base, "end": True}
                         last_flag_base = None
 
-                    if self.auto_run == False:
+                    if not self.auto_run:
                         yield chunk
 
                     # We want to append this now, so even if content is never filled, we know that the execution didn't produce output.

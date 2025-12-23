@@ -7,37 +7,38 @@ Used for mode transitions, agent status, and system messages.
 Part of Phase 4: Adaptive Mode System
 """
 
-from dataclasses import dataclass, field
-from typing import Optional, List, Callable
-from enum import Enum, auto
-import time
 import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from enum import Enum, auto
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
-from rich.style import Style
 
 from .theme import THEME
 
 
 class ToastLevel(Enum):
     """Toast notification severity levels"""
-    INFO = auto()      # Neutral information
-    SUCCESS = auto()   # Operation completed successfully
-    WARNING = auto()   # Attention needed
-    ERROR = auto()     # Error occurred
-    MODE = auto()      # Mode change notification
+
+    INFO = auto()  # Neutral information
+    SUCCESS = auto()  # Operation completed successfully
+    WARNING = auto()  # Attention needed
+    ERROR = auto()  # Error occurred
+    MODE = auto()  # Mode change notification
 
 
 @dataclass
 class Toast:
     """A single toast notification"""
+
     message: str
     level: ToastLevel = ToastLevel.INFO
     duration: float = 3.0  # seconds
     created_at: float = field(default_factory=time.time)
-    icon: Optional[str] = None
+    icon: str | None = None
 
     @property
     def is_expired(self) -> bool:
@@ -92,7 +93,7 @@ class ToastManager:
     MAX_VISIBLE = 3  # Maximum toasts shown at once
     MIN_INTERVAL = 0.5  # Minimum seconds between toasts
 
-    def __init__(self, console: Optional[Console] = None):
+    def __init__(self, console: Console | None = None):
         """
         Initialize the toast manager.
 
@@ -100,23 +101,23 @@ class ToastManager:
             console: Rich Console instance (creates one if not provided)
         """
         self.console = console or Console()
-        self._toasts: List[Toast] = []
+        self._toasts: list[Toast] = []
         self._last_show_time = 0.0
         self._lock = threading.Lock()
 
         # Callbacks
-        self._on_show: Optional[Callable[[Toast], None]] = None
-        self._on_dismiss: Optional[Callable[[Toast], None]] = None
+        self._on_show: Callable[[Toast], None] | None = None
+        self._on_dismiss: Callable[[Toast], None] | None = None
 
         # Display state
         self._enabled = True
         self._position = "top-right"  # top-right, top-left, bottom-right, bottom-left
 
     @property
-    def active_toasts(self) -> List[Toast]:
+    def active_toasts(self) -> list[Toast]:
         """Get list of non-expired toasts."""
         self._cleanup_expired()
-        return self._toasts[:self.MAX_VISIBLE]
+        return self._toasts[: self.MAX_VISIBLE]
 
     @property
     def toast_count(self) -> int:
@@ -128,8 +129,8 @@ class ToastManager:
         message: str,
         level: ToastLevel = ToastLevel.INFO,
         duration: float = 3.0,
-        icon: Optional[str] = None,
-    ) -> Optional[Toast]:
+        icon: str | None = None,
+    ) -> Toast | None:
         """
         Show a toast notification.
 
@@ -230,7 +231,7 @@ class ToastManager:
 
     # Rendering
 
-    def render(self) -> Optional[Panel]:
+    def render(self) -> Panel | None:
         """
         Render active toasts as a Rich Panel.
 
@@ -265,7 +266,7 @@ class ToastManager:
             style=f"on {THEME.get('bg_medium', '#1a1a2e')}",
         )
 
-    def render_inline(self) -> Optional[Text]:
+    def render_inline(self) -> Text | None:
         """
         Render toasts as inline text (for status bar integration).
 
@@ -314,7 +315,7 @@ class ToastManager:
 
 # Convenience functions for quick toasts
 
-_default_manager: Optional[ToastManager] = None
+_default_manager: ToastManager | None = None
 
 
 def get_toast_manager() -> ToastManager:
@@ -325,7 +326,9 @@ def get_toast_manager() -> ToastManager:
     return _default_manager
 
 
-def toast(message: str, level: ToastLevel = ToastLevel.INFO, duration: float = 3.0) -> Toast:
+def toast(
+    message: str, level: ToastLevel = ToastLevel.INFO, duration: float = 3.0
+) -> Toast:
     """Show a toast using the default manager."""
     return get_toast_manager().show(message, level, duration)
 

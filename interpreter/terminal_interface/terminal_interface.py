@@ -9,7 +9,6 @@ except ImportError:
     pass
 
 import os
-import platform
 import random
 import re
 import subprocess
@@ -20,35 +19,30 @@ from ..core.utils.scan_code import scan_code
 from ..core.utils.system_debug_info import system_info
 from ..core.utils.truncate_output import truncate_output
 
-# Phase 0 UI Architecture: Event system for future backends
-from .components.ui_events import (
-    UIEvent, EventType, get_event_bus, chunk_to_event
-)
-from .components.ui_state import UIState, UIMode, AgentStatus
-from .components.sanitizer import sanitize_output
-
 # Phase 2-4: Agent visualization, context panel, mode manager
 from .components.agent_strip import AgentStrip
-from .components.context_meter import ContextMeter
-from .components.ui_mode_manager import UIModeManager
-from .components.toast import ToastManager, ToastLevel
-from .components.code_navigator import CodeNavigator, BlockType
-
 from .components.code_block import CodeBlock
+from .components.code_navigator import BlockType, CodeNavigator
 from .components.diff_block import show_diff
 from .components.error_block import display_error
 from .components.interactive_menu import interactive_choice, interactive_confirm
 from .components.message_block import MessageBlock
 from .components.prompt_block import PromptBlock
-from .components.spinner_block import ThinkingSpinner, ExecutingSpinner
-from .components.status_bar import StatusBar, FeaturesBanner
+from .components.spinner_block import ThinkingSpinner
+from .components.status_bar import FeaturesBanner, StatusBar
+from .components.toast import ToastLevel, ToastManager
+
+# Phase 0 UI Architecture: Event system for future backends
+from .components.ui_events import EventType, UIEvent, chunk_to_event, get_event_bus
+from .components.ui_mode_manager import UIModeManager
+from .components.ui_state import AgentStatus, UIState
 from .magic_commands import handle_magic_command
 from .utils.check_for_package import check_for_package
 from .utils.cli_input import cli_input
 from .utils.display_output import display_output
 from .utils.find_image_path import find_image_path
 from .utils.ui_logger import UIErrorContext, log_ui_event
-from .utils.voice_output import speak, stop_speaking, check_tts_available
+from .utils.voice_output import speak, stop_speaking
 
 # Add examples to the readline history
 examples = [
@@ -115,14 +109,16 @@ def terminal_interface(interpreter, message):
     voice_subprocess = None
 
     # Phase 2-4: Initialize UI components
-    ui_state = getattr(interpreter, '_ui_state', None) or UIState()
+    ui_state = getattr(interpreter, "_ui_state", None) or UIState()
     mode_manager = UIModeManager(ui_state)
     toast_manager = ToastManager()
     agent_strip = AgentStrip(ui_state)
     code_navigator = CodeNavigator(ui_state)
 
     # Wire toast notifications to mode changes
-    mode_manager.set_toast_handler(lambda msg: toast_manager.show(msg, level=ToastLevel.MODE))
+    mode_manager.set_toast_handler(
+        lambda msg: toast_manager.show(msg, level=ToastLevel.MODE)
+    )
 
     # Subscribe to agent events to update UI state
     event_bus = get_event_bus()
@@ -131,11 +127,16 @@ def terminal_interface(interpreter, message):
         """Process agent events to update UI state."""
         if event.type == EventType.AGENT_SPAWN:
             from .components.ui_state import AgentRole
+
             agent_id = event.data.get("agent_id", "unknown")
             role_str = event.data.get("role", "custom")
             # Convert role string to AgentRole enum
             try:
-                role = AgentRole(role_str) if isinstance(role_str, str) else AgentRole.CUSTOM
+                role = (
+                    AgentRole(role_str)
+                    if isinstance(role_str, str)
+                    else AgentRole.CUSTOM
+                )
             except ValueError:
                 role = AgentRole.CUSTOM
             parent_id = event.data.get("parent_id")
@@ -145,6 +146,8 @@ def terminal_interface(interpreter, message):
             agent_id = event.data.get("agent_id")
             if agent_id:
                 ui_state.update_agent_status(agent_id, AgentStatus.COMPLETE)
+            # Periodically clean up old completed agents to prevent memory growth
+            ui_state.auto_purge_agents(max_age_seconds=300.0)
 
         elif event.type == EventType.AGENT_ERROR:
             agent_id = event.data.get("agent_id")
@@ -170,31 +173,145 @@ def terminal_interface(interpreter, message):
 
         elif event.type == EventType.CODE_END:
             # Register output block if there was output
-            if hasattr(ui_state, '_current_code_block_id'):
+            if hasattr(ui_state, "_current_code_block_id"):
                 code_navigator.register_block(
-                    BlockType.OUTPUT,
-                    parent_id=ui_state._current_code_block_id
+                    BlockType.OUTPUT, parent_id=ui_state._current_code_block_id
                 )
 
         elif event.type == EventType.MESSAGE_START:
             code_navigator.register_block(BlockType.MESSAGE)
 
+        # === Feature feedback events ===
+        # These provide visual cues when advanced features are active
+
+        elif event.type == EventType.VALIDATION_START:
+            toast_manager.show(
+                "Validating syntax...", level=ToastLevel.INFO, duration=1.5
+            )
+
+        elif event.type == EventType.VALIDATION_END:
+            is_valid = event.data.get("valid", True)
+            error_count = event.data.get("error_count", 0)
+            if is_valid:
+                toast_manager.show(
+                    "✓ Syntax valid", level=ToastLevel.SUCCESS, duration=2.0
+                )
+            else:
+                toast_manager.show(
+                    f"✗ {error_count} syntax error(s)",
+                    level=ToastLevel.WARNING,
+                    duration=3.0,
+                )
+
+        elif event.type == EventType.TRACING_START:
+            toast_manager.show(
+                "Tracing execution...", level=ToastLevel.INFO, duration=1.5
+            )
+
+        elif event.type == EventType.TRACING_END:
+            success = event.data.get("success", True)
+            call_count = event.data.get("call_count", 0)
+            if success:
+                toast_manager.show(
+                    f"✓ Traced {call_count} calls",
+                    level=ToastLevel.SUCCESS,
+                    duration=2.0,
+                )
+            else:
+                exc = event.data.get("exception", "error")
+                toast_manager.show(
+                    f"Trace exception: {exc}", level=ToastLevel.WARNING, duration=3.0
+                )
+
+        elif event.type == EventType.TEST_START:
+            files_changed = event.data.get("files_changed", 0)
+            toast_manager.show(
+                f"Running tests for {files_changed} file(s)...",
+                level=ToastLevel.INFO,
+                duration=2.0,
+            )
+
+        elif event.type == EventType.TEST_END:
+            passed = event.data.get("passed", 0)
+            failed = event.data.get("failed", 0)
+            if failed == 0 and passed > 0:
+                toast_manager.show(
+                    f"✓ {passed} test(s) passed", level=ToastLevel.SUCCESS, duration=3.0
+                )
+            elif failed > 0:
+                toast_manager.show(
+                    f"✗ {failed} test(s) failed", level=ToastLevel.ERROR, duration=4.0
+                )
+
+        elif event.type == EventType.MEMORY_RECORD:
+            record_type = event.data.get("type", "edit")
+            toast_manager.show(
+                f"📝 Recorded to memory ({record_type})",
+                level=ToastLevel.INFO,
+                duration=1.5,
+            )
+
+        elif event.type == EventType.PLUGIN_HOOK:
+            plugin_name = event.data.get("plugin", "unknown")
+            hook_name = event.data.get("hook", "")
+            toast_manager.show(
+                f"🔌 {plugin_name}: {hook_name}", level=ToastLevel.INFO, duration=1.5
+            )
+
         # Let mode manager process all events for auto-escalation
         mode_manager.process_event(event)
 
     # Subscribe to all agent-related events
-    event_bus.subscribe(EventType.AGENT_SPAWN, handle_agent_event)
-    event_bus.subscribe(EventType.AGENT_COMPLETE, handle_agent_event)
-    event_bus.subscribe(EventType.AGENT_ERROR, handle_agent_event)
-    event_bus.subscribe(EventType.AGENT_OUTPUT, handle_agent_event)
-    event_bus.subscribe(EventType.SYSTEM_TOKEN_UPDATE, handle_agent_event)
-    event_bus.subscribe(EventType.CODE_START, handle_agent_event)
-    event_bus.subscribe(EventType.CODE_END, handle_agent_event)
-    event_bus.subscribe(EventType.MESSAGE_START, handle_agent_event)
-    event_bus.subscribe(EventType.SYSTEM_ERROR, handle_agent_event)
-    event_bus.subscribe(EventType.CONSOLE_ERROR, handle_agent_event)
+    # Track subscribed event types for cleanup to prevent memory leaks
+    _subscribed_events = [
+        EventType.AGENT_SPAWN,
+        EventType.AGENT_COMPLETE,
+        EventType.AGENT_ERROR,
+        EventType.AGENT_OUTPUT,
+        EventType.SYSTEM_TOKEN_UPDATE,
+        EventType.CODE_START,
+        EventType.CODE_END,
+        EventType.MESSAGE_START,
+        EventType.SYSTEM_ERROR,
+        EventType.CONSOLE_ERROR,
+        # Feature feedback events (Phase 3+)
+        EventType.VALIDATION_START,
+        EventType.VALIDATION_END,
+        EventType.TRACING_START,
+        EventType.TRACING_END,
+        EventType.TEST_START,
+        EventType.TEST_END,
+        EventType.MEMORY_RECORD,
+        EventType.PLUGIN_HOOK,
+    ]
+    for event_type in _subscribed_events:
+        event_bus.subscribe(event_type, handle_agent_event)
+
+    def _cleanup_event_handlers():
+        """Unsubscribe all event handlers to prevent memory leaks."""
+        for event_type in _subscribed_events:
+            event_bus.unsubscribe(event_type, handle_agent_event)
+        # Also reset agent state to prevent accumulation
+        ui_state.reset_agents()
+        # Reset mode manager to prevent mode persistence across cleanups
+        mode_manager.reset()
+
+    # Track if this is a fresh conversation for mode reset
+    _last_message_count = (
+        len(interpreter.messages) if hasattr(interpreter, "messages") else 0
+    )
 
     while True:
+        # Reset mode manager at start of new conversations
+        current_message_count = (
+            len(interpreter.messages) if hasattr(interpreter, "messages") else 0
+        )
+        if current_message_count == 0 and _last_message_count > 0:
+            # Conversation was cleared - reset mode to ZEN
+            mode_manager.reset()
+            ui_state.reset_agents()
+        _last_message_count = current_message_count
+
         if interactive:
             if (
                 len(interpreter.messages) == 1
@@ -214,13 +331,18 @@ def terminal_interface(interpreter, message):
                             if interpreter.multi_line
                             else input("> ").strip()
                         )
-                    elif hasattr(interpreter, '_ui_backend') and interpreter._ui_backend.supports_interactive:
+                    elif (
+                        hasattr(interpreter, "_ui_backend")
+                        and interpreter._ui_backend.supports_interactive
+                    ):
                         # Use prompt_toolkit backend for interactive input (Phase 1)
                         ui_input = interpreter._ui_backend.get_input("❯ ")
                         message = (ui_input or "").strip()
                     else:
                         # Styled mode: use PromptBlock
-                        prompt_style = "multiline" if interpreter.multi_line else "default"
+                        prompt_style = (
+                            "multiline" if interpreter.multi_line else "default"
+                        )
                         prompt = PromptBlock(style=prompt_style)
                         message = prompt.input().strip()
                 except (KeyboardInterrupt, EOFError):
@@ -259,7 +381,7 @@ def terminal_interface(interpreter, message):
 
             if (
                 interpreter.llm.supports_vision
-                or interpreter.llm.vision_renderer != None
+                or interpreter.llm.vision_renderer is not None
             ):
                 # Is the input a path to an image? Like they just dragged it into the terminal?
                 image_path = find_image_path(message)
@@ -289,7 +411,9 @@ def terminal_interface(interpreter, message):
 
         # Initialize event bus for UI architecture (Phase 0)
         event_bus = get_event_bus()
-        event_bus.emit(UIEvent(type=EventType.SYSTEM_START, source="terminal_interface"))
+        event_bus.emit(
+            UIEvent(type=EventType.SYSTEM_START, source="terminal_interface")
+        )
 
         try:
             # Start thinking spinner (only in styled mode)
@@ -319,13 +443,16 @@ def terminal_interface(interpreter, message):
                             agent_panel = agent_strip.render()
                             if agent_panel:
                                 from rich.console import Console
+
                                 console = Console()
                                 console.print(agent_panel, end="")
                         last_refresh_time = current_time
 
                 # Stop spinner when a block is about to be created (start) or content arrives
                 # Must stop before creating any new Live contexts to avoid Rich conflicts
-                if thinking_spinner and ("start" in chunk or ("content" in chunk and chunk.get("content"))):
+                if thinking_spinner and (
+                    "start" in chunk or ("content" in chunk and chunk.get("content"))
+                ):
                     with UIErrorContext("ThinkingSpinner", "stop"):
                         thinking_spinner.stop()
                     thinking_spinner = None
@@ -359,7 +486,9 @@ def terminal_interface(interpreter, message):
                         # CRITICAL: Stop thinking spinner before any user interaction
                         # to prevent Rich Live context conflicts
                         if thinking_spinner:
-                            with UIErrorContext("ThinkingSpinner", "stop_for_confirmation"):
+                            with UIErrorContext(
+                                "ThinkingSpinner", "stop_for_confirmation"
+                            ):
                                 thinking_spinner.stop()
                             thinking_spinner = None
 
@@ -389,7 +518,7 @@ def terminal_interface(interpreter, message):
                                     # Use interactive confirmation menu
                                     should_scan_code = interactive_confirm(
                                         "Scan this code for security issues?",
-                                        default=False
+                                        default=False,
                                     )
 
                         if should_scan_code:
@@ -408,9 +537,9 @@ def terminal_interface(interpreter, message):
                                 descriptions=[
                                     "Execute the code block",
                                     "Skip execution and continue",
-                                    "Edit code before running"
+                                    "Edit code before running",
                                 ],
-                                default=0
+                                default=0,
                             )
                             # Map choice to response
                             response = {0: "y", 1: "n", 2: "e"}.get(choice, "n")
@@ -437,18 +566,25 @@ def terminal_interface(interpreter, message):
                                     tf_name = tf.name
 
                                 # Open the temporary file with the default editor
-                                subprocess.call([os.environ.get("EDITOR", "vim"), tf_name])
+                                subprocess.call(
+                                    [os.environ.get("EDITOR", "vim"), tf_name]
+                                )
 
                                 # Read the modified code
-                                with open(tf_name, "r") as tf:
+                                with open(tf_name) as tf:
                                     code = tf.read()
 
                                 # Show diff if code was changed
-                                if code != original_code and not interpreter.plain_text_display:
+                                if (
+                                    code != original_code
+                                    and not interpreter.plain_text_display
+                                ):
                                     log_ui_event("CodeEdit", "showing diff")
                                     show_diff(original_code, code, language)
 
-                                interpreter.messages[-1]["content"] = code  # Give it code
+                                interpreter.messages[-1][
+                                    "content"
+                                ] = code  # Give it code
                             finally:
                                 # Delete the temporary file
                                 if tf_name and os.path.exists(tf_name):
@@ -460,7 +596,9 @@ def terminal_interface(interpreter, message):
                             active_block.code = code
                         else:
                             # User declined to run code.
-                            print("\n[Code execution declined. The assistant will be informed.]\n")
+                            print(
+                                "\n[Code execution declined. The assistant will be informed.]\n"
+                            )
                             interpreter.messages.append(
                                 {
                                     "role": "user",
@@ -492,10 +630,17 @@ def terminal_interface(interpreter, message):
                         "console",
                     ]:  # We don't stop on code's end — code + console output are actually one block.
                         # Set final execution status if this is a code block
-                        if hasattr(active_block, 'status') and active_block.status == "running":
+                        if (
+                            hasattr(active_block, "status")
+                            and active_block.status == "running"
+                        ):
                             # Check output for error indicators
-                            output = getattr(active_block, 'output', '')
-                            if 'Traceback' in output or 'Error' in output or 'Exception' in output:
+                            output = getattr(active_block, "output", "")
+                            if (
+                                "Traceback" in output
+                                or "Error" in output
+                                or "Exception" in output
+                            ):
                                 active_block.status = "error"
                             else:
                                 active_block.status = "success"
@@ -565,7 +710,7 @@ def terminal_interface(interpreter, message):
                         or ("format" in chunk and chunk["format"] == "javascript")
                     )
                 ):
-                    if (interpreter.os == True) and (interpreter.verbose == False):
+                    if (interpreter.os) and (not interpreter.verbose):
                         # We don't display things to the user in OS control mode, since we use vision to communicate the screen to the LLM so much.
                         # But if verbose is true, we do display it!
                         continue
@@ -627,7 +772,7 @@ def terminal_interface(interpreter, message):
                     render_cursor = False
                     if "format" in chunk and chunk["format"] == "output":
                         # Use add_output for proper buffering (prevents scrolling chaos)
-                        if hasattr(active_block, 'add_output'):
+                        if hasattr(active_block, "add_output"):
                             active_block.add_output(chunk["content"])
                         else:
                             # Fallback for compatibility
@@ -644,11 +789,14 @@ def terminal_interface(interpreter, message):
                         active_block.active_line = chunk["content"]
 
                         # Set status to running when execution starts
-                        if hasattr(active_block, 'status') and active_block.status == "pending":
+                        if (
+                            hasattr(active_block, "status")
+                            and active_block.status == "pending"
+                        ):
                             active_block.status = "running"
 
                         # Display action notifications if we're in OS mode
-                        if interpreter.os and active_block.active_line != None:
+                        if interpreter.os and active_block.active_line is not None:
                             action = ""
 
                             code_lines = active_block.code.split("\n")
@@ -707,7 +855,7 @@ def terminal_interface(interpreter, message):
                                 elif action.startswith("computer.keyboard.press("):
                                     description = f"Pressing {arguments}."
                                 elif action == "computer.os.get_selected_text()":
-                                    description = f"Getting selected text."
+                                    description = "Getting selected text."
 
                                 if description:
                                     interpreter.computer.os.notify(description)
@@ -721,7 +869,11 @@ def terminal_interface(interpreter, message):
 
                 # Status indicators (features: validated, traced, recorded)
                 # Skip start/end flag chunks that don't have content
-                if chunk["type"] == "status" and chunk.get("format") == "features" and "content" in chunk:
+                if (
+                    chunk["type"] == "status"
+                    and chunk.get("format") == "features"
+                    and "content" in chunk
+                ):
                     if active_block:
                         active_block.refresh(cursor=False)
                         active_block.end()
@@ -729,6 +881,7 @@ def terminal_interface(interpreter, message):
                     # Print status line in muted style
                     from rich.console import Console
                     from rich.text import Text
+
                     status_console = Console()
                     status_text = Text(f"  {chunk['content']}", style="dim")
                     status_console.print(status_text)
@@ -748,10 +901,13 @@ def terminal_interface(interpreter, message):
                     time.sleep(0.1)
 
             # Emit SYSTEM_END event (Phase 0)
-            event_bus.emit(UIEvent(type=EventType.SYSTEM_END, source="terminal_interface"))
+            event_bus.emit(
+                UIEvent(type=EventType.SYSTEM_END, source="terminal_interface")
+            )
 
             if not interactive:
-                # Don't loop
+                # Don't loop - cleanup handlers before exiting
+                _cleanup_event_handlers()
                 break
 
         except KeyboardInterrupt:
@@ -767,6 +923,8 @@ def terminal_interface(interpreter, message):
                 # (this cancels LLM, returns to the interactive "> " input)
                 continue
             else:
+                # Cleanup handlers before exiting
+                _cleanup_event_handlers()
                 break
         except Exception:
             # Stop spinner on error to avoid terminal lock
@@ -778,6 +936,7 @@ def terminal_interface(interpreter, message):
                 active_block = None
 
             import traceback
+
             error_text = traceback.format_exc()
 
             # Display structured error if not in plain text mode
@@ -787,4 +946,6 @@ def terminal_interface(interpreter, message):
 
             if interpreter.debug:
                 system_info(interpreter)
+            # Cleanup handlers before re-raising
+            _cleanup_event_handlers()
             raise

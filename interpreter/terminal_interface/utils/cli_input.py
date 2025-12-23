@@ -11,7 +11,8 @@ def cli_input(prompt: str = "") -> str:
             lines.append(line)
             if end_marker in line:
                 break
-        return "\n".join(lines)
+        result = "\n".join(lines)
+        return result
 
     # Single-line input mode
     return message

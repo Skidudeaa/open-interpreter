@@ -1,6 +1,5 @@
 import sys
 from enum import Enum, auto
-from typing import Set
 
 
 class Style(Enum):
@@ -21,7 +20,7 @@ class MarkdownStreamer:
         self.RESET = "\033[0m"
 
         # State tracking
-        self.active_styles: Set[Style] = set()
+        self.active_styles: set[Style] = set()
         self.potential_marker = ""
         self.line_start = True
         self.header_level = 0
@@ -50,7 +49,7 @@ class MarkdownStreamer:
         self.potential_marker += char
 
         # Code block
-        if char == "`" and not Style.CODE in self.active_styles:
+        if char == "`" and Style.CODE not in self.active_styles:
             self.code_fence_count += 1
             if self.code_fence_count == 3:
                 self.code_fence_count = 0

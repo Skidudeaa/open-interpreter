@@ -10,10 +10,10 @@ Validates code edits before applying them using:
 No Docker required - uses temp files and subprocess isolation.
 """
 
-from .validator import EditValidator, ValidationResult
+from .rollback import EditRollback
 from .syntax_checker import SyntaxChecker
 from .test_discovery import TestDiscovery
-from .rollback import EditRollback
+from .validator import EditValidator, ValidationResult
 
 __all__ = [
     "EditValidator",

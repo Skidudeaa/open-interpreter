@@ -19,10 +19,10 @@ try:
 except ImportError:  # 3.10 compatibility
     from enum import Enum as StrEnum
 
-from typing import Any, List, cast
+from typing import Any, cast
 
 import requests
-from anthropic import Anthropic, AnthropicBedrock, AnthropicVertex, APIResponse
+from anthropic import Anthropic, AnthropicBedrock, AnthropicVertex
 from anthropic.types import ToolResultBlockParam
 from anthropic.types.beta import (
     BetaContentBlock,
@@ -37,12 +37,12 @@ from anthropic.types.beta import (
     BetaToolResultBlockParam,
 )
 
-from .tools import BashTool, ComputerTool, EditTool, ToolCollection, ToolResult
+from .tools import ComputerTool, ToolCollection, ToolResult
 
 BETA_FLAG = "computer-use-2024-10-22"
 
-from typing import List, Optional
 
+import pyautogui
 import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
@@ -51,10 +51,8 @@ from rich import print as rich_print
 from rich.markdown import Markdown
 from rich.rule import Rule
 
-import pyautogui
-
 # Global variables
-messages: List[BetaMessageParam] = []
+messages: list[BetaMessageParam] = []
 exit_flag = False
 
 
@@ -73,7 +71,7 @@ def print_markdown(message):
         else:
             try:
                 rich_print(Markdown(line))
-            except UnicodeEncodeError as e:
+            except UnicodeEncodeError:
                 # Replace the problematic character or handle the error as needed
                 print("Error displaying line:", line)
 
@@ -107,14 +105,16 @@ def check_mouse_position():
 
 class ChatMessage(BaseModel):
     """Model for chat messages in the API."""
+
     role: str
     content: str
 
 
 class ChatCompletionRequest(BaseModel):
     """Model for chat completion requests."""
-    messages: List[ChatMessage]
-    stream: Optional[bool] = False
+
+    messages: list[ChatMessage]
+    stream: bool | None = False
 
 
 class APIProvider(StrEnum):
@@ -369,7 +369,7 @@ def _maybe_prepend_system_tool_result(result: ToolResult, result_text: str):
 
 async def main():
     global exit_flag
-    messages: List[BetaMessageParam] = []
+    messages: list[BetaMessageParam] = []
     model = PROVIDER_TO_DEFAULT_MODEL_NAME[APIProvider.ANTHROPIC]
     provider = APIProvider.ANTHROPIC
     system_prompt_suffix = ""
@@ -397,7 +397,6 @@ async def main():
                 return {"error": "Server shutting down due to mouse in corner"}
 
             async def stream_response():
-
                 # Instead of creating converted_messages, append the last message to global messages
                 global messages
                 messages.append(
@@ -550,7 +549,7 @@ Move your mouse to any corner of the screen to exit.
             ):
                 if chunk["type"] == "messages":
                     messages = chunk["messages"]
-        except Exception as e:
+        except Exception:
             raise
 
     # The thread will automatically terminate when the main program exits

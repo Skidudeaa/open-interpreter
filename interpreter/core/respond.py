@@ -1,14 +1,14 @@
 import json
 import os
 import re
-import time
 import traceback
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 import litellm
 
-from ..terminal_interface.utils.display_markdown_message import display_markdown_message
 from ..terminal_interface.components.network_status import get_network_status
+from ..terminal_interface.components.ui_events import EventType, UIEvent, get_event_bus
+from ..terminal_interface.utils.display_markdown_message import display_markdown_message
 from .render_message import render_message
 
 # System message cache to avoid rebuilding every iteration
@@ -32,7 +32,9 @@ def _build_system_message(interpreter):
         lang_messages,
         interpreter.custom_instructions,
         interpreter.computer.import_computer_api,
-        interpreter.computer.system_message if interpreter.computer.import_computer_api else "",
+        interpreter.computer.system_message
+        if interpreter.computer.import_computer_api
+        else "",
     )
 
     if cache_key in _system_message_cache:
@@ -53,7 +55,9 @@ def _build_system_message(interpreter):
     # Add computer API system message
     if interpreter.computer.import_computer_api:
         if interpreter.computer.system_message not in system_message:
-            system_message = system_message + "\n\n" + interpreter.computer.system_message
+            system_message = (
+                system_message + "\n\n" + interpreter.computer.system_message
+            )
 
     # Cache and return (limit cache size to prevent memory issues)
     if len(_system_message_cache) > 100:
@@ -71,6 +75,7 @@ def respond(interpreter):
 
     last_unsupported_code = ""
     insert_loop_message = False
+    loop_message = ""  # Initialized here, assigned in loop body
 
     while True:
         ## RENDER SYSTEM MESSAGE (cached for performance) ##
@@ -145,10 +150,8 @@ def respond(interpreter):
             except Exception as e:
                 network_status.set_error(str(e)[:100])
                 error_message = str(e).lower()
-                if (
-                    interpreter.offline == False
-                    and ("auth" in error_message or
-                         "api key" in error_message)
+                if not interpreter.offline and (
+                    "auth" in error_message or "api key" in error_message
                 ):
                     # Provide extra information on how to change API keys, if
                     # we encounter that error (Many people writing GitHub
@@ -157,13 +160,12 @@ def respond(interpreter):
                     raise Exception(
                         f"{output}\n\nThere might be an issue with your API key(s).\n\nTo reset your API key (we'll use OPENAI_API_KEY for this example, but you may need to reset your ANTHROPIC_API_KEY, HUGGINGFACE_API_KEY, etc):\n        Mac/Linux: 'export OPENAI_API_KEY=your-key-here'. Update your ~/.zshrc on MacOS or ~/.bashrc on Linux with the new key if it has already been persisted there.,\n        Windows: 'setx OPENAI_API_KEY your-key-here' then restart terminal.\n\n"
                     )
-                elif (
-                    isinstance(e, litellm.exceptions.RateLimitError)
-                    and ("exceeded" in str(e).lower() or
-                         "insufficient_quota" in str(e).lower())
+                elif isinstance(e, litellm.exceptions.RateLimitError) and (
+                    "exceeded" in str(e).lower()
+                    or "insufficient_quota" in str(e).lower()
                 ):
                     display_markdown_message(
-                        f""" > You ran out of current quota for OpenAI's API, please check your plan and billing details. You can either wait for the quota to reset or upgrade your plan.
+                        """ > You ran out of current quota for OpenAI's API, please check your plan and billing details. You can either wait for the quota to reset or upgrade your plan.
 
                         To check your current usage and billing details, visit the [OpenAI billing page](https://platform.openai.com/settings/organization/billing/overview).
 
@@ -171,9 +173,7 @@ def respond(interpreter):
                         """
                     )
 
-                elif (
-                    interpreter.offline == False and "not have access" in str(e).lower()
-                ):
+                elif not interpreter.offline and "not have access" in str(e).lower():
                     # Check for invalid model in error message and then fallback.
                     if (
                         "invalid model" in error_message
@@ -192,7 +192,7 @@ def respond(interpreter):
 
                     if response.strip().lower() == "y":
                         interpreter.llm.model = "i"
-                        interpreter.display_message(f"> Model set to `i`")
+                        interpreter.display_message("> Model set to `i`")
                         interpreter.display_message(
                             "***Note:*** *Conversations with this model will be used to train our open-source model.*\n"
                         )
@@ -405,13 +405,19 @@ def respond(interpreter):
                 ## ↓ CODE IS RUN HERE
 
                 # Track feature status for indicator
-                _status = {"validated": False, "traced": False, "recorded": False, "tested": False}
+                _status = {
+                    "validated": False,
+                    "traced": False,
+                    "recorded": False,
+                    "tested": False,
+                }
 
                 # === FILE CHANGE DETECTION: BEFORE ===
                 _file_snapshots_before = {}
                 if interpreter.enable_semantic_memory:
                     try:
                         from .utils.file_snapshot import capture_source_file_states
+
                         _file_snapshots_before = capture_source_file_states(
                             interpreter.computer.cwd or "."
                         )
@@ -421,10 +427,34 @@ def respond(interpreter):
                 # === VALIDATION HOOK (pre-execution) ===
                 if interpreter.enable_validation and interpreter.syntax_checker:
                     try:
-                        validation_result = interpreter.syntax_checker.check(language, code)
+                        # Emit start event for UI feedback
+                        event_bus = get_event_bus()
+                        event_bus.emit(
+                            UIEvent(
+                                type=EventType.VALIDATION_START,
+                                data={"language": language, "code_length": len(code)},
+                                source="respond",
+                            )
+                        )
+
+                        validation_result = interpreter.syntax_checker.check(
+                            language, code
+                        )
                         _status["validated"] = True
-                        if not validation_result.get('valid', True):
-                            for error in validation_result.get('errors', []):
+                        is_valid = validation_result.get("valid", True)
+                        errors = validation_result.get("errors", [])
+
+                        # Emit end event with result
+                        event_bus.emit(
+                            UIEvent(
+                                type=EventType.VALIDATION_END,
+                                data={"valid": is_valid, "error_count": len(errors)},
+                                source="respond",
+                            )
+                        )
+
+                        if not is_valid:
+                            for error in errors:
                                 yield {
                                     "role": "computer",
                                     "type": "console",
@@ -434,42 +464,87 @@ def respond(interpreter):
                     except Exception:
                         pass  # Non-blocking - continue even if validation fails
 
-                # === TRACING HOOK START ===
+                # === EXECUTION WITH OPTIONAL TRACING ===
+                # Using context manager pattern for tracer (start/stop via __enter__/__exit__)
                 _execution_trace = None
+                _trace_ctx = None
+
+                # Setup tracing context if enabled
                 if interpreter.enable_tracing and interpreter.tracer:
                     try:
-                        interpreter.tracer.start()
-                    except Exception:
-                        pass  # Non-blocking
+                        # Emit start event for UI feedback
+                        event_bus = get_event_bus()
+                        event_bus.emit(
+                            UIEvent(
+                                type=EventType.TRACING_START,
+                                data={"language": language, "code_length": len(code)},
+                                source="respond",
+                            )
+                        )
 
-                for line in interpreter.computer.run(language, code, stream=True):
-                    yield {"role": "computer", **line}
-
-                # === TRACING HOOK STOP ===
-                if interpreter.enable_tracing and interpreter.tracer:
-                    try:
-                        _execution_trace = interpreter.tracer.stop()
-                        interpreter._current_trace = _execution_trace
-                        _status["traced"] = True
+                        _trace_ctx = interpreter.tracer.trace(code, language)
+                        _trace_ctx.__enter__()
                     except Exception:
-                        pass  # Non-blocking
+                        _trace_ctx = None  # Non-blocking - continue without tracing
+
+                try:
+                    for line in interpreter.computer.run(language, code, stream=True):
+                        yield {"role": "computer", **line}
+                finally:
+                    # Complete tracing if it was started
+                    if _trace_ctx is not None:
+                        try:
+                            _trace_ctx.__exit__(None, None, None)
+                            _execution_trace = _trace_ctx.trace
+                            interpreter._current_trace = _execution_trace
+                            _status["traced"] = True
+
+                            # Emit tracing end event
+                            event_bus = get_event_bus()
+                            call_count = (
+                                len(_execution_trace.call_graph.calls)
+                                if _execution_trace.call_graph
+                                else 0
+                            )
+                            event_bus.emit(
+                                UIEvent(
+                                    type=EventType.TRACING_END,
+                                    data={
+                                        "success": not _execution_trace.exception_occurred,
+                                        "call_count": call_count,
+                                        "exception": _execution_trace.exception_type
+                                        if _execution_trace.exception_occurred
+                                        else None,
+                                    },
+                                    source="respond",
+                                )
+                            )
+                        except Exception:
+                            pass  # Non-blocking
 
                 # === SEMANTIC MEMORY HOOK (post-execution) ===
                 if interpreter.enable_semantic_memory and interpreter.semantic_graph:
                     try:
                         from .core import _get_memory_module
+
                         memory_module = _get_memory_module()
-                        Edit = memory_module['Edit']
-                        EditType = memory_module['EditType']
+                        Edit = memory_module["Edit"]
+                        EditType = memory_module["EditType"]
 
                         # Get conversation context
                         context = None
                         if interpreter.conversation_linker:
-                            user_msgs = [m for m in interpreter.messages if m.get("role") == "user"]
+                            user_msgs = [
+                                m
+                                for m in interpreter.messages
+                                if m.get("role") == "user"
+                            ]
                             if user_msgs:
-                                context = interpreter.conversation_linker.create_context(
-                                    user_message=user_msgs[-1].get("content", ""),
-                                    assistant_response=code,
+                                context = (
+                                    interpreter.conversation_linker.create_context(
+                                        user_message=user_msgs[-1].get("content", ""),
+                                        assistant_response=code,
+                                    )
                                 )
 
                         # Record the code execution
@@ -483,6 +558,16 @@ def respond(interpreter):
                         )
                         interpreter.semantic_graph.record_edit(edit)
                         _status["recorded"] = True
+
+                        # Emit memory record event for UI feedback
+                        event_bus = get_event_bus()
+                        event_bus.emit(
+                            UIEvent(
+                                type=EventType.MEMORY_RECORD,
+                                data={"type": "code_execution", "language": language},
+                                source="respond",
+                            )
+                        )
                     except Exception:
                         pass  # Non-blocking - don't crash on memory errors
 
@@ -490,27 +575,43 @@ def respond(interpreter):
                 _changed_files = {}
                 if interpreter.enable_semantic_memory and _file_snapshots_before:
                     try:
-                        from .utils.file_snapshot import capture_source_file_states, diff_file_states
                         from .core import _get_memory_module
+                        from .utils.file_snapshot import (
+                            capture_source_file_states,
+                            diff_file_states,
+                        )
 
                         _file_snapshots_after = capture_source_file_states(
                             interpreter.computer.cwd or "."
                         )
-                        _changed_files = diff_file_states(_file_snapshots_before, _file_snapshots_after)
+                        _changed_files = diff_file_states(
+                            _file_snapshots_before, _file_snapshots_after
+                        )
 
                         # Record detected file changes
                         if _changed_files:
                             memory_module = _get_memory_module()
-                            create_edit = memory_module.get('create_edit_from_file_change')
-                            user_msgs = [m for m in interpreter.messages if m.get("role") == "user"]
+                            create_edit = memory_module.get(
+                                "create_edit_from_file_change"
+                            )
+                            user_msgs = [
+                                m
+                                for m in interpreter.messages
+                                if m.get("role") == "user"
+                            ]
 
-                            for file_path, (old_content, new_content) in _changed_files.items():
+                            for file_path, (
+                                old_content,
+                                new_content,
+                            ) in _changed_files.items():
                                 if create_edit:
                                     edit = create_edit(
                                         file_path=file_path,
                                         original_content=old_content,
                                         new_content=new_content,
-                                        user_message=user_msgs[-1].get("content", "") if user_msgs else "",
+                                        user_message=user_msgs[-1].get("content", "")
+                                        if user_msgs
+                                        else "",
                                     )
                                     interpreter.semantic_graph.record_edit(edit)
                     except Exception:
@@ -519,31 +620,54 @@ def respond(interpreter):
                 # === AUTO-TEST HOOK ===
                 if interpreter.enable_auto_test and _changed_files:
                     try:
-                        from .validation import TestDiscovery
                         from pathlib import Path
+
+                        from .validation import TestDiscovery
+
+                        # Emit test start event for UI feedback
+                        event_bus = get_event_bus()
+                        changed_py_files = [
+                            f for f in _changed_files.keys() if f.endswith(".py")
+                        ]
+                        event_bus.emit(
+                            UIEvent(
+                                type=EventType.TEST_START,
+                                data={"files_changed": len(changed_py_files)},
+                                source="respond",
+                            )
+                        )
+
                         discovery = TestDiscovery(interpreter.computer.cwd or ".")
 
                         all_test_results = []
                         for file_path in _changed_files.keys():
-                            if not file_path.endswith('.py'):
+                            if not file_path.endswith(".py"):
                                 continue
                             related_tests = discovery.find_related_tests(file_path)
                             if related_tests:
-                                result = discovery.run_tests(related_tests[:5], timeout_seconds=60)
+                                result = discovery.run_tests(
+                                    related_tests[:5], timeout_seconds=60
+                                )
                                 all_test_results.append((file_path, result))
 
                         # Report test results
                         failed_tests_context = []
                         for file_path, result in all_test_results:
                             if result.passed:
-                                status_msg = f"\u2713 Tests passed for {Path(file_path).name}"
+                                status_msg = (
+                                    f"\u2713 Tests passed for {Path(file_path).name}"
+                                )
                             else:
                                 status_msg = f"\u2717 Tests failed for {Path(file_path).name}: {result.failed_test_names}"
-                                failed_tests_context.append({
-                                    "file": file_path,
-                                    "failed": result.failed_test_names,
-                                    "output": result.output[:1000] if result.output else "",
-                                })
+                                failed_tests_context.append(
+                                    {
+                                        "file": file_path,
+                                        "failed": result.failed_test_names,
+                                        "output": result.output[:1000]
+                                        if result.output
+                                        else "",
+                                    }
+                                )
 
                             yield {
                                 "role": "computer",
@@ -554,21 +678,40 @@ def respond(interpreter):
 
                         # Feed test failures to LLM for analysis
                         if failed_tests_context:
-                            failure_summary = "\n".join([
-                                f"- {f['file']}: {', '.join(f['failed'])}\n  Output: {f['output'][:200]}..."
-                                for f in failed_tests_context
-                            ])
-                            interpreter.messages.append({
-                                "role": "user",
-                                "type": "message",
-                                "content": (
-                                    "Tests failed after your code changes:\n\n"
-                                    f"{failure_summary}\n\n"
-                                    "Recommend: (1) fix now, (2) add to todos, or (3) continue without fixing."
-                                ),
-                            })
+                            failure_summary = "\n".join(
+                                [
+                                    f"- {f['file']}: {', '.join(f['failed'])}\n  Output: {f['output'][:200]}..."
+                                    for f in failed_tests_context
+                                ]
+                            )
+                            interpreter.messages.append(
+                                {
+                                    "role": "user",
+                                    "type": "message",
+                                    "content": (
+                                        "Tests failed after your code changes:\n\n"
+                                        f"{failure_summary}\n\n"
+                                        "Recommend: (1) fix now, (2) add to todos, or (3) continue without fixing."
+                                    ),
+                                }
+                            )
 
                         _status["tested"] = len(all_test_results) > 0
+
+                        # Emit test end event with results
+                        passed_count = sum(1 for _, r in all_test_results if r.passed)
+                        failed_count = len(all_test_results) - passed_count
+                        event_bus.emit(
+                            UIEvent(
+                                type=EventType.TEST_END,
+                                data={
+                                    "tests_run": len(all_test_results),
+                                    "passed": passed_count,
+                                    "failed": failed_count,
+                                },
+                                source="respond",
+                            )
+                        )
                     except Exception:
                         pass  # Non-blocking
 
@@ -641,21 +784,24 @@ def respond(interpreter):
                 # === TRACE FEEDBACK TO LLM ===
                 if interpreter.enable_trace_feedback and interpreter.enable_tracing:
                     try:
-                        trace = getattr(interpreter, '_current_trace', None)
-                        if trace and getattr(trace, 'exception_occurred', False):
+                        trace = getattr(interpreter, "_current_trace", None)
+                        if trace and getattr(trace, "exception_occurred", False):
                             from .tracing import TraceContextGenerator
+
                             generator = TraceContextGenerator()
                             trace_context = generator.to_edit_context(trace)
 
-                            interpreter.messages.append({
-                                "role": "user",
-                                "type": "message",
-                                "content": (
-                                    "The code execution failed. Here's the execution trace:\n\n"
-                                    f"```\n{trace_context}\n```\n\n"
-                                    "Please analyze the trace and fix the code."
-                                ),
-                            })
+                            interpreter.messages.append(
+                                {
+                                    "role": "user",
+                                    "type": "message",
+                                    "content": (
+                                        "The code execution failed. Here's the execution trace:\n\n"
+                                        f"```\n{trace_context}\n```\n\n"
+                                        "Please analyze the trace and fix the code."
+                                    ),
+                                }
+                            )
                     except Exception:
                         pass  # Non-blocking
 
@@ -673,7 +819,11 @@ def respond(interpreter):
 
             # Check if the assistant's response contains a loop breaker
             # Use stricter matching: the phrase must appear on its own line or at end
-            last_content = interpreter.messages[-1].get("content", "") if interpreter.messages else ""
+            last_content = (
+                interpreter.messages[-1].get("content", "")
+                if interpreter.messages
+                else ""
+            )
 
             def is_genuine_loop_breaker(content, breaker):
                 """Check if the loop breaker appears genuinely (not as part of a longer sentence)."""
@@ -684,7 +834,7 @@ def respond(interpreter):
                 if content_stripped.endswith(breaker):
                     return True
                 # Check if it's on its own line
-                for line in content.split('\n'):
+                for line in content.split("\n"):
                     if line.strip() == breaker:
                         return True
                 return False

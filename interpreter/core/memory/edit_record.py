@@ -9,15 +9,16 @@ enabling institutional memory for codebases by linking:
 - Test results that validated changes
 """
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Dict, Any
-import uuid
+from typing import Any
 
 
 class EditType(Enum):
     """Classification of edit intent."""
+
     BUG_FIX = "bug_fix"
     FEATURE = "feature"
     REFACTOR = "refactor"
@@ -32,15 +33,16 @@ class EditType(Enum):
 @dataclass
 class SymbolReference:
     """Reference to a code symbol (function, class, variable, etc.)."""
+
     name: str
     kind: str  # 'function', 'class', 'method', 'variable', 'import'
     file_path: str
     line_start: int
     line_end: int
-    signature: Optional[str] = None  # For functions/methods
-    docstring: Optional[str] = None
+    signature: str | None = None  # For functions/methods
+    docstring: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "kind": self.kind,
@@ -52,21 +54,22 @@ class SymbolReference:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SymbolReference":
+    def from_dict(cls, data: dict[str, Any]) -> "SymbolReference":
         return cls(**data)
 
 
 @dataclass
 class TestResult:
     """Result of a test run for edit validation."""
+
     test_name: str
     passed: bool
     duration_ms: float
-    error_message: Optional[str] = None
-    stack_trace: Optional[str] = None
+    error_message: str | None = None
+    stack_trace: str | None = None
     timestamp: datetime = field(default_factory=datetime.now)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "test_name": self.test_name,
             "passed": self.passed,
@@ -77,7 +80,7 @@ class TestResult:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "TestResult":
+    def from_dict(cls, data: dict[str, Any]) -> "TestResult":
         data = data.copy()
         data["timestamp"] = datetime.fromisoformat(data["timestamp"])
         return cls(**data)
@@ -86,14 +89,15 @@ class TestResult:
 @dataclass
 class ConversationContext:
     """Context from the conversation that prompted an edit."""
+
     conversation_id: str
     turn_index: int
     user_message: str
-    assistant_response: Optional[str] = None
-    intent_summary: Optional[str] = None  # LLM-generated summary of intent
+    assistant_response: str | None = None
+    intent_summary: str | None = None  # LLM-generated summary of intent
     timestamp: datetime = field(default_factory=datetime.now)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "conversation_id": self.conversation_id,
             "turn_index": self.turn_index,
@@ -104,7 +108,7 @@ class ConversationContext:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ConversationContext":
+    def from_dict(cls, data: dict[str, Any]) -> "ConversationContext":
         data = data.copy()
         data["timestamp"] = datetime.fromisoformat(data["timestamp"])
         return cls(**data)
@@ -113,15 +117,16 @@ class ConversationContext:
 @dataclass
 class EditResult:
     """Result of an edit operation."""
+
     success: bool
     syntax_valid: bool = True
-    type_check_passed: Optional[bool] = None
-    tests_passed: Optional[bool] = None
-    test_results: List[TestResult] = field(default_factory=list)
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    type_check_passed: bool | None = None
+    tests_passed: bool | None = None
+    test_results: list[TestResult] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "success": self.success,
             "syntax_valid": self.syntax_valid,
@@ -133,9 +138,11 @@ class EditResult:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "EditResult":
+    def from_dict(cls, data: dict[str, Any]) -> "EditResult":
         data = data.copy()
-        data["test_results"] = [TestResult.from_dict(tr) for tr in data.get("test_results", [])]
+        data["test_results"] = [
+            TestResult.from_dict(tr) for tr in data.get("test_results", [])
+        ]
         return cls(**data)
 
 
@@ -147,37 +154,38 @@ class Edit:
     This is the core data structure of the Semantic Edit Graph, capturing
     not just WHAT changed, but WHY it changed and what concepts were affected.
     """
+
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     # File and content info
     file_path: str = ""
     original_content: str = ""
     new_content: str = ""
-    diff: Optional[str] = None
+    diff: str | None = None
 
     # Semantic information
     edit_type: EditType = EditType.UNKNOWN
-    primary_symbol: Optional[SymbolReference] = None
-    affected_symbols: List[SymbolReference] = field(default_factory=list)
-    related_symbols: List[SymbolReference] = field(default_factory=list)
+    primary_symbol: SymbolReference | None = None
+    affected_symbols: list[SymbolReference] = field(default_factory=list)
+    related_symbols: list[SymbolReference] = field(default_factory=list)
 
     # Context
-    conversation_context: Optional[ConversationContext] = None
-    user_intent: Optional[str] = None  # Natural language description
+    conversation_context: ConversationContext | None = None
+    user_intent: str | None = None  # Natural language description
 
     # Validation
-    result: Optional[EditResult] = None
+    result: EditResult | None = None
     confidence: float = 0.0  # LLM's confidence in the edit (0-1)
 
     # Execution context (if available)
-    execution_trace_id: Optional[str] = None  # Links to ExecutionTrace
+    execution_trace_id: str | None = None  # Links to ExecutionTrace
 
     # Metadata
     timestamp: datetime = field(default_factory=datetime.now)
-    git_commit_hash: Optional[str] = None
-    parent_edit_id: Optional[str] = None  # For edit chains/refinements
+    git_commit_hash: str | None = None
+    parent_edit_id: str | None = None  # For edit chains/refinements
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage."""
         return {
             "id": self.id,
@@ -186,10 +194,14 @@ class Edit:
             "new_content": self.new_content,
             "diff": self.diff,
             "edit_type": self.edit_type.value,
-            "primary_symbol": self.primary_symbol.to_dict() if self.primary_symbol else None,
+            "primary_symbol": self.primary_symbol.to_dict()
+            if self.primary_symbol
+            else None,
             "affected_symbols": [s.to_dict() for s in self.affected_symbols],
             "related_symbols": [s.to_dict() for s in self.related_symbols],
-            "conversation_context": self.conversation_context.to_dict() if self.conversation_context else None,
+            "conversation_context": self.conversation_context.to_dict()
+            if self.conversation_context
+            else None,
             "user_intent": self.user_intent,
             "result": self.result.to_dict() if self.result else None,
             "confidence": self.confidence,
@@ -200,7 +212,7 @@ class Edit:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Edit":
+    def from_dict(cls, data: dict[str, Any]) -> "Edit":
         """Create from dictionary."""
         data = data.copy()
         data["edit_type"] = EditType(data.get("edit_type", "unknown"))
@@ -217,14 +229,16 @@ class Edit:
         ]
 
         if data.get("conversation_context"):
-            data["conversation_context"] = ConversationContext.from_dict(data["conversation_context"])
+            data["conversation_context"] = ConversationContext.from_dict(
+                data["conversation_context"]
+            )
 
         if data.get("result"):
             data["result"] = EditResult.from_dict(data["result"])
 
         return cls(**data)
 
-    def get_affected_symbol_names(self) -> List[str]:
+    def get_affected_symbol_names(self) -> list[str]:
         """Get names of all affected symbols."""
         names = []
         if self.primary_symbol:
@@ -246,7 +260,9 @@ class Edit:
             parts.append(f"  Intent: {self.user_intent}")
 
         if self.primary_symbol:
-            parts.append(f"  Primary symbol: {self.primary_symbol.name} ({self.primary_symbol.kind})")
+            parts.append(
+                f"  Primary symbol: {self.primary_symbol.name} ({self.primary_symbol.kind})"
+            )
 
         if self.affected_symbols:
             symbol_list = ", ".join([s.name for s in self.affected_symbols[:5]])

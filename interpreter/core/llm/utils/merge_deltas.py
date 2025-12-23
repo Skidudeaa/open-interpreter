@@ -6,7 +6,7 @@ def merge_deltas(original, delta):
     """
 
     for key, value in dict(delta).items():
-        if value != None:
+        if value is not None:
             if isinstance(value, str):
                 if key in original:
                     original[key] = (original[key] or "") + (value or "")

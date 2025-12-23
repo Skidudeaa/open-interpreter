@@ -1,9 +1,9 @@
 import json
 import os
 import time
-from typing import List, TypedDict
+from importlib.metadata import version
+from typing import TypedDict
 
-from importlib.metadata import version, PackageNotFoundError
 import requests
 
 from interpreter.terminal_interface.profiles.profiles import write_key_to_profile
@@ -31,7 +31,7 @@ Want to contribute? Run `interpreter --model i` to use our free, hosted model. C
 
 def display_contributing_current_message():
     display_markdown_message(
-        f"""
+        """
 ---
 > This conversation will be used to train Open Interpreter's open-source language model.
 """
@@ -131,7 +131,7 @@ def get_contribute_cache_contents() -> ContributionCache:
             file.write(json.dumps(default_dict))
         return default_dict
     else:
-        with open(contribute_cache_path, "r") as file:
+        with open(contribute_cache_path) as file:
             contribute_cache = json.load(file)
             return contribute_cache
 
@@ -142,13 +142,13 @@ def write_to_contribution_cache(contribution_cache: ContributionCache):
         json.dump(contribution_cache, file)
 
 
-def get_all_conversations(interpreter) -> List[List]:
+def get_all_conversations(interpreter) -> list[list]:
     def is_conversation_path(path: str):
         _, ext = os.path.splitext(path)
         return ext == ".json"
 
     history_path = interpreter.conversation_history_path
-    all_conversations: List[List] = []
+    all_conversations: list[list] = []
     conversation_files = (
         os.listdir(history_path) if os.path.exists(history_path) else []
     )
@@ -156,7 +156,7 @@ def get_all_conversations(interpreter) -> List[List]:
         if not is_conversation_path(mpath):
             continue
         full_path = os.path.join(history_path, mpath)
-        with open(full_path, "r") as cfile:
+        with open(full_path) as cfile:
             conversation = json.load(cfile)
             all_conversations.append(conversation)
     return all_conversations
@@ -167,7 +167,7 @@ def is_list_of_lists(l):
 
 
 def contribute_conversations(
-    conversations: List[List], feedback=None, conversation_id=None
+    conversations: list[list], feedback=None, conversation_id=None
 ):
     if len(conversations) == 0 or len(conversations[0]) == 0:
         return None

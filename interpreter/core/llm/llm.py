@@ -11,9 +11,7 @@ import litellm
 litellm.suppress_debug_info = True
 litellm.REPEATED_STREAMING_CHUNK_LIMIT = 99999999
 
-import json
 import logging
-import subprocess
 import time
 import uuid
 
@@ -127,7 +125,7 @@ class Llm:
                 self.interpreter.conversation_id = str(uuid.uuid4())
 
         # Detect function support
-        if self.supports_functions == None:
+        if self.supports_functions is None:
             try:
                 if litellm.supports_function_calling(model):
                     self.supports_functions = True
@@ -137,7 +135,7 @@ class Llm:
                 self.supports_functions = False
 
         # Detect vision support
-        if self.supports_vision == None:
+        if self.supports_vision is None:
             try:
                 if litellm.supports_vision(model):
                     self.supports_vision = True
@@ -154,20 +152,30 @@ class Llm:
                 if len(image_messages) > 2:
                     keep_images = set(id(img) for img in image_messages[-2:])
                     removed_count = len(image_messages) - 2
-                    messages = [m for m in messages if m["type"] != "image" or id(m) in keep_images]
+                    messages = [
+                        m
+                        for m in messages
+                        if m["type"] != "image" or id(m) in keep_images
+                    ]
                     if self.interpreter.verbose:
                         print(f"Removed {removed_count} image message(s)!")
             else:
                 # Delete all the middle ones (leave only the first and last 2 images) from messages_for_llm
                 if len(image_messages) > 3:
                     # Keep first image and last 2 images
-                    keep_images = set(id(img) for img in [image_messages[0]] + image_messages[-2:])
+                    keep_images = set(
+                        id(img) for img in [image_messages[0]] + image_messages[-2:]
+                    )
                     removed_count = len(image_messages) - 3
-                    messages = [m for m in messages if m["type"] != "image" or id(m) in keep_images]
+                    messages = [
+                        m
+                        for m in messages
+                        if m["type"] != "image" or id(m) in keep_images
+                    ]
                     if self.interpreter.verbose:
                         print(f"Removed {removed_count} image message(s)!")
                 # Idea: we could set detail: low for the middle messages, instead of deleting them
-        elif self.supports_vision == False and self.vision_renderer:
+        elif not self.supports_vision and self.vision_renderer:
             for img_msg in image_messages:
                 if img_msg["format"] != "description":
                     self.interpreter.display_message("\n  *Viewing image...*\n")
@@ -312,7 +320,7 @@ Continuing...
             litellm.set_verbose = True
 
         if (
-            self.interpreter.debug == True and False  # DISABLED
+            self.interpreter.debug and False  # DISABLED
         ):  # debug will equal "server" if we're debugging the server specifically
             print("\n\n\nOPENAI COMPATIBLE MESSAGES:\n\n\n")
             for message in messages:
@@ -343,7 +351,7 @@ Continuing...
         if self._is_loaded:
             return
 
-        if self.model.startswith("ollama/") and not ":" in self.model:
+        if self.model.startswith("ollama/") and ":" not in self.model:
             self.model = self.model + ":latest"
 
         self._is_loaded = True
@@ -378,7 +386,7 @@ Continuing...
                 requests.post(f"{api_base}/api/pull", json={"name": model_name})
 
             # Get context window if not set
-            if self.context_window == None:
+            if self.context_window is None:
                 response = requests.post(
                     f"{api_base}/api/show", json={"name": model_name}
                 )
@@ -390,8 +398,8 @@ Continuing...
                         break
                 if context_length is not None:
                     self.context_window = context_length
-            if self.max_tokens == None:
-                if self.context_window != None:
+            if self.max_tokens is None:
+                if self.context_window is not None:
                     self.max_tokens = int(self.context_window * 0.2)
 
             # Send a ping, which will actually load the model
@@ -407,11 +415,11 @@ Continuing...
 
         # Validate LLM should be moved here!!
 
-        if self.context_window == None:
+        if self.context_window is None:
             try:
                 model_info = litellm.get_model_info(model=self.model)
                 self.context_window = model_info["max_input_tokens"]
-                if self.max_tokens == None:
+                if self.max_tokens is None:
                     self.max_tokens = min(
                         int(self.context_window * 0.2), model_info["max_output_tokens"]
                     )
@@ -473,7 +481,9 @@ def fixed_litellm_completions(**params):
 
             # Check for timeout errors
             if "timeout" in error_str or "timed out" in error_str:
-                print(f"Request timed out (attempt {attempt + 1}/{attempts}). Retrying...")
+                print(
+                    f"Request timed out (attempt {attempt + 1}/{attempts}). Retrying..."
+                )
                 # Increase timeout for next attempt
                 params["timeout"] = min(params.get("timeout", 120) * 1.5, 300)
 
@@ -492,7 +502,7 @@ def fixed_litellm_completions(**params):
 
             # Exponential backoff between retries
             if attempt < attempts - 1:
-                wait_time = min(2 ** attempt, 8)
+                wait_time = min(2**attempt, 8)
                 time.sleep(wait_time)
 
     if first_error is not None:

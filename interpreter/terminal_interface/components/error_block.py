@@ -9,32 +9,30 @@ Features:
 """
 
 import re
-from typing import Optional
 
 from rich.console import Group
 from rich.panel import Panel
-from rich.syntax import Syntax
 from rich.text import Text
 
 from .base_block import BaseBlock
-from .theme import THEME, BOX_STYLES
+from .theme import BOX_STYLES, THEME
 
 # Error type icons
 ERROR_ICONS = {
-    "SyntaxError": "\u274C",      # Cross mark
-    "TypeError": "\u26A0\uFE0F",   # Warning
-    "ValueError": "\u26A0\uFE0F",  # Warning
-    "KeyError": "\U0001F511",      # Key
-    "IndexError": "\U0001F4CA",    # Chart
-    "ImportError": "\U0001F4E6",   # Package
-    "ModuleNotFoundError": "\U0001F4E6",  # Package
-    "FileNotFoundError": "\U0001F4C1",    # Folder
-    "PermissionError": "\U0001F512",      # Lock
-    "ConnectionError": "\U0001F4E1",      # Antenna
-    "TimeoutError": "\u23F1\uFE0F",       # Stopwatch
-    "MemoryError": "\U0001F4BE",   # Floppy disk
-    "RuntimeError": "\u26A1",      # Lightning
-    "Exception": "\u274C",         # Cross mark (default)
+    "SyntaxError": "\u274c",  # Cross mark
+    "TypeError": "\u26a0\ufe0f",  # Warning
+    "ValueError": "\u26a0\ufe0f",  # Warning
+    "KeyError": "\U0001f511",  # Key
+    "IndexError": "\U0001f4ca",  # Chart
+    "ImportError": "\U0001f4e6",  # Package
+    "ModuleNotFoundError": "\U0001f4e6",  # Package
+    "FileNotFoundError": "\U0001f4c1",  # Folder
+    "PermissionError": "\U0001f512",  # Lock
+    "ConnectionError": "\U0001f4e1",  # Antenna
+    "TimeoutError": "\u23f1\ufe0f",  # Stopwatch
+    "MemoryError": "\U0001f4be",  # Floppy disk
+    "RuntimeError": "\u26a1",  # Lightning
+    "Exception": "\u274c",  # Cross mark (default)
 }
 
 
@@ -57,9 +55,9 @@ class ErrorBlock(BaseBlock):
         self.error_type: str = "Exception"
         self.error_message: str = ""
         self.traceback_lines: list[str] = []
-        self.suggestion: Optional[str] = None
-        self.file_path: Optional[str] = None
-        self.line_number: Optional[int] = None
+        self.suggestion: str | None = None
+        self.file_path: str | None = None
+        self.line_number: int | None = None
 
     def parse_error(self, error_text: str):
         """Parse error text to extract structured information."""
@@ -67,13 +65,17 @@ class ErrorBlock(BaseBlock):
 
         # Find the error type and message (usually the last line)
         for line in reversed(lines):
-            match = re.match(r'^(\w+Error|\w+Exception|KeyboardInterrupt|SystemExit):\s*(.*)$', line)
+            match = re.match(
+                r"^(\w+Error|\w+Exception|KeyboardInterrupt|SystemExit):\s*(.*)$", line
+            )
             if match:
                 self.error_type = match.group(1)
                 self.error_message = match.group(2)
                 break
             # Handle errors without message
-            match = re.match(r'^(\w+Error|\w+Exception|KeyboardInterrupt|SystemExit)$', line)
+            match = re.match(
+                r"^(\w+Error|\w+Exception|KeyboardInterrupt|SystemExit)$", line
+            )
             if match:
                 self.error_type = match.group(1)
                 self.error_message = ""
@@ -166,11 +168,19 @@ class ErrorBlock(BaseBlock):
             # Highlight file references
             file_match = re.match(r'^(\s*File ")(.+)(", line )(\d+)(, in )(.+)$', line)
             if file_match:
-                styled_content.append(file_match.group(1), style=f"dim {THEME['error']}")
+                styled_content.append(
+                    file_match.group(1), style=f"dim {THEME['error']}"
+                )
                 styled_content.append(file_match.group(2), style=THEME["warning"])
-                styled_content.append(file_match.group(3), style=f"dim {THEME['error']}")
-                styled_content.append(file_match.group(4), style=f"bold {THEME['secondary']}")
-                styled_content.append(file_match.group(5), style=f"dim {THEME['error']}")
+                styled_content.append(
+                    file_match.group(3), style=f"dim {THEME['error']}"
+                )
+                styled_content.append(
+                    file_match.group(4), style=f"bold {THEME['secondary']}"
+                )
+                styled_content.append(
+                    file_match.group(5), style=f"dim {THEME['error']}"
+                )
                 styled_content.append(file_match.group(6), style=THEME["primary"])
             elif line.strip().startswith("^"):
                 # Caret indicator
@@ -179,7 +189,7 @@ class ErrorBlock(BaseBlock):
                 # Code line
                 styled_content.append(line, style=THEME["text_secondary"])
 
-        scroll_icon = "\U0001F4DC"  # Scroll emoji
+        scroll_icon = "\U0001f4dc"  # Scroll emoji
         title = f"{scroll_icon} Traceback"
         if len(self.traceback_lines) > 6:
             title += f" (showing last 6 of {len(self.traceback_lines)} lines)"
@@ -196,7 +206,7 @@ class ErrorBlock(BaseBlock):
 
     def _build_suggestion_panel(self) -> Panel:
         """Build the suggestion panel."""
-        bulb_icon = "\U0001F4A1"  # Light bulb
+        bulb_icon = "\U0001f4a1"  # Light bulb
 
         content = Text()
         content.append(f"{bulb_icon} ", style=THEME["warning"])

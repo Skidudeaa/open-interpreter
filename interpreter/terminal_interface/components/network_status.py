@@ -8,7 +8,6 @@ Features:
 """
 
 import time
-from typing import Optional
 
 from rich.console import Console
 from rich.text import Text
@@ -29,21 +28,21 @@ class NetworkStatus:
     """
 
     STATUS_ICONS = {
-        "connected": ("\u2705", "success"),      # Check mark, green
-        "connecting": ("\u23F3", "warning"),     # Hourglass, yellow
-        "retrying": ("\U0001F504", "warning"),   # Arrows circle, yellow
-        "error": ("\u274C", "error"),            # Cross, red
-        "timeout": ("\u23F1", "error"),          # Stopwatch, red
-        "offline": ("\U0001F4E1", "text_muted"), # Antenna, gray
+        "connected": ("\u2705", "success"),  # Check mark, green
+        "connecting": ("\u23f3", "warning"),  # Hourglass, yellow
+        "retrying": ("\U0001f504", "warning"),  # Arrows circle, yellow
+        "error": ("\u274c", "error"),  # Cross, red
+        "timeout": ("\u23f1", "error"),  # Stopwatch, red
+        "offline": ("\U0001f4e1", "text_muted"),  # Antenna, gray
     }
 
     def __init__(self, console: Console = None):
         self.console = console or Console()
         self.status: str = "connecting"
         self.retry_count: int = 0
-        self.last_latency: Optional[float] = None
-        self.error_message: Optional[str] = None
-        self._request_start: Optional[float] = None
+        self.last_latency: float | None = None
+        self.error_message: str | None = None
+        self._request_start: float | None = None
 
     def start_request(self):
         """Mark the start of an API request."""
@@ -95,8 +94,10 @@ class NetworkStatus:
             if self.last_latency:
                 latency_ms = int(self.last_latency * 1000)
                 latency_color = (
-                    THEME["success"] if latency_ms < 500
-                    else THEME["warning"] if latency_ms < 2000
+                    THEME["success"]
+                    if latency_ms < 500
+                    else THEME["warning"]
+                    if latency_ms < 2000
                     else THEME["error"]
                 )
                 text.append(f" ({latency_ms}ms)", style=latency_color)
@@ -132,12 +133,12 @@ class NetworkStatus:
 
     def display_inline(self) -> str:
         """Get status as plain text for inline display."""
-        icon, _ = self.STATUS_ICONS.get(
-            self.status, self.STATUS_ICONS["connecting"]
-        )
+        icon, _ = self.STATUS_ICONS.get(self.status, self.STATUS_ICONS["connecting"])
 
         if self.status == "connected":
-            latency = f" ({int(self.last_latency * 1000)}ms)" if self.last_latency else ""
+            latency = (
+                f" ({int(self.last_latency * 1000)}ms)" if self.last_latency else ""
+            )
             return f"{icon} Connected{latency}"
         elif self.status == "connecting":
             return f"{icon} Connecting..."
@@ -154,7 +155,7 @@ class NetworkStatus:
 
 
 # Global network status instance
-_network_status: Optional[NetworkStatus] = None
+_network_status: NetworkStatus | None = None
 
 
 def get_network_status() -> NetworkStatus:

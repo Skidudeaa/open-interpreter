@@ -165,7 +165,7 @@ class Ai:
             return response[-1].get("content")
 
     def query(self, text, query, custom_reduce_query=None):
-        if custom_reduce_query == None:
+        if custom_reduce_query is None:
             custom_reduce_query = query
 
         chunk_size = 2000

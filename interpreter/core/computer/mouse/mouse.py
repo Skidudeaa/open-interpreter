@@ -49,11 +49,11 @@ class Mouse:
             raise ValueError(
                 "Too many positional arguments provided. To move/click specific coordinates, use kwargs (x=x, y=y).\n\nPlease take a screenshot with computer.display.view() to find text/icons to click, then use computer.mouse.click(text) or computer.mouse.click(icon=description_of_icon) if at all possible. This is **significantly** more accurate than using coordinates. Specifying (x=x, y=y) is highly likely to fail. Specifying ('text to click') is highly likely to succeed."
             )
-        elif len(args) == 1 or text != None:
+        elif len(args) == 1 or text is not None:
             if len(args) == 1:
                 text = args[0]
 
-            if screenshot == None:
+            if screenshot is None:
                 screenshot = self.computer.display.screenshot(show=False)
 
             coordinates = self.computer.display.find(
@@ -143,7 +143,7 @@ class Mouse:
                 )
             )
         elif icon is not None:
-            if screenshot == None:
+            if screenshot is None:
                 screenshot = self.computer.display.screenshot(show=False)
 
             coordinates = self.computer.display.find(icon.strip('"'), screenshot)
@@ -273,7 +273,6 @@ class Mouse:
 
 
 import math
-import time
 
 
 def smooth_move_to(x, y, duration=2):

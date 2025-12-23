@@ -20,9 +20,9 @@ Example:
     result = await agent.execute("Review the authentication module")
 """
 
-from .agent_builder import AgentBuilder, Agent, Swarm
-from .plugins import AgentPlugin, PluginRegistry, PluginContext
+from .agent_builder import Agent, AgentBuilder, Swarm
 from .mcp_bridge import MCPBridge, MCPToolAdapter
+from .plugins import AgentPlugin, PluginContext, PluginRegistry
 
 __all__ = [
     # Agent Building

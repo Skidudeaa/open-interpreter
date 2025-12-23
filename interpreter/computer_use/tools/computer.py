@@ -3,8 +3,6 @@ import base64
 import math
 import os
 import platform
-import shlex
-import shutil
 import tempfile
 import time
 from enum import StrEnum
@@ -101,7 +99,9 @@ class ComputerTool(BaseAnthropicTool):
     api_type: Literal["computer_20241022"] = "computer_20241022"
     width: int
     height: int
-    display_num: None  # Simplified to always be None since we're only using primary display
+    display_num: (
+        None  # Simplified to always be None since we're only using primary display
+    )
 
     _screenshot_delay = 2.0
     _scaling_enabled = True
@@ -182,7 +182,7 @@ class ComputerTool(BaseAnthropicTool):
                             keystroke "{keystroke}" using {modifier}
                         end tell
                         """
-                        os.system("osascript -e '{}'".format(script))
+                        os.system(f"osascript -e '{script}'")
                     else:
                         pyautogui.hotkey(*keys)
                 else:
@@ -242,7 +242,7 @@ class ComputerTool(BaseAnthropicTool):
             base64_image = base64.b64encode(path.read_bytes()).decode()
             path.unlink()  # Remove the temporary file
             return ToolResult(base64_image=base64_image)
-        raise ToolError(f"Failed to take screenshot")
+        raise ToolError("Failed to take screenshot")
 
     async def shell(self, command: str, take_screenshot=True) -> ToolResult:
         """Run a shell command and return the output, error, and optionally a screenshot."""

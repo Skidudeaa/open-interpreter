@@ -64,8 +64,8 @@ def search_aws_docs(query):
 interpreter.computer.run("python", custom_tool)
 
 interpreter.custom_instructions = f"""
-You have access to a special function imported inside your python environment, to be executed in python, called `search_aws_docs(query)` which lets you search the AWS docs. 
-Use it frequently to ground your usage of AWS products. 
+You have access to a special function imported inside your python environment, to be executed in python, called `search_aws_docs(query)` which lets you search the AWS docs.
+Use it frequently to ground your usage of AWS products.
 Use it often!
 
 If the user wants you to open the docs, open their browser to the URL: {AWS_DOCS_SEARCH_URL}

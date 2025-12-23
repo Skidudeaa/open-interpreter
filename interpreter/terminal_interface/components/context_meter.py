@@ -8,15 +8,12 @@ Reads from UIState.context_tokens and context_limit.
 Part of Phase 2: Agent Visualization
 """
 
-from typing import Optional
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, BarColumn, TextColumn
 from rich.text import Text
-from rich.table import Table
 
+from .theme import BOX_STYLES, THEME
 from .ui_state import UIState
-from .theme import THEME, BOX_STYLES
 
 
 class ContextMeter:
@@ -60,7 +57,7 @@ class ContextMeter:
         elif percent < 85:
             return "warning"  # Yellow
         else:
-            return "error"    # Red
+            return "error"  # Red
 
     def render(self) -> Text:
         """

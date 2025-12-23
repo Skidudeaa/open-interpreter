@@ -24,14 +24,15 @@ Usage:
         backend.stop()
 """
 
-from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Optional, Callable, Any
-from enum import Enum, auto
-import sys
 import os
+import sys
+from abc import ABC, abstractmethod
+from collections.abc import Callable
+from enum import Enum, auto
+from typing import TYPE_CHECKING
 
-from .ui_state import UIState, UIMode
-from .ui_events import UIEvent, EventType, EventBus, get_event_bus
+from .ui_events import EventType, UIEvent, get_event_bus
+from .ui_state import UIMode, UIState
 
 if TYPE_CHECKING:
     from ...core.core import OpenInterpreter
@@ -39,8 +40,9 @@ if TYPE_CHECKING:
 
 class BackendType(Enum):
     """Available UI backend implementations"""
-    RICH_STREAM = auto()      # Current behavior: Rich streaming
-    PROMPT_TOOLKIT = auto()   # Interactive: prompt_toolkit app
+
+    RICH_STREAM = auto()  # Current behavior: Rich streaming
+    PROMPT_TOOLKIT = auto()  # Interactive: prompt_toolkit app
 
 
 class UIBackend(ABC):
@@ -62,7 +64,7 @@ class UIBackend(ABC):
         self.state = state
         self.event_bus = get_event_bus()
         self._running = False
-        self._on_input: Optional[Callable[[str], None]] = None
+        self._on_input: Callable[[str], None] | None = None
 
     @property
     def backend_type(self) -> BackendType:
@@ -136,7 +138,7 @@ class UIBackend(ABC):
 
     def cancel_current(self) -> None:
         """Cancel any current operation (called on Esc)"""
-        if hasattr(self.interpreter, 'stop'):
+        if hasattr(self.interpreter, "stop"):
             self.interpreter.stop()
         self.emit(UIEvent(type=EventType.UI_CANCEL, source="ui"))
 
@@ -209,6 +211,7 @@ class RichStreamBackend(UIBackend):
         """Update UI state based on event"""
         if event.type == EventType.AGENT_SPAWN:
             from .ui_state import AgentRole
+
             agent_id = event.data.get("agent_id", "unknown")
             role_str = event.data.get("role", "custom")
             try:
@@ -219,12 +222,14 @@ class RichStreamBackend(UIBackend):
 
         elif event.type == EventType.AGENT_COMPLETE:
             from .ui_state import AgentStatus
+
             agent_id = event.data.get("agent_id")
             if agent_id:
                 self.state.update_agent_status(agent_id, AgentStatus.COMPLETE)
 
         elif event.type == EventType.AGENT_ERROR:
             from .ui_state import AgentStatus
+
             agent_id = event.data.get("agent_id")
             error = event.data.get("error")
             if agent_id:
@@ -253,6 +258,7 @@ class RichStreamBackend(UIBackend):
         # Use the existing cli_input for multiline support
         try:
             from ..utils.cli_input import cli_input
+
             return cli_input(prompt)
         except ImportError:
             return input(prompt)
@@ -290,7 +296,6 @@ class PromptToolkitBackend(UIBackend):
     def start(self) -> None:
         """Initialize prompt_toolkit session and handlers"""
         from .input_handler import InputHandler
-        from .completers import create_completer
 
         self._running = True
 
@@ -310,6 +315,7 @@ class PromptToolkitBackend(UIBackend):
     def _get_history_path(self) -> str:
         """Get path to history file"""
         from platformdirs import user_data_dir
+
         data_dir = user_data_dir("open-interpreter", "openinterpreter")
         os.makedirs(data_dir, exist_ok=True)
         return os.path.join(data_dir, "prompt_history")
@@ -424,23 +430,37 @@ class PromptToolkitBackend(UIBackend):
             # Create session with completer
             completer = create_completer(self.interpreter)
 
+            # IMPORTANT:
+            # - multiline=True makes Enter insert a newline (appears "frozen" to users expecting Enter to submit).
+            # - Only enable multiline when the interpreter explicitly requests it.
+            multiline_enabled = bool(getattr(self.interpreter, "multi_line", False))
+
             session = PromptSession(
                 history=self._input_handler.history,
                 auto_suggest=AutoSuggestFromHistory(),
                 completer=completer,
-                multiline=True,
+                multiline=multiline_enabled,
                 key_bindings=self._input_handler.create_key_bindings(),
                 enable_history_search=True,
                 complete_while_typing=False,
             )
 
             # Format prompt with styling
-            formatted_prompt = FormattedText([
-                ('class:prompt', prompt),
-            ])
+            formatted_prompt = FormattedText(
+                [
+                    ("class:prompt", prompt),
+                ]
+            )
 
-            result = session.prompt(formatted_prompt)
-            return result
+            bottom_toolbar = None
+            if multiline_enabled:
+                # Make it obvious how to submit, otherwise it looks like the UI is stuck.
+                bottom_toolbar = (
+                    "Multiline: Enter=newline, Esc+Enter=submit, Ctrl+C=cancel"
+                )
+
+            result = session.prompt(formatted_prompt, bottom_toolbar=bottom_toolbar)
+            return result or ""
 
         except KeyboardInterrupt:
             return ""
@@ -460,8 +480,10 @@ class PromptToolkitBackend(UIBackend):
 def is_tty() -> bool:
     """Check if running in a TTY (interactive terminal)"""
     return (
-        hasattr(sys.stdin, 'isatty') and sys.stdin.isatty() and
-        hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
+        hasattr(sys.stdin, "isatty")
+        and sys.stdin.isatty()
+        and hasattr(sys.stdout, "isatty")
+        and sys.stdout.isatty()
     )
 
 
@@ -469,6 +491,7 @@ def prompt_toolkit_available() -> bool:
     """Check if prompt_toolkit is installed"""
     try:
         import prompt_toolkit
+
         return True
     except ImportError:
         return False
@@ -476,8 +499,8 @@ def prompt_toolkit_available() -> bool:
 
 def create_backend(
     interpreter: "OpenInterpreter",
-    state: Optional[UIState] = None,
-    force_type: Optional[BackendType] = None
+    state: UIState | None = None,
+    force_type: BackendType | None = None,
 ) -> UIBackend:
     """
     Create the appropriate backend based on environment.

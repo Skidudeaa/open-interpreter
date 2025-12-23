@@ -20,7 +20,7 @@ if "--os" in sys.argv:
             else:
                 try:
                     rich_print(Markdown(line))
-                except UnicodeEncodeError as e:
+                except UnicodeEncodeError:
                     # Replace the problematic character or handle the error as needed
                     print("Error displaying line:", line)
 
@@ -29,12 +29,13 @@ if "--os" in sys.argv:
             print("")
 
     from importlib.metadata import version
+
     import requests
     from packaging import version
 
     def check_for_update():
         # Fetch the latest version from the PyPI API
-        response = requests.get(f"https://pypi.org/pypi/open-interpreter/json")
+        response = requests.get("https://pypi.org/pypi/open-interpreter/json")
         latest_version = response.json()["info"]["version"]
 
         # Get the current version using importlib.metadata
@@ -54,32 +55,15 @@ if "--os" in sys.argv:
     run_async_main()
     exit()
 
+from .core.agents import AgentOrchestrator, ScoutAgent, SurgeonAgent
 from .core.async_core import AsyncInterpreter
 from .core.computer.terminal.base_language import BaseLanguage
 from .core.core import OpenInterpreter
 
 # Export new modules for direct access
-from .core.memory import (
-    SemanticEditGraph,
-    Edit,
-    EditType,
-    ConversationLinker,
-)
-from .core.validation import (
-    EditValidator,
-    SyntaxChecker,
-    ValidationResult,
-)
-from .core.tracing import (
-    ExecutionTracer,
-    ExecutionTrace,
-    CallGraph,
-)
-from .core.agents import (
-    AgentOrchestrator,
-    ScoutAgent,
-    SurgeonAgent,
-)
+from .core.memory import ConversationLinker, Edit, EditType, SemanticEditGraph
+from .core.tracing import CallGraph, ExecutionTrace, ExecutionTracer
+from .core.validation import EditValidator, SyntaxChecker, ValidationResult
 
 interpreter = OpenInterpreter()
 computer = interpreter.computer

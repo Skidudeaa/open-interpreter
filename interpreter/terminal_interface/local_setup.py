@@ -29,19 +29,19 @@ def local_setup(interpreter, provider=None, model=None):
 
         if total_ram < 10:
             interpreter.display_message(
-                f"\nYour computer realistically can only run smaller models less than 4GB, Phi-2 might be the best model for your computer.\n"
+                "\nYour computer realistically can only run smaller models less than 4GB, Phi-2 might be the best model for your computer.\n"
             )
         elif 10 <= total_ram < 30:
             interpreter.display_message(
-                f"\nYour computer could handle a mid-sized model (4-10GB), Mistral-7B might be the best model for your computer.\n"
+                "\nYour computer could handle a mid-sized model (4-10GB), Mistral-7B might be the best model for your computer.\n"
             )
         else:
             interpreter.display_message(
-                f"\nYour computer should have enough RAM to run any model below.\n"
+                "\nYour computer should have enough RAM to run any model below.\n"
             )
 
         interpreter.display_message(
-            f"In general, the larger the model, the better the performance, but choose a model that best fits your computer's hardware. \nOnly models you have the storage space to download are shown:\n"
+            "In general, the larger the model, the better the performance, but choose a model that best fits your computer's hardware. \nOnly models you have the storage space to download are shown:\n"
         )
 
         try:
@@ -143,7 +143,7 @@ def local_setup(interpreter, provider=None, model=None):
                 ]
                 answers = inquirer.prompt(questions)
 
-                if answers == None:
+                if answers is None:
                     exit()
 
                 # Get the selected model
@@ -210,7 +210,7 @@ def local_setup(interpreter, provider=None, model=None):
     ]
     answers = inquirer.prompt(questions)
 
-    if answers == None:
+    if answers is None:
         exit()
 
     selected_model = answers["model"]
@@ -281,7 +281,7 @@ def local_setup(interpreter, provider=None, model=None):
             ]
             name_answer = inquirer.prompt(name_question)
 
-            if name_answer == None:
+            if name_answer is None:
                 exit()
 
             selected_name = name_answer["name"]
@@ -319,11 +319,11 @@ def local_setup(interpreter, provider=None, model=None):
             interpreter.display_message(f"> Model set to `{model}`")
 
         # If Ollama is not installed or not recognized as a command, prompt the user to download Ollama and try again
-        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        except (subprocess.CalledProcessError, FileNotFoundError):
             print("Ollama is not installed or not recognized as a command.")
             time.sleep(1)
             interpreter.display_message(
-                f"\nPlease visit [https://ollama.com/](https://ollama.com/) to download Ollama and try again.\n"
+                "\nPlease visit [https://ollama.com/](https://ollama.com/) to download Ollama and try again.\n"
             )
             time.sleep(2)
             sys.exit(1)
@@ -364,7 +364,7 @@ def local_setup(interpreter, provider=None, model=None):
         ]
         model_name_answer = inquirer.prompt(model_name_question)
 
-        if model_name_answer == None:
+        if model_name_answer is None:
             exit()
 
         jan_model_name = model_name_answer["jan_model_name"]
@@ -417,7 +417,7 @@ def local_setup(interpreter, provider=None, model=None):
             ]
             answers = inquirer.prompt(questions)
 
-            if answers == None:
+            if answers is None:
                 exit()
 
             if answers["model"] == "↓ Download new model":
@@ -466,7 +466,7 @@ def local_setup(interpreter, provider=None, model=None):
         interpreter.llm.context_window = 3000
 
     # Display intro message
-    if interpreter.auto_run == False:
+    if not interpreter.auto_run:
         interpreter.display_message(
             "**Open Interpreter** will require approval before running code."
             + "\n\nUse `interpreter -y` to bypass this."

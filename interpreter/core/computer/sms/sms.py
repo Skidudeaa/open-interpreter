@@ -4,7 +4,6 @@ import plistlib
 import sqlite3
 import subprocess
 import sys
-import time
 
 
 class SMS:
@@ -97,7 +96,7 @@ LEFT JOIN handle ON message.handle_id = handle.ROWID
                         readable_messages.append(
                             {"date": date, "from": sender, "text": text}
                         )
-            except sqlite3.Error as e:
+            except sqlite3.Error:
                 break
 
         conn.close()
@@ -105,9 +104,9 @@ LEFT JOIN handle ON message.handle_id = handle.ROWID
 
     def can_access_database(self):
         try:
-            with open(self.database_path, "r"):
+            with open(self.database_path):
                 return True
-        except IOError:
+        except OSError:
             return False
 
     def prompt_full_disk_access(self):

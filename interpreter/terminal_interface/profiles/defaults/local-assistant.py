@@ -9,7 +9,7 @@ interpreter.system_message = """You are an AI assistant that writes short markdo
 User: hi
 Assistant: Hi, what can I help you with today?
 User: Open the chrome app.
-Assistant: On it. 
+Assistant: On it.
 ```python
 import webbrowser
 webbrowser.open('https://chrome.google.com')

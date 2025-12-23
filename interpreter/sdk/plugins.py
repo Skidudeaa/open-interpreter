@@ -24,15 +24,17 @@ Example:
     )
 """
 
-from abc import ABC, abstractmethod
+from abc import ABC
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Type, Union
+from typing import Any
 
 
 class HookPoint(Enum):
     """Points where plugins can intercept execution."""
+
     BEFORE_EXECUTE = "before_execute"
     AFTER_EXECUTE = "after_execute"
     BEFORE_LLM = "before_llm"
@@ -51,13 +53,14 @@ class PluginContext:
     Contains information about the current execution state
     that plugins can use to make decisions.
     """
+
     agent_name: str
     hook_point: HookPoint
     timestamp: datetime = field(default_factory=datetime.now)
-    task: Optional[str] = None
-    messages: List[Dict[str, Any]] = field(default_factory=list)
-    current_file: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    task: str | None = None
+    messages: list[dict[str, Any]] = field(default_factory=list)
+    current_file: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def add_metadata(self, key: str, value: Any):
         """Add metadata to context."""
@@ -71,11 +74,12 @@ class PluginContext:
 @dataclass
 class EditContext:
     """Context for edit-related hooks."""
+
     file_path: str
     original_content: str
     new_content: str
     edit_type: str = "unknown"
-    symbols_affected: List[str] = field(default_factory=list)
+    symbols_affected: list[str] = field(default_factory=list)
 
 
 class AgentPlugin(ABC):
@@ -117,7 +121,7 @@ class AgentPlugin(ABC):
         """
         return result
 
-    async def on_before_llm(self, agent: Any, messages: List[Dict]) -> List[Dict]:
+    async def on_before_llm(self, agent: Any, messages: list[dict]) -> list[dict]:
         """
         Called before LLM is invoked.
 
@@ -130,7 +134,7 @@ class AgentPlugin(ABC):
         """
         return messages
 
-    async def on_after_llm(self, agent: Any, response: Dict) -> Dict:
+    async def on_after_llm(self, agent: Any, response: dict) -> dict:
         """
         Called after LLM responds.
 
@@ -143,7 +147,9 @@ class AgentPlugin(ABC):
         """
         return response
 
-    async def on_before_edit(self, agent: Any, edit_context: EditContext) -> EditContext:
+    async def on_before_edit(
+        self, agent: Any, edit_context: EditContext
+    ) -> EditContext:
         """
         Called before a code edit is applied.
 
@@ -156,7 +162,9 @@ class AgentPlugin(ABC):
         """
         return edit_context
 
-    async def on_after_edit(self, agent: Any, edit_context: EditContext, success: bool) -> None:
+    async def on_after_edit(
+        self, agent: Any, edit_context: EditContext, success: bool
+    ) -> None:
         """
         Called after a code edit is applied.
 
@@ -167,7 +175,9 @@ class AgentPlugin(ABC):
         """
         pass
 
-    async def on_error(self, agent: Any, error: Exception, context: PluginContext) -> Optional[str]:
+    async def on_error(
+        self, agent: Any, error: Exception, context: PluginContext
+    ) -> str | None:
         """
         Called when an error occurs.
 
@@ -181,7 +191,7 @@ class AgentPlugin(ABC):
         """
         return None
 
-    async def on_tool_call(self, agent: Any, tool_name: str, args: Dict) -> Dict:
+    async def on_tool_call(self, agent: Any, tool_name: str, args: dict) -> dict:
         """
         Called when a tool is invoked.
 
@@ -208,8 +218,8 @@ class PluginRegistry:
     """
 
     def __init__(self):
-        self._plugins: List[AgentPlugin] = []
-        self._by_hook: Dict[HookPoint, List[AgentPlugin]] = {
+        self._plugins: list[AgentPlugin] = []
+        self._by_hook: dict[HookPoint, list[AgentPlugin]] = {
             hook: [] for hook in HookPoint
         }
 
@@ -259,11 +269,11 @@ class PluginRegistry:
             self._reindex()
         return removed
 
-    def get_plugins(self) -> List[AgentPlugin]:
+    def get_plugins(self) -> list[AgentPlugin]:
         """Get all registered plugins."""
         return self._plugins.copy()
 
-    def get_plugins_for_hook(self, hook: HookPoint) -> List[AgentPlugin]:
+    def get_plugins_for_hook(self, hook: HookPoint) -> list[AgentPlugin]:
         """Get plugins that implement a specific hook."""
         return self._by_hook.get(hook, [])
 
@@ -308,6 +318,29 @@ class PluginRegistry:
             method_name = f"on_{hook.value}"
             method = getattr(plugin, method_name, None)
             if method:
+                # Emit plugin hook event for UI visibility
+                try:
+                    from ..terminal_interface.components.ui_events import (
+                        EventType,
+                        UIEvent,
+                        get_event_bus,
+                    )
+
+                    event_bus = get_event_bus()
+                    event_bus.emit(
+                        UIEvent(
+                            type=EventType.PLUGIN_HOOK,
+                            data={
+                                "plugin": plugin.name,
+                                "hook": hook.value,
+                                "agent": getattr(agent, "name", "unknown"),
+                            },
+                            source="plugins",
+                        )
+                    )
+                except ImportError:
+                    pass  # UI events not available
+
                 result = await method(agent, value, **kwargs)
                 if result is not None:
                     value = result
@@ -317,14 +350,16 @@ class PluginRegistry:
 
 # Built-in plugins
 
+
 class LoggingPlugin(AgentPlugin):
     """
     Logs agent activity.
     """
+
     name = "logging"
     priority = 10  # Run early
 
-    def __init__(self, log_func: Optional[Callable[[str], None]] = None):
+    def __init__(self, log_func: Callable[[str], None] | None = None):
         self.log = log_func or print
 
     async def on_before_execute(self, agent: Any, task: str) -> str:
@@ -333,10 +368,14 @@ class LoggingPlugin(AgentPlugin):
 
     async def on_after_execute(self, agent: Any, result: Any) -> Any:
         status = "SUCCESS" if result.success else "FAILED"
-        self.log(f"[{datetime.now().isoformat()}] {agent.name} {status} ({result.execution_time:.2f}s)")
+        self.log(
+            f"[{datetime.now().isoformat()}] {agent.name} {status} ({result.execution_time:.2f}s)"
+        )
         return result
 
-    async def on_error(self, agent: Any, error: Exception, context: PluginContext) -> Optional[str]:
+    async def on_error(
+        self, agent: Any, error: Exception, context: PluginContext
+    ) -> str | None:
         self.log(f"[{datetime.now().isoformat()}] {agent.name} ERROR: {error}")
         return None
 
@@ -345,11 +384,12 @@ class MetricsPlugin(AgentPlugin):
     """
     Collects execution metrics.
     """
+
     name = "metrics"
     priority = 5  # Run very early
 
     def __init__(self):
-        self.metrics: Dict[str, List[Dict]] = {}
+        self.metrics: dict[str, list[dict]] = {}
 
     async def on_before_execute(self, agent: Any, task: str) -> str:
         if agent.name not in self.metrics:
@@ -357,15 +397,17 @@ class MetricsPlugin(AgentPlugin):
         return task
 
     async def on_after_execute(self, agent: Any, result: Any) -> Any:
-        self.metrics[agent.name].append({
-            "timestamp": datetime.now().isoformat(),
-            "success": result.success,
-            "execution_time": result.execution_time,
-            "tokens_used": result.tokens_used,
-        })
+        self.metrics[agent.name].append(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "success": result.success,
+                "execution_time": result.execution_time,
+                "tokens_used": result.tokens_used,
+            }
+        )
         return result
 
-    def get_summary(self, agent_name: Optional[str] = None) -> Dict:
+    def get_summary(self, agent_name: str | None = None) -> dict:
         """Get metrics summary."""
         if agent_name:
             runs = self.metrics.get(agent_name, [])
@@ -390,10 +432,11 @@ class ValidationPlugin(AgentPlugin):
     """
     Validates edits before applying.
     """
+
     name = "validation"
     priority = 50
 
-    def __init__(self, validator: Optional[Any] = None):
+    def __init__(self, validator: Any | None = None):
         self._validator = validator
 
     @property
@@ -401,12 +444,15 @@ class ValidationPlugin(AgentPlugin):
         if self._validator is None:
             try:
                 from interpreter.core.validation import EditValidator
+
                 self._validator = EditValidator()
             except ImportError:
                 pass
         return self._validator
 
-    async def on_before_edit(self, agent: Any, edit_context: EditContext) -> EditContext:
+    async def on_before_edit(
+        self, agent: Any, edit_context: EditContext
+    ) -> EditContext:
         if self.validator is None:
             return edit_context
 
@@ -426,18 +472,21 @@ class MemoryPlugin(AgentPlugin):
     """
     Records edits to semantic memory.
     """
+
     name = "memory"
     priority = 90  # Run late
 
-    def __init__(self, semantic_graph: Optional[Any] = None):
+    def __init__(self, semantic_graph: Any | None = None):
         self._graph = semantic_graph
 
-    async def on_after_edit(self, agent: Any, edit_context: EditContext, success: bool) -> None:
+    async def on_after_edit(
+        self, agent: Any, edit_context: EditContext, success: bool
+    ) -> None:
         if not success or self._graph is None:
             return
 
         try:
-            from interpreter.core.memory import Edit, EditType, DiffSymbolExtractor
+            from interpreter.core.memory import DiffSymbolExtractor, Edit, EditType
 
             # Create edit record
             extractor = DiffSymbolExtractor()
@@ -457,14 +506,20 @@ class MemoryPlugin(AgentPlugin):
 
             self._graph.record_edit(edit)
 
-        except Exception:
-            pass  # Don't fail on memory errors
+        except Exception as e:
+            # Log but don't fail - memory errors shouldn't break editing
+            import logging
+
+            logging.getLogger(__name__).debug(
+                f"MemoryPlugin: Failed to record edit for {edit_context.file_path}: {e}"
+            )
 
 
 class RateLimitPlugin(AgentPlugin):
     """
     Rate limits agent execution.
     """
+
     name = "rate_limit"
     priority = 1  # Run first
 
@@ -475,8 +530,8 @@ class RateLimitPlugin(AgentPlugin):
     ):
         self.max_calls = max_calls_per_minute
         self.max_tokens = max_tokens_per_minute
-        self._call_times: List[datetime] = []
-        self._token_counts: List[tuple] = []  # (timestamp, tokens)
+        self._call_times: list[datetime] = []
+        self._token_counts: list[tuple] = []  # (timestamp, tokens)
 
     async def on_before_execute(self, agent: Any, task: str) -> str:
         import asyncio
@@ -486,7 +541,9 @@ class RateLimitPlugin(AgentPlugin):
 
         # Clean old entries
         self._call_times = [t for t in self._call_times if t.timestamp() > minute_ago]
-        self._token_counts = [(t, c) for t, c in self._token_counts if t.timestamp() > minute_ago]
+        self._token_counts = [
+            (t, c) for t, c in self._token_counts if t.timestamp() > minute_ago
+        ]
 
         # Check rate limit
         if len(self._call_times) >= self.max_calls:

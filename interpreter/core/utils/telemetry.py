@@ -9,13 +9,11 @@ Disable anonymous telemetry by execute one of below:
 based on ChromaDB's telemetry: https://github.com/chroma-core/chroma/tree/main/chromadb/telemetry/product
 """
 
-import contextlib
 import json
 import os
-import threading
 import uuid
+from importlib.metadata import version
 
-from importlib.metadata import version, PackageNotFoundError
 import requests
 
 
@@ -29,7 +27,7 @@ def get_or_create_uuid():
         )  # Ensure the directory exists
 
         if os.path.exists(uuid_file_path):
-            with open(uuid_file_path, "r") as file:
+            with open(uuid_file_path) as file:
                 return file.read()
         else:
             new_uuid = str(uuid.uuid4())

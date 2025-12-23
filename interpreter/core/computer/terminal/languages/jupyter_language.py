@@ -1,10 +1,9 @@
 """
-This is NOT jupyter language, this is just python. 
+This is NOT jupyter language, this is just python.
 Gotta split this out, generalize it, and move all the python additions to python.py, which imports this
 """
 
 import ast
-import logging
 import os
 import queue
 import re
@@ -150,7 +149,7 @@ import matplotlib.pyplot as plt
             max_retries = 100
             while True:
                 # If self.finish_flag = True, and we didn't set it (we do below), we need to stop. That's our "stop"
-                if self.finish_flag == True:
+                if self.finish_flag:
                     if DEBUG_MODE:
                         print("interrupting kernel!!!!!")
                     self.km.interrupt_kernel()

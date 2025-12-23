@@ -60,7 +60,7 @@ def run_function_calling_llm(llm, request_params):
 
                 # print("Code safety review:", delta["content"])
 
-                if review_category == None:
+                if review_category is None:
                     accumulated_review += delta["content"]
 
                     if "<unsafe>" in accumulated_review:
@@ -70,7 +70,7 @@ def run_function_calling_llm(llm, request_params):
                     if "<safe>" in accumulated_review:
                         review_category = "safe"
 
-                if review_category != None:
+                if review_category is not None:
                     for tag in [
                         "<safe>",
                         "</safe>",

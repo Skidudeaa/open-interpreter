@@ -12,15 +12,9 @@ import re
 
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.text import Text
 
 from .base_block import BaseBlock
-from .theme import (
-    THEME,
-    BOX_STYLES,
-    get_role_icon,
-    get_role_style,
-)
+from .theme import BOX_STYLES, THEME, get_role_icon
 
 
 class MessageBlock(BaseBlock):
@@ -82,6 +76,9 @@ class MessageBlock(BaseBlock):
         if self.live:
             self.live.update(panel)
             self.live.refresh()
+        else:
+            # Fallback: print directly when Live isn't available
+            self.fallback_print(panel)
 
 
 def textify_markdown_code_blocks(text: str) -> str:

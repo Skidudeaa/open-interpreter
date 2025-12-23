@@ -7,14 +7,12 @@ Supports:
 - Linux: espeak or pyttsx3
 """
 
-import os
 import platform
 import subprocess
 import threading
-from typing import Optional
 
 # Track current voice process
-_voice_process: Optional[subprocess.Popen] = None
+_voice_process: subprocess.Popen | None = None
 _voice_lock = threading.Lock()
 
 
@@ -96,17 +94,17 @@ def _speak_windows(text: str, voice: str = None) -> bool:
         return True
 
     # Fallback to PowerShell SAPI
-    ps_script = f'''
+    ps_script = f"""
     Add-Type -AssemblyName System.Speech
     $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
     $synth.Speak("{text}")
-    '''
+    """
 
     try:
         _voice_process = subprocess.Popen(
             ["powershell", "-Command", ps_script],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL,
         )
         return True
     except FileNotFoundError:
@@ -120,9 +118,7 @@ def _speak_linux(text: str, voice: str = None) -> bool:
     # Try espeak first (most common)
     try:
         _voice_process = subprocess.Popen(
-            ["espeak", text],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            ["espeak", text], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
         return True
     except FileNotFoundError:
@@ -131,9 +127,7 @@ def _speak_linux(text: str, voice: str = None) -> bool:
     # Try espeak-ng
     try:
         _voice_process = subprocess.Popen(
-            ["espeak-ng", text],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            ["espeak-ng", text], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
         return True
     except FileNotFoundError:
@@ -151,10 +145,10 @@ def _try_pyttsx3(text: str, voice: str = None) -> bool:
         engine = pyttsx3.init()
 
         if voice:
-            voices = engine.getProperty('voices')
+            voices = engine.getProperty("voices")
             for v in voices:
                 if voice.lower() in v.name.lower():
-                    engine.setProperty('voice', v.id)
+                    engine.setProperty("voice", v.id)
                     break
 
         engine.say(text)
@@ -198,11 +192,7 @@ def get_available_voices() -> list:
     if system == "Darwin":
         # macOS: List voices from say command
         try:
-            result = subprocess.run(
-                ["say", "-v", "?"],
-                capture_output=True,
-                text=True
-            )
+            result = subprocess.run(["say", "-v", "?"], capture_output=True, text=True)
             voices = []
             for line in result.stdout.split("\n"):
                 if line.strip():
@@ -218,8 +208,9 @@ def get_available_voices() -> list:
         # Try to get voices from pyttsx3
         try:
             import pyttsx3
+
             engine = pyttsx3.init()
-            return [v.name for v in engine.getProperty('voices')]
+            return [v.name for v in engine.getProperty("voices")]
         except Exception:
             return ["Default"]
 
@@ -244,11 +235,7 @@ def check_tts_available() -> bool:
         # Linux: Check for espeak or pyttsx3
         for cmd in ["espeak", "espeak-ng"]:
             try:
-                subprocess.run(
-                    [cmd, "--version"],
-                    capture_output=True,
-                    check=True
-                )
+                subprocess.run([cmd, "--version"], capture_output=True, check=True)
                 return True
             except (FileNotFoundError, subprocess.CalledProcessError):
                 continue
@@ -256,6 +243,7 @@ def check_tts_available() -> bool:
         # Try pyttsx3
         try:
             import pyttsx3
+
             return True
         except ImportError:
             pass

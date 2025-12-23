@@ -11,15 +11,31 @@ The AgentOrchestrator coordinates these agents to handle
 complex coding tasks more effectively than a single agent.
 """
 
-from .base_agent import BaseAgent, AgentRole, AgentResult
+# Unified types (single source of truth)
+# Agent implementations
+from .base_agent import BaseAgent
 from .orchestrator import AgentOrchestrator
 from .scout_agent import ScoutAgent
 from .surgeon_agent import SurgeonAgent
+from .types import (
+    AgentConfig,
+    AgentResult,
+    AgentRole,
+    AgentStatus,
+    WorkflowResult,
+    WorkflowStep,
+)
 
 __all__ = [
-    "BaseAgent",
+    # Types
     "AgentRole",
+    "AgentStatus",
+    "AgentConfig",
     "AgentResult",
+    "WorkflowStep",
+    "WorkflowResult",
+    # Agents
+    "BaseAgent",
     "AgentOrchestrator",
     "ScoutAgent",
     "SurgeonAgent",

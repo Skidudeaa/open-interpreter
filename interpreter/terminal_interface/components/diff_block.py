@@ -9,16 +9,14 @@ Features:
 """
 
 import difflib
-from typing import List, Tuple
 
 from rich.console import Group
 from rich.panel import Panel
-from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
 from .base_block import BaseBlock
-from .theme import THEME, BOX_STYLES
+from .theme import BOX_STYLES, THEME
 
 
 class DiffBlock(BaseBlock):
@@ -46,7 +44,7 @@ class DiffBlock(BaseBlock):
         self.old_code = old_code
         self.new_code = new_code
 
-    def get_unified_diff(self) -> List[Tuple[str, str]]:
+    def get_unified_diff(self) -> list[tuple[str, str]]:
         """
         Generate unified diff with line types.
 
@@ -60,32 +58,32 @@ class DiffBlock(BaseBlock):
         diff = difflib.unified_diff(
             old_lines,
             new_lines,
-            fromfile='before',
-            tofile='after',
+            fromfile="before",
+            tofile="after",
             n=self.context_lines,
         )
 
         result = []
         for line in diff:
-            line = line.rstrip('\n')
-            if line.startswith('+++') or line.startswith('---'):
-                result.append(('header', line))
-            elif line.startswith('@@'):
-                result.append(('header', line))
-            elif line.startswith('+'):
-                result.append(('added', line))
-            elif line.startswith('-'):
-                result.append(('removed', line))
+            line = line.rstrip("\n")
+            if line.startswith("+++") or line.startswith("---"):
+                result.append(("header", line))
+            elif line.startswith("@@"):
+                result.append(("header", line))
+            elif line.startswith("+"):
+                result.append(("added", line))
+            elif line.startswith("-"):
+                result.append(("removed", line))
             else:
-                result.append(('context', line))
+                result.append(("context", line))
 
         return result
 
-    def get_stats(self) -> Tuple[int, int]:
+    def get_stats(self) -> tuple[int, int]:
         """Get number of added and removed lines."""
         diff = self.get_unified_diff()
-        added = sum(1 for t, _ in diff if t == 'added')
-        removed = sum(1 for t, _ in diff if t == 'removed')
+        added = sum(1 for t, _ in diff if t == "added")
+        removed = sum(1 for t, _ in diff if t == "removed")
         return added, removed
 
     def refresh(self, cursor: bool = True):
@@ -131,11 +129,11 @@ class DiffBlock(BaseBlock):
             if i > 0:
                 styled_content.append("\n")
 
-            if line_type == 'header':
+            if line_type == "header":
                 styled_content.append(line, style=f"bold {THEME['info']}")
-            elif line_type == 'added':
+            elif line_type == "added":
                 styled_content.append(line, style=f"bold {THEME['success']} on #0D3320")
-            elif line_type == 'removed':
+            elif line_type == "removed":
                 styled_content.append(line, style=f"bold {THEME['error']} on #3D1A1A")
             else:  # context
                 styled_content.append(line, style=THEME["text_secondary"])
@@ -190,28 +188,32 @@ class SideBySideDiff(DiffBlock):
         table.add_column("After", ratio=1)
 
         for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-            if tag == 'equal':
+            if tag == "equal":
                 for old, new in zip(old_lines[i1:i2], new_lines[j1:j2]):
                     table.add_row(
                         Text(old, style=THEME["text_secondary"]),
                         Text(new, style=THEME["text_secondary"]),
                     )
-            elif tag == 'replace':
+            elif tag == "replace":
                 max_len = max(i2 - i1, j2 - j1)
-                old_slice = old_lines[i1:i2] + [''] * (max_len - (i2 - i1))
-                new_slice = new_lines[j1:j2] + [''] * (max_len - (j2 - j1))
+                old_slice = old_lines[i1:i2] + [""] * (max_len - (i2 - i1))
+                new_slice = new_lines[j1:j2] + [""] * (max_len - (j2 - j1))
                 for old, new in zip(old_slice, new_slice):
                     table.add_row(
-                        Text(old, style=f"{THEME['error']} on #3D1A1A") if old else Text(""),
-                        Text(new, style=f"{THEME['success']} on #0D3320") if new else Text(""),
+                        Text(old, style=f"{THEME['error']} on #3D1A1A")
+                        if old
+                        else Text(""),
+                        Text(new, style=f"{THEME['success']} on #0D3320")
+                        if new
+                        else Text(""),
                     )
-            elif tag == 'delete':
+            elif tag == "delete":
                 for old in old_lines[i1:i2]:
                     table.add_row(
                         Text(old, style=f"{THEME['error']} on #3D1A1A"),
                         Text("", style="dim"),
                     )
-            elif tag == 'insert':
+            elif tag == "insert":
                 for new in new_lines[j1:j2]:
                     table.add_row(
                         Text("", style="dim"),
@@ -229,7 +231,9 @@ class SideBySideDiff(DiffBlock):
         )
 
 
-def show_diff(old_code: str, new_code: str, language: str = "python", side_by_side: bool = False):
+def show_diff(
+    old_code: str, new_code: str, language: str = "python", side_by_side: bool = False
+):
     """
     Convenience function to display a code diff.
 

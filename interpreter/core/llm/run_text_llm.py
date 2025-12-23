@@ -4,9 +4,7 @@ def run_text_llm(llm, params):
     if llm.execution_instructions:
         try:
             # Add the system message
-            params["messages"][0][
-                "content"
-            ] += "\n" + llm.execution_instructions
+            params["messages"][0]["content"] += "\n" + llm.execution_instructions
         except Exception:
             print('params["messages"][0]', params["messages"][0])
             raise
@@ -14,7 +12,9 @@ def run_text_llm(llm, params):
     ## Convert output to LMC format
 
     inside_code_block = False
-    accumulated_chunks = []  # Use list for O(n) accumulation instead of O(n²) string concat
+    accumulated_chunks = (
+        []
+    )  # Use list for O(n) accumulation instead of O(n²) string concat
     language = None
     chunk_count = 0
     empty_chunk_count = 0
@@ -34,14 +34,14 @@ def run_text_llm(llm, params):
 
         content = chunk["choices"][0]["delta"].get("content", "")
 
-        if content == None:
+        if content is None:
             empty_chunk_count += 1
             continue
 
         chunk_count += 1
 
         accumulated_chunks.append(content)
-        accumulated_block = ''.join(accumulated_chunks)  # O(n) join when needed
+        accumulated_block = "".join(accumulated_chunks)  # O(n) join when needed
 
         if accumulated_block.endswith("`"):
             # We might be writing "```" one token at a time.
@@ -66,9 +66,9 @@ def run_text_llm(llm, params):
 
                 # Default to python if not specified
                 if language == "":
-                    if llm.interpreter.os == False:
+                    if not llm.interpreter.os:
                         language = "python"
-                    elif llm.interpreter.os == False:
+                    elif not llm.interpreter.os:
                         # OS mode does this frequently. Takes notes with markdown code blocks
                         language = "text"
                 else:
@@ -91,5 +91,5 @@ def run_text_llm(llm, params):
     if chunk_count == 0 and empty_chunk_count > 0:
         yield {
             "type": "message",
-            "content": "[LLM returned no content. This may be a connection issue or the model declined to respond. Please try again.]"
+            "content": "[LLM returned no content. This may be a connection issue or the model declined to respond. Please try again.]",
         }

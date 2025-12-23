@@ -35,49 +35,37 @@ Example:
 import asyncio
 import copy
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from collections.abc import Callable
 from datetime import datetime
-from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Type, Union
-from pathlib import Path
+from typing import Any
+
+# Import unified types from core (single source of truth)
+from ..core.agents.types import AgentConfig, AgentResult, AgentRole, AgentStatus
+
+# Backward compatibility alias
+AgentState = AgentStatus
+
+# Lazy-loaded core agents to avoid circular imports
+_core_agents_loaded = False
+_ScoutAgent = None
+_SurgeonAgent = None
+_BaseAgent = None
 
 
-class AgentState(Enum):
-    """Current state of an agent."""
-    IDLE = "idle"
-    RUNNING = "running"
-    WAITING = "waiting"
-    COMPLETED = "completed"
-    ERROR = "error"
+def _load_core_agents():
+    """Lazy load core agent implementations."""
+    global _core_agents_loaded, _ScoutAgent, _SurgeonAgent, _BaseAgent
+    if not _core_agents_loaded:
+        try:
+            from ..core.agents import BaseAgent, ScoutAgent, SurgeonAgent
 
-
-@dataclass
-class AgentConfig:
-    """Configuration for an agent."""
-    name: str
-    system_prompt: str
-    tools: List[str] = field(default_factory=list)
-    model: Optional[str] = None
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
-    timeout: int = 300  # seconds
-    memory_enabled: bool = True
-    memory_path: Optional[str] = None
-    context_window: int = 128000
-    auto_run: bool = True
-    safe_mode: str = "auto"
-
-
-@dataclass
-class AgentResult:
-    """Result of an agent execution."""
-    success: bool
-    output: str
-    messages: List[Dict[str, Any]] = field(default_factory=list)
-    execution_time: float = 0.0
-    tokens_used: int = 0
-    error: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+            _ScoutAgent = ScoutAgent
+            _SurgeonAgent = SurgeonAgent
+            _BaseAgent = BaseAgent
+            _core_agents_loaded = True
+        except ImportError:
+            pass  # Core agents not available
+    return _core_agents_loaded
 
 
 class Agent:
@@ -94,7 +82,7 @@ class Agent:
         config: AgentConfig,
         interpreter: Any = None,
         memory: Any = None,
-        plugins: Optional[List["AgentPlugin"]] = None,
+        plugins: list["AgentPlugin"] | None = None,
     ):
         """
         Initialize an agent.
@@ -111,7 +99,7 @@ class Agent:
         self._memory = memory
         self._plugins = plugins or []
         self._state = AgentState.IDLE
-        self._history: List[Dict[str, Any]] = []
+        self._history: list[dict[str, Any]] = []
         self._created_at = datetime.now()
 
     @property
@@ -131,7 +119,7 @@ class Agent:
         """Get the semantic memory if enabled."""
         if self._memory is None and self.config.memory_enabled:
             # Try to use interpreter's semantic graph
-            if hasattr(self.interpreter, 'semantic_graph'):
+            if hasattr(self.interpreter, "semantic_graph"):
                 self._memory = self.interpreter.semantic_graph
         return self._memory
 
@@ -172,7 +160,7 @@ class Agent:
     async def execute(
         self,
         task: str,
-        context: Optional[str] = None,
+        context: str | None = None,
         stream: bool = False,
     ) -> AgentResult:
         """
@@ -206,7 +194,10 @@ class Agent:
             for chunk in self.interpreter.chat(full_prompt, stream=True, display=False):
                 messages.append(chunk)
                 if isinstance(chunk, dict):
-                    if chunk.get("type") == "message" and chunk.get("role") == "assistant":
+                    if (
+                        chunk.get("type") == "message"
+                        and chunk.get("role") == "assistant"
+                    ):
                         content = chunk.get("content", "")
                         if content:
                             output_parts.append(content)
@@ -229,11 +220,13 @@ class Agent:
             for plugin in self._plugins:
                 result = await plugin.on_after_execute(self, result)
 
-            self._history.append({
-                "task": task,
-                "result": result,
-                "timestamp": start_time,
-            })
+            self._history.append(
+                {
+                    "task": task,
+                    "result": result,
+                    "timestamp": start_time,
+                }
+            )
 
             self._state = AgentState.COMPLETED
             return result
@@ -251,7 +244,7 @@ class Agent:
     def execute_sync(
         self,
         task: str,
-        context: Optional[str] = None,
+        context: str | None = None,
     ) -> AgentResult:
         """
         Synchronous execution wrapper.
@@ -277,7 +270,7 @@ class Agent:
         if self._interpreter:
             self._interpreter.messages = []
 
-    def get_history(self) -> List[Dict[str, Any]]:
+    def get_history(self) -> list[dict[str, Any]]:
         """Get execution history."""
         return self._history.copy()
 
@@ -289,7 +282,7 @@ class Agent:
         """Remove a plugin from the agent."""
         self._plugins.remove(plugin)
 
-    def clone(self, new_name: Optional[str] = None) -> "Agent":
+    def clone(self, new_name: str | None = None) -> "Agent":
         """
         Create a copy of this agent.
 
@@ -321,10 +314,10 @@ class Orchestrator(ABC):
     @abstractmethod
     async def run(
         self,
-        agents: List[Agent],
+        agents: list[Agent],
         task: str,
         shared_memory: Any = None,
-    ) -> Dict[str, AgentResult]:
+    ) -> dict[str, AgentResult]:
         """
         Orchestrate agents to complete a task.
 
@@ -346,10 +339,10 @@ class SequentialOrchestrator(Orchestrator):
 
     async def run(
         self,
-        agents: List[Agent],
+        agents: list[Agent],
         task: str,
         shared_memory: Any = None,
-    ) -> Dict[str, AgentResult]:
+    ) -> dict[str, AgentResult]:
         """Run agents in sequence."""
         results = {}
         context = ""
@@ -374,10 +367,10 @@ class ParallelOrchestrator(Orchestrator):
 
     async def run(
         self,
-        agents: List[Agent],
+        agents: list[Agent],
         task: str,
         shared_memory: Any = None,
-    ) -> Dict[str, AgentResult]:
+    ) -> dict[str, AgentResult]:
         """Run agents in parallel."""
         tasks = [agent.execute(task) for agent in agents]
         agent_results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -401,7 +394,9 @@ class PipelineOrchestrator(Orchestrator):
     Run agents as a pipeline where each transforms the output.
     """
 
-    def __init__(self, task_transforms: Optional[Dict[str, Callable[[str, str], str]]] = None):
+    def __init__(
+        self, task_transforms: dict[str, Callable[[str, str], str]] | None = None
+    ):
         """
         Initialize pipeline orchestrator.
 
@@ -413,10 +408,10 @@ class PipelineOrchestrator(Orchestrator):
 
     async def run(
         self,
-        agents: List[Agent],
+        agents: list[Agent],
         task: str,
         shared_memory: Any = None,
-    ) -> Dict[str, AgentResult]:
+    ) -> dict[str, AgentResult]:
         """Run agents as a pipeline."""
         results = {}
         current_task = task
@@ -427,7 +422,9 @@ class PipelineOrchestrator(Orchestrator):
             if agent.name in self.task_transforms:
                 current_task = self.task_transforms[agent.name](task, previous_output)
 
-            result = await agent.execute(current_task, context=previous_output if previous_output else None)
+            result = await agent.execute(
+                current_task, context=previous_output if previous_output else None
+            )
             results[agent.name] = result
 
             if result.success:
@@ -448,10 +445,10 @@ class Swarm:
 
     def __init__(
         self,
-        agents: List[Agent],
+        agents: list[Agent],
         orchestrator: Orchestrator,
         shared_memory: Any = None,
-        name: Optional[str] = None,
+        name: str | None = None,
     ):
         """
         Initialize a swarm.
@@ -466,9 +463,9 @@ class Swarm:
         self.orchestrator = orchestrator
         self.shared_memory = shared_memory
         self.name = name or f"swarm_{id(self)}"
-        self._results: Dict[str, AgentResult] = {}
+        self._results: dict[str, AgentResult] = {}
 
-    async def execute(self, task: str) -> Dict[str, AgentResult]:
+    async def execute(self, task: str) -> dict[str, AgentResult]:
         """
         Execute a task using the swarm.
 
@@ -485,7 +482,7 @@ class Swarm:
         )
         return self._results
 
-    def execute_sync(self, task: str) -> Dict[str, AgentResult]:
+    def execute_sync(self, task: str) -> dict[str, AgentResult]:
         """Synchronous execution wrapper."""
         try:
             loop = asyncio.get_event_loop()
@@ -496,11 +493,11 @@ class Swarm:
         return loop.run_until_complete(self.execute(task))
 
     @property
-    def last_results(self) -> Dict[str, AgentResult]:
+    def last_results(self) -> dict[str, AgentResult]:
         """Get results from last execution."""
         return self._results
 
-    def get_agent(self, name: str) -> Optional[Agent]:
+    def get_agent(self, name: str) -> Agent | None:
         """Get an agent by name."""
         for agent in self.agents:
             if agent.name == name:
@@ -581,7 +578,7 @@ Ensure tests are readable and maintainable.""",
         self,
         base_interpreter: Any = None,
         shared_memory: Any = None,
-        default_model: Optional[str] = None,
+        default_model: str | None = None,
     ):
         """
         Initialize the agent builder.
@@ -594,17 +591,17 @@ Ensure tests are readable and maintainable.""",
         self._base_interpreter = base_interpreter
         self._shared_memory = shared_memory
         self._default_model = default_model
-        self._created_agents: List[Agent] = []
+        self._created_agents: list[Agent] = []
 
     def create_agent(
         self,
         name: str,
         system_prompt: str,
-        tools: Optional[List[str]] = None,
-        model: Optional[str] = None,
-        temperature: Optional[float] = None,
+        tools: list[str] | None = None,
+        model: str | None = None,
+        temperature: float | None = None,
         memory_enabled: bool = True,
-        plugins: Optional[List["AgentPlugin"]] = None,
+        plugins: list["AgentPlugin"] | None = None,
         **kwargs,
     ) -> Agent:
         """
@@ -646,7 +643,7 @@ Ensure tests are readable and maintainable.""",
     def from_template(
         self,
         template_name: str,
-        name: Optional[str] = None,
+        name: str | None = None,
         **overrides,
     ) -> Agent:
         """
@@ -662,7 +659,9 @@ Ensure tests are readable and maintainable.""",
         """
         if template_name not in self.TEMPLATES:
             available = ", ".join(self.TEMPLATES.keys())
-            raise ValueError(f"Unknown template '{template_name}'. Available: {available}")
+            raise ValueError(
+                f"Unknown template '{template_name}'. Available: {available}"
+            )
 
         template = copy.deepcopy(self.TEMPLATES[template_name])
 
@@ -686,9 +685,9 @@ Ensure tests are readable and maintainable.""",
 
     def create_swarm(
         self,
-        agents: List[Agent],
-        orchestrator: Optional[Orchestrator] = None,
-        name: Optional[str] = None,
+        agents: list[Agent],
+        orchestrator: Orchestrator | None = None,
+        name: str | None = None,
     ) -> Swarm:
         """
         Create a multi-agent swarm.
@@ -725,9 +724,101 @@ Ensure tests are readable and maintainable.""",
             name="standard_dev_swarm",
         )
 
-    def get_created_agents(self) -> List[Agent]:
+    def get_created_agents(self) -> list[Agent]:
         """Get all agents created by this builder."""
         return self._created_agents.copy()
+
+    def create_core_agent(
+        self,
+        role: str | AgentRole,
+        interpreter: Any = None,
+        plugins: list | None = None,
+        name: str | None = None,
+    ):
+        """
+        Create an agent using core implementations.
+
+        Uses the optimized core agent implementations (ScoutAgent, SurgeonAgent)
+        when available, falling back to SDK agents if not.
+
+        Args:
+            role: Agent role ('scout', 'surgeon') or AgentRole enum
+            interpreter: Optional OpenInterpreter instance
+            plugins: Optional list of plugins
+            name: Optional custom name
+
+        Returns:
+            Core agent instance (ScoutAgent, SurgeonAgent, etc.) or SDK Agent fallback
+
+        Raises:
+            ValueError: If role is not supported
+        """
+        # Normalize role to string
+        if isinstance(role, AgentRole):
+            role_str = role.value
+        else:
+            role_str = str(role).lower()
+
+        # Load core agents
+        if not _load_core_agents():
+            # Fall back to SDK agent from template
+            if role_str in self.TEMPLATES:
+                return self.from_template(role_str, name=name)
+            raise ValueError(
+                f"Core agents not available and no template for '{role_str}'"
+            )
+
+        # Get interpreter
+        if interpreter is None:
+            if self._base_interpreter:
+                import copy
+
+                interpreter = copy.deepcopy(self._base_interpreter)
+            else:
+                from interpreter.core.core import OpenInterpreter
+
+                interpreter = OpenInterpreter()
+
+        # Create core agent based on role
+        if role_str == "scout":
+            return _ScoutAgent(
+                interpreter=interpreter,
+                memory=self._shared_memory,
+                plugins=plugins,
+                name=name,
+            )
+        elif role_str == "surgeon":
+            return _SurgeonAgent(
+                interpreter=interpreter,
+                memory=self._shared_memory,
+                plugins=plugins,
+                name=name,
+            )
+        else:
+            # Fall back to SDK agent for roles without core implementations
+            if role_str in self.TEMPLATES:
+                return self.from_template(role_str, name=name)
+            raise ValueError(f"No core agent or template for role '{role_str}'")
+
+    def has_core_agent(self, role: str | AgentRole) -> bool:
+        """
+        Check if a core agent implementation exists for a role.
+
+        Args:
+            role: Agent role to check
+
+        Returns:
+            True if core implementation is available
+        """
+        if isinstance(role, AgentRole):
+            role_str = role.value
+        else:
+            role_str = str(role).lower()
+
+        if not _load_core_agents():
+            return False
+
+        return role_str in ("scout", "surgeon")
 
 
 # Plugin interface (defined here for type hints, full impl in plugins.py)

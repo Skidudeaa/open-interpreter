@@ -11,11 +11,10 @@ The context helps the LLM understand:
 - The actual execution path through the code
 """
 
-from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 
-from .execution_tracer import ExecutionTrace
 from .call_graph import CallGraph, CallNode
+from .execution_tracer import ExecutionTrace
 
 
 @dataclass
@@ -23,11 +22,12 @@ class TraceContext:
     """
     Structured context derived from an execution trace.
     """
+
     summary: str
     call_flow: str
     exceptions: str
     performance: str
-    files_touched: List[str]
+    files_touched: list[str]
 
     def to_prompt_string(self, max_length: int = 2000) -> str:
         """
@@ -48,29 +48,35 @@ class TraceContext:
         ]
 
         if self.exceptions:
-            parts.extend([
-                "### Exceptions",
-                self.exceptions,
-                "",
-            ])
+            parts.extend(
+                [
+                    "### Exceptions",
+                    self.exceptions,
+                    "",
+                ]
+            )
 
-        parts.extend([
-            "### Call Flow",
-            self.call_flow,
-            "",
-        ])
+        parts.extend(
+            [
+                "### Call Flow",
+                self.call_flow,
+                "",
+            ]
+        )
 
         if self.performance:
-            parts.extend([
-                "### Performance",
-                self.performance,
-            ])
+            parts.extend(
+                [
+                    "### Performance",
+                    self.performance,
+                ]
+            )
 
         result = "\n".join(parts)
 
         # Truncate if needed
         if len(result) > max_length:
-            result = result[:max_length - 100] + "\n\n... [truncated]"
+            result = result[: max_length - 100] + "\n\n... [truncated]"
 
         return result
 
@@ -136,7 +142,9 @@ class TraceContextGenerator:
 
         # Exceptions
         if trace.exception_occurred:
-            parts.append(f"Exception: {trace.exception_type}: {trace.exception_message}")
+            parts.append(
+                f"Exception: {trace.exception_type}: {trace.exception_message}"
+            )
 
         # Output preview
         if trace.stdout:
@@ -242,15 +250,17 @@ class TraceContextGenerator:
             for name, total_time, count in slow:
                 short_name = name.split(".")[-1] if "." in name else name
                 avg_time = total_time / count if count else 0
-                parts.append(f"  {short_name}: {total_time:.1f}ms total ({avg_time:.1f}ms avg, {count}x)")
+                parts.append(
+                    f"  {short_name}: {total_time:.1f}ms total ({avg_time:.1f}ms avg, {count}x)"
+                )
 
         return "\n".join(parts) if parts else ""
 
     def to_edit_context(
         self,
         trace: ExecutionTrace,
-        focus_file: Optional[str] = None,
-        focus_function: Optional[str] = None,
+        focus_file: str | None = None,
+        focus_function: str | None = None,
     ) -> str:
         """
         Generate context specifically for informing code edits.
@@ -270,11 +280,13 @@ class TraceContextGenerator:
 
         # Overall status
         if trace.exception_occurred:
-            parts.extend([
-                "### Observed Issue",
-                f"**Exception**: {trace.exception_type}: {trace.exception_message}",
-                "",
-            ])
+            parts.extend(
+                [
+                    "### Observed Issue",
+                    f"**Exception**: {trace.exception_type}: {trace.exception_message}",
+                    "",
+                ]
+            )
 
             # Show the exception traceback focused on relevant file
             if trace.exception_traceback:
@@ -302,7 +314,9 @@ class TraceContextGenerator:
 
             for node in relevant_calls[:15]:
                 indent = "  " * min(node.depth, 4)
-                call_info = f"{indent}- `{node.function_name}()` at line {node.line_number}"
+                call_info = (
+                    f"{indent}- `{node.function_name}()` at line {node.line_number}"
+                )
 
                 if node.duration_ms:
                     call_info += f" ({node.duration_ms:.1f}ms)"
@@ -321,13 +335,15 @@ class TraceContextGenerator:
 
         # Output if relevant
         if trace.stdout and len(trace.stdout) < 500:
-            parts.extend([
-                "### Program Output",
-                "```",
-                trace.stdout.strip(),
-                "```",
-                "",
-            ])
+            parts.extend(
+                [
+                    "### Program Output",
+                    "```",
+                    trace.stdout.strip(),
+                    "```",
+                    "",
+                ]
+            )
 
         # Recommendations based on trace
         parts.append("### Observations")
@@ -339,14 +355,16 @@ class TraceContextGenerator:
     def _generate_observations(
         self,
         trace: ExecutionTrace,
-        focus_file: Optional[str],
-        focus_function: Optional[str],
-    ) -> List[str]:
+        focus_file: str | None,
+        focus_function: str | None,
+    ) -> list[str]:
         """Generate observations/recommendations from the trace."""
         observations = []
 
         if trace.exception_occurred:
-            observations.append(f"- Exception `{trace.exception_type}` occurred during execution")
+            observations.append(
+                f"- Exception `{trace.exception_type}` occurred during execution"
+            )
 
             # Try to identify the line that caused it
             if trace.exception_traceback:
@@ -366,7 +384,9 @@ class TraceContextGenerator:
         hot = trace.call_graph.get_hot_functions(top_n=3)
         for name, count, _ in hot:
             if count > 100:  # Called many times
-                observations.append(f"- Function `{name}` called {count} times (consider optimization)")
+                observations.append(
+                    f"- Function `{name}` called {count} times (consider optimization)"
+                )
 
         if not observations:
             observations.append("- Execution completed normally")

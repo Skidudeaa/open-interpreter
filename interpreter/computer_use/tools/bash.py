@@ -10,23 +10,23 @@ from .base import BaseAnthropicTool, CLIResult, ToolError, ToolResult
 # Dangerous command patterns that require explicit approval
 # Only truly destructive or irreversible operations
 DANGEROUS_PATTERNS = [
-    r'\brm\s+(-[rf]+\s+)*/($|\s)',      # rm -rf / (root filesystem)
-    r'\brm\s+-[rf]*\s+--no-preserve-root', # explicit root deletion
-    r'\bsudo\s+(rm|dd|mkfs|fdisk|parted)\b', # sudo with destructive commands
-    r'\bchmod\s+(-R\s+)?777\s+/',       # chmod 777 on absolute paths (security risk)
-    r'\bmkfs\b',                        # filesystem creation (destroys data)
-    r'\bdd\s+.*of=\s*/dev/',            # dd writing to devices
-    r'\b>\s*/dev/sd',                   # overwrite disk devices
-    r'\bcurl\s+.*\|\s*(sudo\s+)?bash\b', # pipe to bash (arbitrary code execution)
-    r'\bwget\s+.*\|\s*(sudo\s+)?bash\b', # pipe to bash
-    r':\s*\(\)\s*\{',                   # fork bomb pattern
-    r'\bgit\s+push\s+.*--force\s+origin\s+(main|master)\b', # force push to main
+    r"\brm\s+(-[rf]+\s+)*/($|\s)",  # rm -rf / (root filesystem)
+    r"\brm\s+-[rf]*\s+--no-preserve-root",  # explicit root deletion
+    r"\bsudo\s+(rm|dd|mkfs|fdisk|parted)\b",  # sudo with destructive commands
+    r"\bchmod\s+(-R\s+)?777\s+/",  # chmod 777 on absolute paths (security risk)
+    r"\bmkfs\b",  # filesystem creation (destroys data)
+    r"\bdd\s+.*of=\s*/dev/",  # dd writing to devices
+    r"\b>\s*/dev/sd",  # overwrite disk devices
+    r"\bcurl\s+.*\|\s*(sudo\s+)?bash\b",  # pipe to bash (arbitrary code execution)
+    r"\bwget\s+.*\|\s*(sudo\s+)?bash\b",  # pipe to bash
+    r":\s*\(\)\s*\{",  # fork bomb pattern
+    r"\bgit\s+push\s+.*--force\s+origin\s+(main|master)\b",  # force push to main
 ]
 
 # Approval modes
-APPROVAL_OFF = "off"          # No prompts (full auto-approve)
+APPROVAL_OFF = "off"  # No prompts (full auto-approve)
 APPROVAL_DANGEROUS = "dangerous"  # Only prompt for dangerous commands
-APPROVAL_ALL = "all"          # Prompt for everything
+APPROVAL_ALL = "all"  # Prompt for everything
 
 
 def is_dangerous_command(command: str) -> bool:
@@ -63,7 +63,9 @@ class _BashSession:
     def __init__(self, auto_approve: bool = False):
         self._started = False
         self._timed_out = False
-        self.auto_approve = auto_approve or os.environ.get("OPEN_INTERPRETER_AUTO_APPROVE", "").lower() in ("1", "true", "yes")
+        self.auto_approve = auto_approve or os.environ.get(
+            "OPEN_INTERPRETER_AUTO_APPROVE", ""
+        ).lower() in ("1", "true", "yes")
 
     async def start(self):
         if self._started:
@@ -152,7 +154,7 @@ class _BashSession:
                         # strip the sentinel and break
                         output = output[: output.index(self._sentinel)]
                         break
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._timed_out = True
             raise ToolError(
                 f"timed out: bash has not returned in {self._timeout} seconds and must be restarted",

@@ -14,7 +14,7 @@ Key functions:
 import hashlib
 import re
 from datetime import datetime
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Any
 
 from .edit_record import ConversationContext, Edit, EditType
 
@@ -62,8 +62,8 @@ class ConversationLinker:
     def create_context(
         self,
         user_message: str,
-        assistant_response: Optional[str] = None,
-        intent_summary: Optional[str] = None,
+        assistant_response: str | None = None,
+        intent_summary: str | None = None,
     ) -> ConversationContext:
         """
         Create a ConversationContext for the current conversation state.
@@ -85,9 +85,7 @@ class ConversationLinker:
         )
 
     def create_context_from_messages(
-        self,
-        messages: List[Dict[str, Any]],
-        target_index: int = -1
+        self, messages: list[dict[str, Any]], target_index: int = -1
     ) -> ConversationContext:
         """
         Create context from a message list.
@@ -158,27 +156,27 @@ class ConversationLinker:
 
         # Common patterns
         patterns = [
-            (r'^(fix|debug|solve|repair)\b', 'Bug fix'),
-            (r'^(add|implement|create|build|make)\b', 'New feature'),
-            (r'^(refactor|clean|reorganize|restructure)\b', 'Refactoring'),
-            (r'^(optimize|improve|speed up|make faster)\b', 'Optimization'),
-            (r'^(update|change|modify|edit)\b', 'Modification'),
-            (r'^(remove|delete|drop)\b', 'Removal'),
-            (r'^(test|write tests)\b', 'Testing'),
-            (r'^(document|add docs|comment)\b', 'Documentation'),
-            (r'\?$', 'Question/Exploration'),
+            (r"^(fix|debug|solve|repair)\b", "Bug fix"),
+            (r"^(add|implement|create|build|make)\b", "New feature"),
+            (r"^(refactor|clean|reorganize|restructure)\b", "Refactoring"),
+            (r"^(optimize|improve|speed up|make faster)\b", "Optimization"),
+            (r"^(update|change|modify|edit)\b", "Modification"),
+            (r"^(remove|delete|drop)\b", "Removal"),
+            (r"^(test|write tests)\b", "Testing"),
+            (r"^(document|add docs|comment)\b", "Documentation"),
+            (r"\?$", "Question/Exploration"),
         ]
 
         for pattern, intent_type in patterns:
             if re.search(pattern, message):
                 # Extract the first sentence or phrase
-                first_sentence = re.split(r'[.!?\n]', user_message)[0].strip()
+                first_sentence = re.split(r"[.!?\n]", user_message)[0].strip()
                 if len(first_sentence) > 80:
                     first_sentence = first_sentence[:77] + "..."
                 return f"{intent_type}: {first_sentence}"
 
         # Default: first sentence
-        first_sentence = re.split(r'[.!?\n]', user_message)[0].strip()
+        first_sentence = re.split(r"[.!?\n]", user_message)[0].strip()
         if len(first_sentence) > 80:
             first_sentence = first_sentence[:77] + "..."
         return first_sentence
@@ -200,14 +198,20 @@ class ConversationLinker:
 
         # Pattern matching for edit types
         type_patterns = [
-            (r'\b(fix|bug|error|issue|problem|crash|broken)\b', EditType.BUG_FIX),
-            (r'\b(add|implement|create|build|new|feature)\b', EditType.FEATURE),
-            (r'\b(refactor|clean|reorganize|restructure|simplify)\b', EditType.REFACTOR),
-            (r'\b(optimize|performance|speed|faster|efficient)\b', EditType.OPTIMIZATION),
-            (r'\b(test|tests|testing|spec|unittest)\b', EditType.TEST),
-            (r'\b(doc|document|comment|readme|docstring)\b', EditType.DOCUMENTATION),
-            (r'\b(depend|package|install|import|require)\b', EditType.DEPENDENCY),
-            (r'\b(config|setting|environment|env)\b', EditType.CONFIGURATION),
+            (r"\b(fix|bug|error|issue|problem|crash|broken)\b", EditType.BUG_FIX),
+            (r"\b(add|implement|create|build|new|feature)\b", EditType.FEATURE),
+            (
+                r"\b(refactor|clean|reorganize|restructure|simplify)\b",
+                EditType.REFACTOR,
+            ),
+            (
+                r"\b(optimize|performance|speed|faster|efficient)\b",
+                EditType.OPTIMIZATION,
+            ),
+            (r"\b(test|tests|testing|spec|unittest)\b", EditType.TEST),
+            (r"\b(doc|document|comment|readme|docstring)\b", EditType.DOCUMENTATION),
+            (r"\b(depend|package|install|import|require)\b", EditType.DEPENDENCY),
+            (r"\b(config|setting|environment|env)\b", EditType.CONFIGURATION),
         ]
 
         for pattern, edit_type in type_patterns:
@@ -216,10 +220,7 @@ class ConversationLinker:
 
         return EditType.UNKNOWN
 
-    def get_recent_context(
-        self,
-        n_turns: int = 3
-    ) -> List[ConversationContext]:
+    def get_recent_context(self, n_turns: int = 3) -> list[ConversationContext]:
         """
         Get context from recent conversation turns.
 
@@ -234,7 +235,8 @@ class ConversationLinker:
 
         contexts = []
         user_messages = [
-            (i, m) for i, m in enumerate(self.interpreter.messages)
+            (i, m)
+            for i, m in enumerate(self.interpreter.messages)
             if m.get("role") == "user"
         ]
 
@@ -248,20 +250,20 @@ class ConversationLinker:
                     assistant_response = self.interpreter.messages[j].get("content", "")
                     break
 
-            contexts.append(ConversationContext(
-                conversation_id=self.get_conversation_id(),
-                turn_index=turn_idx,
-                user_message=user_content,
-                assistant_response=assistant_response,
-                intent_summary=self.extract_intent(user_content),
-            ))
+            contexts.append(
+                ConversationContext(
+                    conversation_id=self.get_conversation_id(),
+                    turn_index=turn_idx,
+                    user_message=user_content,
+                    assistant_response=assistant_response,
+                    intent_summary=self.extract_intent(user_content),
+                )
+            )
 
         return contexts
 
     def link_edit_to_conversation(
-        self,
-        edit: Edit,
-        messages: Optional[List[Dict[str, Any]]] = None
+        self, edit: Edit, messages: list[dict[str, Any]] | None = None
     ) -> Edit:
         """
         Add conversation context to an edit.
@@ -293,7 +295,7 @@ def create_edit_from_file_change(
     original_content: str,
     new_content: str,
     user_message: str,
-    conversation_id: Optional[str] = None,
+    conversation_id: str | None = None,
 ) -> Edit:
     """
     Convenience function to create an Edit with full context.
@@ -308,8 +310,9 @@ def create_edit_from_file_change(
     Returns:
         Edit object with context
     """
-    from .symbol_extractor import extract_affected_symbols
     import difflib
+
+    from .symbol_extractor import extract_affected_symbols
 
     # Extract affected symbols
     primary_symbol, affected_symbols = extract_affected_symbols(
@@ -317,12 +320,14 @@ def create_edit_from_file_change(
     )
 
     # Generate diff
-    diff = "\n".join(difflib.unified_diff(
-        original_content.splitlines(keepends=True),
-        new_content.splitlines(keepends=True),
-        fromfile=f"a/{file_path}",
-        tofile=f"b/{file_path}",
-    ))
+    diff = "\n".join(
+        difflib.unified_diff(
+            original_content.splitlines(keepends=True),
+            new_content.splitlines(keepends=True),
+            fromfile=f"a/{file_path}",
+            tofile=f"b/{file_path}",
+        )
+    )
 
     # Create linker for context
     linker = ConversationLinker()

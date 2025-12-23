@@ -12,16 +12,18 @@ informed by actual observed runtime behavior.
 """
 
 import sys
-import time
-import uuid
 import threading
+import time
+import traceback
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set
-import traceback
+from typing import Any
 
 from .call_graph import CallGraph, CallNode
+
+# Type alias for forward reference
+_ExecutionTracer = "ExecutionTracer"
 
 
 @dataclass
@@ -29,6 +31,7 @@ class ExecutionTrace:
     """
     Complete execution trace from a code run.
     """
+
     trace_id: str = field(default_factory=lambda: str(uuid.uuid4())[:16])
 
     # Call graph
@@ -40,20 +43,20 @@ class ExecutionTrace:
 
     # Exception info
     exception_occurred: bool = False
-    exception_type: Optional[str] = None
-    exception_message: Optional[str] = None
-    exception_traceback: Optional[str] = None
+    exception_type: str | None = None
+    exception_message: str | None = None
+    exception_traceback: str | None = None
 
     # Timing
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
 
     # Code that was executed
     source_code: str = ""
     file_path: str = ""
 
     @property
-    def duration_ms(self) -> Optional[float]:
+    def duration_ms(self) -> float | None:
         """Get execution duration in milliseconds."""
         if self.start_time and self.end_time:
             delta = self.end_time - self.start_time
@@ -65,7 +68,7 @@ class ExecutionTrace:
         """Was the execution successful (no exceptions)?"""
         return not self.exception_occurred
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "trace_id": self.trace_id,
@@ -84,7 +87,7 @@ class ExecutionTrace:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ExecutionTrace":
+    def from_dict(cls, data: dict[str, Any]) -> "ExecutionTrace":
         """Create from dictionary."""
         trace = cls()
         trace.trace_id = data.get("trace_id", trace.trace_id)
@@ -95,11 +98,100 @@ class ExecutionTrace:
         trace.exception_type = data.get("exception_type")
         trace.exception_message = data.get("exception_message")
         trace.exception_traceback = data.get("exception_traceback")
-        trace.start_time = datetime.fromisoformat(data["start_time"]) if data.get("start_time") else None
-        trace.end_time = datetime.fromisoformat(data["end_time"]) if data.get("end_time") else None
+        trace.start_time = (
+            datetime.fromisoformat(data["start_time"])
+            if data.get("start_time")
+            else None
+        )
+        trace.end_time = (
+            datetime.fromisoformat(data["end_time"]) if data.get("end_time") else None
+        )
         trace.source_code = data.get("source_code", "")
         trace.file_path = data.get("file_path", "")
         return trace
+
+
+class TraceContext:
+    """
+    Context manager for tracing code execution.
+
+    Enables wrapping external code execution (like interpreter.computer.run())
+    with tracing, rather than executing code directly via trace_code().
+
+    Usage:
+        tracer = ExecutionTracer()
+        with tracer.trace(code, file_path) as ctx:
+            # Execute code externally
+            result = interpreter.computer.run(language, code)
+        # Access trace via ctx.trace
+        print(ctx.trace.call_graph.to_tree_string())
+    """
+
+    def __init__(
+        self,
+        tracer: _ExecutionTracer,
+        code: str = "",
+        file_path: str = "<traced>",
+    ):
+        """
+        Initialize trace context.
+
+        Args:
+            tracer: The ExecutionTracer instance
+            code: Source code being traced (for recording purposes)
+            file_path: File path for the code
+        """
+        self.tracer = tracer
+        self.code = code
+        self.file_path = file_path
+        self.trace: ExecutionTrace | None = None
+        self._old_trace_func = None
+
+    def __enter__(self) -> "TraceContext":
+        """Start tracing when entering context."""
+        # Create the execution trace
+        self.trace = ExecutionTrace(
+            source_code=self.code,
+            file_path=self.file_path,
+            start_time=datetime.now(),
+        )
+
+        # Initialize tracer state
+        state = self.tracer._get_state()
+        state["active"] = True
+        state["call_stack"] = []
+        state["call_graph"] = CallGraph(start_time=datetime.now())
+        state["depth"] = 0
+
+        # Install trace function
+        self._old_trace_func = sys.gettrace()
+        sys.settrace(self.tracer._trace_function)
+
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        """Stop tracing and capture results when exiting context."""
+        # Uninstall trace function
+        sys.settrace(self._old_trace_func)
+
+        # Deactivate tracing state
+        state = self.tracer._get_state()
+        state["active"] = False
+
+        # Complete the trace
+        self.trace.end_time = datetime.now()
+        self.trace.call_graph = state["call_graph"]
+        self.trace.call_graph.end_time = datetime.now()
+
+        # Record exception if one occurred
+        if exc_type is not None:
+            self.trace.exception_occurred = True
+            self.trace.exception_type = exc_type.__name__
+            self.trace.exception_message = str(exc_val) if exc_val else ""
+            self.trace.exception_traceback = traceback.format_exc()
+
+        # Don't suppress exceptions - let them propagate
+        return False
 
 
 class ExecutionTracer:
@@ -117,8 +209,8 @@ class ExecutionTracer:
         capture_args: bool = False,
         capture_return: bool = False,
         max_depth: int = 50,
-        exclude_modules: Optional[Set[str]] = None,
-        include_only: Optional[Set[str]] = None,
+        exclude_modules: set[str] | None = None,
+        include_only: set[str] | None = None,
     ):
         """
         Initialize the tracer.
@@ -136,25 +228,61 @@ class ExecutionTracer:
 
         # Default exclusions for stdlib and common packages
         self.exclude_modules = exclude_modules or {
-            "sys", "os", "io", "re", "json", "collections",
-            "threading", "multiprocessing", "asyncio",
-            "traceback", "linecache", "tokenize", "token",
-            "abc", "functools", "inspect", "types",
-            "importlib", "_", "<",
+            "sys",
+            "os",
+            "io",
+            "re",
+            "json",
+            "collections",
+            "threading",
+            "multiprocessing",
+            "asyncio",
+            "traceback",
+            "linecache",
+            "tokenize",
+            "token",
+            "abc",
+            "functools",
+            "inspect",
+            "types",
+            "importlib",
+            "_",
+            "<",
         }
         self.include_only = include_only
 
         # Thread-local storage for tracing state
         self._local = threading.local()
 
+    def trace(self, code: str = "", file_path: str = "<traced>") -> TraceContext:
+        """
+        Create a trace context for wrapping external code execution.
+
+        This is the preferred API for tracing code that is executed externally
+        (e.g., via interpreter.computer.run()) rather than directly via exec().
+
+        Args:
+            code: Source code being traced (for recording)
+            file_path: File path for the code
+
+        Returns:
+            TraceContext: Context manager for tracing
+
+        Usage:
+            with tracer.trace(code, file_path) as ctx:
+                output = interpreter.computer.run(language, code)
+            trace = ctx.trace
+        """
+        return TraceContext(self, code, file_path)
+
     def _get_state(self):
         """Get thread-local tracing state."""
-        if not hasattr(self._local, 'state'):
+        if not hasattr(self._local, "state"):
             self._local.state = {
-                'active': False,
-                'call_stack': [],
-                'call_graph': None,
-                'depth': 0,
+                "active": False,
+                "call_stack": [],
+                "call_graph": None,
+                "depth": 0,
             }
         return self._local.state
 
@@ -183,7 +311,7 @@ class ExecutionTracer:
         """
         state = self._get_state()
 
-        if not state['active']:
+        if not state["active"]:
             return None
 
         # Extract info from frame
@@ -193,15 +321,15 @@ class ExecutionTracer:
         line_number = frame.f_lineno
 
         # Determine module name
-        module = frame.f_globals.get('__name__', '')
+        module = frame.f_globals.get("__name__", "")
 
         # Check if we should trace this
         if not self._should_trace(filename, module):
             return self._trace_function
 
-        if event == 'call':
+        if event == "call":
             # Don't exceed max depth
-            if state['depth'] >= self.max_depth:
+            if state["depth"] >= self.max_depth:
                 return None
 
             # Create call node
@@ -221,40 +349,40 @@ class ExecutionTracer:
                 try:
                     args = {}
                     for key, value in frame.f_locals.items():
-                        if not key.startswith('_'):
+                        if not key.startswith("_"):
                             args[key] = self._safe_repr(value)
                     node.arguments = args
                 except Exception:
                     pass
 
             # Add to graph
-            parent_id = state['call_stack'][-1] if state['call_stack'] else None
-            state['call_graph'].add_call(node, parent_id)
+            parent_id = state["call_stack"][-1] if state["call_stack"] else None
+            state["call_graph"].add_call(node, parent_id)
 
             # Update state
-            state['call_stack'].append(call_id)
-            state['depth'] += 1
+            state["call_stack"].append(call_id)
+            state["depth"] += 1
 
-        elif event == 'return':
-            if state['call_stack']:
-                call_id = state['call_stack'].pop()
-                state['depth'] -= 1
+        elif event == "return":
+            if state["call_stack"]:
+                call_id = state["call_stack"].pop()
+                state["depth"] -= 1
 
-                if call_id in state['call_graph'].all_calls:
-                    node = state['call_graph'].all_calls[call_id]
+                if call_id in state["call_graph"].all_calls:
+                    node = state["call_graph"].all_calls[call_id]
                     node.end_time = time.time()
 
                     if self.capture_return:
                         node.return_value = self._safe_repr(arg)
 
-        elif event == 'exception':
-            if state['call_stack']:
-                call_id = state['call_stack'][-1]
+        elif event == "exception":
+            if state["call_stack"]:
+                call_id = state["call_stack"][-1]
                 exc_type, exc_value, _ = arg
-                state['call_graph'].record_exception(
+                state["call_graph"].record_exception(
                     call_id,
                     exc_type.__name__ if exc_type else "Unknown",
-                    str(exc_value) if exc_value else ""
+                    str(exc_value) if exc_value else "",
                 )
 
         return self._trace_function
@@ -264,7 +392,7 @@ class ExecutionTracer:
         try:
             r = repr(value)
             if len(r) > max_len:
-                return r[:max_len - 3] + "..."
+                return r[: max_len - 3] + "..."
             return r
         except Exception:
             return "<unrepresentable>"
@@ -273,8 +401,8 @@ class ExecutionTracer:
         self,
         code: str,
         filename: str = "<traced>",
-        globals_dict: Optional[Dict] = None,
-        locals_dict: Optional[Dict] = None,
+        globals_dict: dict | None = None,
+        locals_dict: dict | None = None,
     ) -> ExecutionTrace:
         """
         Execute code with tracing enabled.
@@ -295,19 +423,20 @@ class ExecutionTracer:
         )
 
         state = self._get_state()
-        state['active'] = True
-        state['call_stack'] = []
-        state['call_graph'] = CallGraph(start_time=datetime.now())
-        state['depth'] = 0
+        state["active"] = True
+        state["call_stack"] = []
+        state["call_graph"] = CallGraph(start_time=datetime.now())
+        state["depth"] = 0
 
         # Prepare execution namespace
         if globals_dict is None:
-            globals_dict = {'__name__': '__main__', '__file__': filename}
+            globals_dict = {"__name__": "__main__", "__file__": filename}
         if locals_dict is None:
             locals_dict = globals_dict
 
         # Capture stdout/stderr
         import io
+
         old_stdout = sys.stdout
         old_stderr = sys.stderr
         captured_stdout = io.StringIO()
@@ -321,7 +450,7 @@ class ExecutionTracer:
             sys.settrace(self._trace_function)
 
             # Compile and execute
-            compiled = compile(code, filename, 'exec')
+            compiled = compile(code, filename, "exec")
             exec(compiled, globals_dict, locals_dict)
 
         except Exception as e:
@@ -333,7 +462,7 @@ class ExecutionTracer:
         finally:
             # Disable tracing
             sys.settrace(None)
-            state['active'] = False
+            state["active"] = False
 
             # Restore stdout/stderr
             sys.stdout = old_stdout
@@ -344,7 +473,7 @@ class ExecutionTracer:
 
         # Complete the trace
         trace.end_time = datetime.now()
-        trace.call_graph = state['call_graph']
+        trace.call_graph = state["call_graph"]
         trace.call_graph.end_time = datetime.now()
 
         return trace
@@ -366,7 +495,7 @@ class ExecutionTracer:
         # This is a simplified version - a full implementation would
         # use AST transformation
 
-        preamble = '''
+        preamble = """
 # Auto-injected tracing
 import time as _trace_time
 _trace_calls = []
@@ -375,12 +504,12 @@ _trace_start = _trace_time.time()
 def _trace_call(name, line):
     _trace_calls.append({"name": name, "line": line, "time": _trace_time.time() - _trace_start})
 
-'''
-        postamble = '''
+"""
+        postamble = """
 # Tracing summary
 if _trace_calls:
     print(f"\\n[Trace: {len(_trace_calls)} calls]")
-'''
+"""
         return preamble + code + postamble
 
 

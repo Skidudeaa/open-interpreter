@@ -8,7 +8,7 @@ import time
 import traceback
 from collections import deque
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import shortuuid
 from pydantic import BaseModel
@@ -21,16 +21,7 @@ last_start_time = 0
 try:
     import janus
     import uvicorn
-    from fastapi import (
-        APIRouter,
-        FastAPI,
-        File,
-        Form,
-        HTTPException,
-        Request,
-        UploadFile,
-        WebSocket,
-    )
+    from fastapi import APIRouter, FastAPI, File, Form, Request, UploadFile, WebSocket
     from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
     from starlette.status import HTTP_403_FORBIDDEN
 except Exception:
@@ -103,7 +94,7 @@ class AsyncInterpreter(OpenInterpreter):
             self.respond_thread.start()
 
     async def output(self):
-        if self.output_queue == None:
+        if self.output_queue is None:
             self.output_queue = janus.Queue()
         return await self.output_queue.async_q.get()
 
@@ -113,7 +104,7 @@ class AsyncInterpreter(OpenInterpreter):
 
         for attempt in range(max_attempts):
             try:
-                if run_code == None:
+                if run_code is None:
                     run_code = self.auto_run
 
                 sent_chunks = False
@@ -134,20 +125,20 @@ class AsyncInterpreter(OpenInterpreter):
                             continue
                         else:
                             # User declined to run code - this is intentional, not an error
-                            self.output_queue.sync_q.put({
-                                "role": "server",
-                                "type": "status",
-                                "content": "awaiting_confirmation"
-                            })
+                            self.output_queue.sync_q.put(
+                                {
+                                    "role": "server",
+                                    "type": "status",
+                                    "content": "awaiting_confirmation",
+                                }
+                            )
                             break
 
                     if self.stop_event.is_set():
                         # Gracefully notify that we're stopping
-                        self.output_queue.sync_q.put({
-                            "role": "server",
-                            "type": "status",
-                            "content": "stopped"
-                        })
+                        self.output_queue.sync_q.put(
+                            {"role": "server", "type": "status", "content": "stopped"}
+                        )
                         self.output_queue.sync_q.put(complete_message)
                         return
 
@@ -182,7 +173,9 @@ class AsyncInterpreter(OpenInterpreter):
 
                 if not sent_chunks:
                     consecutive_empty_attempts += 1
-                    print(f"WARNING: No chunks sent (attempt {attempt + 1}/{max_attempts}). Retrying...")
+                    print(
+                        f"WARNING: No chunks sent (attempt {attempt + 1}/{max_attempts}). Retrying..."
+                    )
 
                     if self.debug:
                         print("Messages:", self.messages)
@@ -204,7 +197,7 @@ class AsyncInterpreter(OpenInterpreter):
                     )
 
                     # Exponential backoff
-                    wait_time = min(1 * (2 ** attempt), 8)
+                    wait_time = min(1 * (2**attempt), 8)
                     time.sleep(wait_time)
                 else:
                     consecutive_empty_attempts = 0
@@ -226,13 +219,17 @@ class AsyncInterpreter(OpenInterpreter):
 
                 # For certain errors, don't retry
                 error_lower = str(e).lower()
-                if "api key" in error_lower or "auth" in error_lower or "rate limit" in error_lower:
+                if (
+                    "api key" in error_lower
+                    or "auth" in error_lower
+                    or "rate limit" in error_lower
+                ):
                     self.output_queue.sync_q.put(complete_message)
                     return
 
                 # Exponential backoff before retry
                 if attempt < max_attempts - 1:
-                    wait_time = min(2 * (2 ** attempt), 16)
+                    wait_time = min(2 * (2**attempt), 16)
                     print(f"Retrying in {wait_time} seconds...")
                     time.sleep(wait_time)
 
@@ -373,7 +370,7 @@ def create_router(async_interpreter):
                         """
             + (
                 """
-                        
+
                         // Acknowledge receipt
                         var acknowledge_message = {
                             "ack": eventData.id
@@ -672,7 +669,7 @@ def create_router(async_interpreter):
 
     # TODO
     @router.post("/")
-    async def post_input(payload: Dict[str, Any]):
+    async def post_input(payload: dict[str, Any]):
         try:
             async_interpreter.input(payload)
             return {"status": "success"}
@@ -680,7 +677,7 @@ def create_router(async_interpreter):
             return {"error": str(e)}, 500
 
     @router.post("/settings")
-    async def set_settings(payload: Dict[str, Any]):
+    async def set_settings(payload: dict[str, Any]):
         for key, value in payload.items():
             print("Updating settings...")
             # print(f"Updating settings: {key} = {value}")
@@ -720,7 +717,7 @@ def create_router(async_interpreter):
     if os.getenv("INTERPRETER_INSECURE_ROUTES", "").lower() == "true":
 
         @router.post("/run")
-        async def run_code(payload: Dict[str, Any]):
+        async def run_code(payload: dict[str, Any]):
             language, code = payload.get("language"), payload.get("code")
             if not (language and code):
                 return {"error": "Both 'language' and 'code' are required."}, 400
@@ -754,14 +751,14 @@ def create_router(async_interpreter):
 
     class ChatMessage(BaseModel):
         role: str
-        content: Union[str, List[Dict[str, Any]]]
+        content: str | list[dict[str, Any]]
 
     class ChatCompletionRequest(BaseModel):
         model: str = "default-model"
-        messages: List[ChatMessage]
-        max_tokens: Optional[int] = None
-        temperature: Optional[float] = None
-        stream: Optional[bool] = False
+        messages: list[ChatMessage]
+        max_tokens: int | None = None
+        temperature: float | None = None
+        stream: bool | None = False
 
     async def openai_compatible_generator(run_code):
         if run_code:
@@ -812,10 +809,7 @@ def create_router(async_interpreter):
                 await asyncio.sleep(0)  # Yield control to the event loop
                 made_chunk = True
 
-                if (
-                    chunk["type"] == "confirmation"
-                    and async_interpreter.auto_run == False
-                ):
+                if chunk["type"] == "confirmation" and not async_interpreter.auto_run:
                     await asyncio.sleep(0)
                     output_content = "Do you want to run this code?"
                     output_chunk = {

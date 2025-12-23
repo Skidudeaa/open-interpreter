@@ -22,36 +22,36 @@ Usage:
 """
 
 import re
-from typing import Set, Optional
 from enum import Enum, auto
 
 
 class SanitizeLevel(Enum):
     """Sanitization strictness levels"""
-    NONE = auto()       # No sanitization (dangerous, debug only)
-    PERMISSIVE = auto() # Allow colors, block dangerous
-    STRICT = auto()     # Strip ALL escape sequences
+
+    NONE = auto()  # No sanitization (dangerous, debug only)
+    PERMISSIVE = auto()  # Allow colors, block dangerous
+    STRICT = auto()  # Strip ALL escape sequences
 
 
 # SGR (Select Graphic Rendition) codes that are safe to allow
 # These control text formatting: colors, bold, italic, etc.
-SAFE_SGR_CODES: Set[int] = {
-    0,      # Reset
-    1,      # Bold
-    2,      # Dim
-    3,      # Italic
-    4,      # Underline
-    5,      # Slow blink
-    7,      # Reverse
-    8,      # Hidden
-    9,      # Strikethrough
-    22,     # Normal intensity
-    23,     # Not italic
-    24,     # Not underlined
-    25,     # Not blinking
-    27,     # Not reversed
-    28,     # Not hidden
-    29,     # Not strikethrough
+SAFE_SGR_CODES: set[int] = {
+    0,  # Reset
+    1,  # Bold
+    2,  # Dim
+    3,  # Italic
+    4,  # Underline
+    5,  # Slow blink
+    7,  # Reverse
+    8,  # Hidden
+    9,  # Strikethrough
+    22,  # Normal intensity
+    23,  # Not italic
+    24,  # Not underlined
+    25,  # Not blinking
+    27,  # Not reversed
+    28,  # Not hidden
+    29,  # Not strikethrough
     # Foreground colors (30-37, 90-97)
     *range(30, 38),
     *range(90, 98),
@@ -59,25 +59,29 @@ SAFE_SGR_CODES: Set[int] = {
     *range(40, 48),
     *range(100, 108),
     # Extended colors (38, 48 with 5;n or 2;r;g;b)
-    38, 48,
+    38,
+    48,
     # Default colors
-    39, 49,
+    39,
+    49,
 }
 
 
 # Regex patterns for escape sequences
 # CSI: Control Sequence Introducer (ESC [)
-CSI_PATTERN = re.compile(r'\x1b\[([0-9;]*)([A-Za-z])')
+CSI_PATTERN = re.compile(r"\x1b\[([0-9;]*)([A-Za-z])")
 
 # OSC: Operating System Command (ESC ])
 # These are the dangerous ones: clipboard, hyperlinks, title changes
-OSC_PATTERN = re.compile(r'\x1b\]([0-9]+);([^\x07\x1b]*?)(?:\x07|\x1b\\)')
+OSC_PATTERN = re.compile(r"\x1b\]([0-9]+);([^\x07\x1b]*?)(?:\x07|\x1b\\)")
 
 # Other escape sequences
-ESC_PATTERN = re.compile(r'\x1b[^[\]][^\x1b]*')
+ESC_PATTERN = re.compile(r"\x1b[^[\]][^\x1b]*")
 
 # Full escape sequence (any ESC followed by stuff)
-ANY_ESC_PATTERN = re.compile(r'\x1b(?:\[[0-9;]*[A-Za-z]|\][^\x07]*\x07|\][^\x1b]*\x1b\\|[^\[\]])')
+ANY_ESC_PATTERN = re.compile(
+    r"\x1b(?:\[[0-9;]*[A-Za-z]|\][^\x07]*\x07|\][^\x1b]*\x1b\\|[^\[\]])"
+)
 
 
 def is_safe_sgr(params: str) -> bool:
@@ -94,7 +98,7 @@ def is_safe_sgr(params: str) -> bool:
         return True  # ESC[m is equivalent to ESC[0m (reset)
 
     try:
-        codes = [int(p) for p in params.split(';') if p]
+        codes = [int(p) for p in params.split(";") if p]
         return all(code in SAFE_SGR_CODES for code in codes)
     except ValueError:
         return False
@@ -114,7 +118,7 @@ def sanitize_csi(match: re.Match) -> str:
     command = match.group(2)
 
     # Only allow SGR (m command) with safe codes
-    if command == 'm':
+    if command == "m":
         if is_safe_sgr(params):
             return match.group(0)
 
@@ -124,7 +128,7 @@ def sanitize_csi(match: re.Match) -> str:
     # - Scroll (S, T)
     # - Mode changes (h, l)
     # - etc.
-    return ''
+    return ""
 
 
 def sanitize_osc(match: re.Match) -> str:
@@ -146,13 +150,10 @@ def sanitize_osc(match: re.Match) -> str:
     """
     # Block ALL OSC sequences
     # Could selectively allow OSC 0/1/2 (title) but safer to block
-    return ''
+    return ""
 
 
-def sanitize_output(
-    text: str,
-    level: SanitizeLevel = SanitizeLevel.PERMISSIVE
-) -> str:
+def sanitize_output(text: str, level: SanitizeLevel = SanitizeLevel.PERMISSIVE) -> str:
     """
     Sanitize terminal output to remove dangerous escape sequences.
 
@@ -178,7 +179,7 @@ def sanitize_output(
 
     if level == SanitizeLevel.STRICT:
         # Remove ALL escape sequences
-        return ANY_ESC_PATTERN.sub('', text)
+        return ANY_ESC_PATTERN.sub("", text)
 
     # PERMISSIVE: Allow safe SGR, block everything else
     # First, process OSC sequences (dangerous)
@@ -188,7 +189,7 @@ def sanitize_output(
     text = CSI_PATTERN.sub(sanitize_csi, text)
 
     # Finally, remove any remaining escape sequences we missed
-    text = ESC_PATTERN.sub('', text)
+    text = ESC_PATTERN.sub("", text)
 
     return text
 
@@ -205,7 +206,7 @@ def strip_ansi(text: str) -> str:
     Returns:
         Plain text with all escape sequences removed
     """
-    return ANY_ESC_PATTERN.sub('', text)
+    return ANY_ESC_PATTERN.sub("", text)
 
 
 def has_dangerous_sequences(text: str) -> bool:
@@ -226,7 +227,7 @@ def has_dangerous_sequences(text: str) -> bool:
 
     # Check for non-SGR CSI sequences
     for match in CSI_PATTERN.finditer(text):
-        if match.group(2) != 'm':  # Not a color/formatting code
+        if match.group(2) != "m":  # Not a color/formatting code
             return True
         if not is_safe_sgr(match.group(1)):
             return True
@@ -254,17 +255,21 @@ def get_sanitization_report(text: str) -> dict:
     }
 
     for match in OSC_PATTERN.finditer(text):
-        report["osc_sequences"].append({
-            "code": match.group(1),
-            "content": match.group(2)[:50] + "..." if len(match.group(2)) > 50 else match.group(2),
-        })
+        report["osc_sequences"].append(
+            {
+                "code": match.group(1),
+                "content": match.group(2)[:50] + "..."
+                if len(match.group(2)) > 50
+                else match.group(2),
+            }
+        )
         report["has_dangerous"] = True
 
     for match in CSI_PATTERN.finditer(text):
         seq_info = {
             "params": match.group(1),
             "command": match.group(2),
-            "safe": match.group(2) == 'm' and is_safe_sgr(match.group(1)),
+            "safe": match.group(2) == "m" and is_safe_sgr(match.group(1)),
         }
         report["csi_sequences"].append(seq_info)
         if not seq_info["safe"]:

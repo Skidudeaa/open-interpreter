@@ -6,77 +6,35 @@ All agents share:
 - Access to the SemanticEditGraph for memory
 - A specialized system message for their role
 - Result formatting
+- Optional plugin support via PluginRegistry
 
 Agents can be used standalone or orchestrated together.
 """
 
+import asyncio
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from datetime import datetime
-from enum import Enum
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
+
+# Import unified types (single source of truth)
+from .types import AgentResult, AgentRole
 
 if TYPE_CHECKING:
+    from ...sdk.plugins import AgentPlugin, PluginRegistry
     from ..core import OpenInterpreter
     from ..memory import SemanticEditGraph
 
-
-class AgentRole(Enum):
-    """Roles for specialized agents."""
-    SCOUT = "scout"           # Exploration and context gathering
-    ARCHITECT = "architect"   # Structure and design analysis
-    SURGEON = "surgeon"       # Precise code editing
-    VALIDATOR = "validator"   # Testing and validation
-    HISTORIAN = "historian"   # Memory and documentation
+# Lazy-loaded plugin registry to avoid circular imports
+_PluginRegistry = None
 
 
-@dataclass
-class AgentResult:
-    """
-    Result from an agent's execution.
-    """
-    role: AgentRole
-    success: bool
-    content: Any  # Role-specific content
+def _get_plugin_registry_class():
+    """Lazy load PluginRegistry to avoid circular imports."""
+    global _PluginRegistry
+    if _PluginRegistry is None:
+        from ...sdk.plugins import PluginRegistry
 
-    # Metadata
-    duration_ms: Optional[float] = None
-    tokens_used: int = 0
-    timestamp: datetime = field(default_factory=datetime.now)
-
-    # Optional structured data
-    files_found: List[str] = field(default_factory=list)
-    symbols_found: List[str] = field(default_factory=list)
-    edits_proposed: List[Dict] = field(default_factory=list)
-    tests_run: List[Dict] = field(default_factory=list)
-
-    # For chaining
-    context_for_next: Optional[str] = None
-    suggestions: List[str] = field(default_factory=list)
-
-    def to_context_string(self) -> str:
-        """Convert to a string for passing to next agent."""
-        if self.context_for_next:
-            return self.context_for_next
-
-        parts = [f"## {self.role.value.title()} Agent Result"]
-
-        if isinstance(self.content, str):
-            parts.append(self.content)
-        elif isinstance(self.content, list):
-            for item in self.content[:20]:
-                parts.append(f"- {item}")
-        elif isinstance(self.content, dict):
-            for key, value in list(self.content.items())[:20]:
-                parts.append(f"- {key}: {value}")
-
-        if self.files_found:
-            parts.append(f"\nFiles: {', '.join(self.files_found[:10])}")
-
-        if self.symbols_found:
-            parts.append(f"\nSymbols: {', '.join(self.symbols_found[:10])}")
-
-        return "\n".join(parts)
+        _PluginRegistry = PluginRegistry
+    return _PluginRegistry
 
 
 class BaseAgent(ABC):
@@ -86,6 +44,12 @@ class BaseAgent(ABC):
     Subclasses must implement:
     - execute(): Main agent logic
     - get_system_message(): Role-specific system message
+
+    Supports optional plugin system for extending behavior at hook points:
+    - BEFORE_EXECUTE, AFTER_EXECUTE
+    - BEFORE_LLM, AFTER_LLM
+    - BEFORE_EDIT, AFTER_EDIT
+    - ON_ERROR, ON_TOOL_CALL
     """
 
     # Class-level role definition
@@ -95,6 +59,8 @@ class BaseAgent(ABC):
         self,
         interpreter: "OpenInterpreter",
         memory: Optional["SemanticEditGraph"] = None,
+        plugins: list["AgentPlugin"] | None = None,
+        name: str | None = None,
     ):
         """
         Initialize the agent.
@@ -102,13 +68,105 @@ class BaseAgent(ABC):
         Args:
             interpreter: The OpenInterpreter instance to use
             memory: Optional shared SemanticEditGraph
+            plugins: Optional list of AgentPlugin instances
+            name: Optional agent name (defaults to role value)
         """
         self.interpreter = interpreter
         self._memory = memory
+        self._name = name
 
         # Agent state
         self._active = False
-        self._last_result: Optional[AgentResult] = None
+        self._last_result: AgentResult | None = None
+
+        # Initialize plugin registry
+        self._plugin_registry: PluginRegistry | None = None
+        if plugins:
+            PluginRegistryClass = _get_plugin_registry_class()
+            self._plugin_registry = PluginRegistryClass()
+            for plugin in plugins:
+                self._plugin_registry.register(plugin)
+
+    @property
+    def name(self) -> str:
+        """Agent name for logging and plugin context."""
+        return self._name or self.role.value
+
+    @property
+    def plugins(self) -> Optional["PluginRegistry"]:
+        """Get the plugin registry."""
+        return self._plugin_registry
+
+    def register_plugin(self, plugin: "AgentPlugin") -> None:
+        """
+        Register a plugin with this agent.
+
+        Args:
+            plugin: Plugin to register
+        """
+        if self._plugin_registry is None:
+            PluginRegistryClass = _get_plugin_registry_class()
+            self._plugin_registry = PluginRegistryClass()
+        self._plugin_registry.register(plugin)
+
+    def _run_hook_sync(self, hook_name: str, value: Any, **kwargs) -> Any:
+        """
+        Run a plugin hook synchronously.
+
+        Wraps the async plugin hook in an event loop for synchronous agents.
+
+        Args:
+            hook_name: Name of the hook (e.g., 'before_execute')
+            value: Value to transform
+            **kwargs: Additional arguments
+
+        Returns:
+            Transformed value after all plugins
+        """
+        if self._plugin_registry is None:
+            return value
+
+        try:
+            from ...sdk.plugins import HookPoint
+
+            hook = HookPoint(hook_name)
+            plugins = self._plugin_registry.get_plugins_for_hook(hook)
+
+            if not plugins:
+                return value
+
+            # Run async hooks in sync context
+            async def run_hooks():
+                result = value
+                for plugin in plugins:
+                    method = getattr(plugin, f"on_{hook_name}", None)
+                    if method:
+                        try:
+                            hook_result = await method(self, result, **kwargs)
+                            if hook_result is not None:
+                                result = hook_result
+                        except Exception as e:
+                            if self.interpreter.verbose:
+                                print(f"[{self.name}] Plugin {plugin.name} error: {e}")
+                return result
+
+            # Use existing event loop or create new one
+            try:
+                loop = asyncio.get_running_loop()
+                # Already in async context - create task
+                import concurrent.futures
+
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, run_hooks())
+                    return future.result(timeout=30)
+            except RuntimeError:
+                # No running loop - safe to use asyncio.run
+                return asyncio.run(run_hooks())
+
+        except Exception as e:
+            if self.interpreter.verbose:
+                print(f"[{self.name}] Hook {hook_name} error: {e}")
+            return value
 
     @property
     def memory(self) -> Optional["SemanticEditGraph"]:
@@ -118,7 +176,7 @@ class BaseAgent(ABC):
         return self.interpreter.semantic_graph
 
     @abstractmethod
-    def execute(self, task: str, context: Optional[str] = None) -> AgentResult:
+    def execute(self, task: str, context: str | None = None) -> AgentResult:
         """
         Execute the agent's task.
 
@@ -130,6 +188,56 @@ class BaseAgent(ABC):
             AgentResult with the execution results
         """
         pass
+
+    def run(self, task: str, context: str | None = None) -> AgentResult:
+        """
+        Run the agent with plugin hooks.
+
+        This is the preferred entry point - wraps execute() with
+        BEFORE_EXECUTE and AFTER_EXECUTE hooks.
+
+        Args:
+            task: The task description
+            context: Optional context from previous agents
+
+        Returns:
+            AgentResult with the execution results
+        """
+        import time
+
+        start_time = time.time()
+
+        # Run BEFORE_EXECUTE hook
+        task = self._run_hook_sync("before_execute", task)
+
+        try:
+            self._active = True
+            result = self.execute(task, context)
+
+            # Run AFTER_EXECUTE hook
+            result = self._run_hook_sync("after_execute", result)
+
+            self._last_result = result
+            return result
+
+        except Exception as e:
+            # Run ON_ERROR hook
+            error_result = self._run_hook_sync("error", e)
+
+            # If hook returns a string, it's a recovery message
+            if isinstance(error_result, str):
+                return AgentResult(
+                    success=False,
+                    role=self.role,
+                    error=error_result,
+                    execution_time=time.time() - start_time,
+                )
+
+            # Re-raise if not handled
+            raise
+
+        finally:
+            self._active = False
 
     @abstractmethod
     def get_system_message(self) -> str:
@@ -144,9 +252,9 @@ class BaseAgent(ABC):
     def prepare_messages(
         self,
         task: str,
-        context: Optional[str] = None,
-        additional_context: Optional[str] = None,
-    ) -> List[Dict[str, str]]:
+        context: str | None = None,
+        additional_context: str | None = None,
+    ) -> list[dict[str, str]]:
         """
         Prepare messages for the LLM call.
 
@@ -171,18 +279,20 @@ class BaseAgent(ABC):
 
         user_content_parts.append(f"## Task\n{task}")
 
-        messages.append({
-            "role": "user",
-            "type": "message",
-            "content": "\n".join(user_content_parts)
-        })
+        messages.append(
+            {
+                "role": "user",
+                "type": "message",
+                "content": "\n".join(user_content_parts),
+            }
+        )
 
         return messages
 
     def run_interpreter(
         self,
-        messages: List[Dict[str, str]],
-        system_message: Optional[str] = None,
+        messages: list[dict[str, str]],
+        system_message: str | None = None,
     ) -> str:
         """
         Run the interpreter with the given messages.
@@ -227,7 +337,7 @@ class BaseAgent(ABC):
             self.interpreter.auto_run = original_auto_run
             self.interpreter.loop = original_loop
 
-    def get_memory_context(self, file_path: Optional[str] = None) -> str:
+    def get_memory_context(self, file_path: str | None = None) -> str:
         """
         Get relevant context from semantic memory.
 
@@ -253,11 +363,9 @@ class BaseAgent(ABC):
 
 # Utility functions for agents
 
+
 def create_result(
-    role: AgentRole,
-    success: bool,
-    content: Any,
-    **kwargs
+    role: AgentRole, success: bool, content: Any, **kwargs
 ) -> AgentResult:
     """
     Convenience function to create an AgentResult.
@@ -271,9 +379,4 @@ def create_result(
     Returns:
         AgentResult instance
     """
-    return AgentResult(
-        role=role,
-        success=success,
-        content=content,
-        **kwargs
-    )
+    return AgentResult(role=role, success=success, content=content, **kwargs)

@@ -82,7 +82,7 @@ def convert_to_openai_messages(
                 new_message["role"] = "function"
                 new_message["name"] = "execute"
                 if "content" not in message:
-                    print("What is this??", content)
+                    print("What is this??", message)
                 if type(message["content"]) != str:
                     if interpreter.debug:
                         print("\n\n\nStrange chunk found:", message, "\n\n\n")
@@ -117,7 +117,7 @@ def convert_to_openai_messages(
                 new_message["role"] = message["role"]
                 new_message["content"] = message["content"]
             else:
-                if vision == False:
+                if not vision:
                     # If no vision, we only support the format of "description"
                     continue
 
@@ -252,7 +252,7 @@ def convert_to_openai_messages(
 
         new_messages.append(new_message)
 
-    if function_calling == False:
+    if not function_calling:
         combined_messages = []
         current_role = None
         current_content = []

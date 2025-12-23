@@ -10,20 +10,19 @@ No Docker required - uses git and filesystem operations.
 """
 
 import os
-import shutil
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 
 @dataclass
 class FileBackup:
     """Backup of a file's content."""
+
     file_path: str
     original_content: str
-    backup_path: Optional[str] = None
+    backup_path: str | None = None
     timestamp: datetime = field(default_factory=datetime.now)
     git_tracked: bool = False
 
@@ -31,9 +30,10 @@ class FileBackup:
 @dataclass
 class RollbackResult:
     """Result of a rollback operation."""
+
     success: bool
-    files_restored: List[str] = field(default_factory=list)
-    errors: List[str] = field(default_factory=list)
+    files_restored: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
 
 class EditRollback:
@@ -55,9 +55,9 @@ class EditRollback:
 
     def __init__(
         self,
-        project_root: Optional[str] = None,
+        project_root: str | None = None,
         use_git: bool = True,
-        backup_dir: Optional[str] = None,
+        backup_dir: str | None = None,
     ):
         """
         Initialize the rollback manager.
@@ -72,7 +72,7 @@ class EditRollback:
         self.backup_dir = backup_dir or os.path.join(self.project_root, ".edit_backups")
 
         # In-memory backups
-        self._backups: Dict[str, FileBackup] = {}
+        self._backups: dict[str, FileBackup] = {}
 
         # Track stashed changes
         self._stash_created = False
@@ -94,7 +94,7 @@ class EditRollback:
             return False
 
         try:
-            with open(full_path, 'r', encoding='utf-8') as f:
+            with open(full_path, encoding="utf-8") as f:
                 content = f.read()
 
             backup = FileBackup(
@@ -130,7 +130,7 @@ class EditRollback:
         full_path = Path(self.project_root) / file_path
 
         try:
-            with open(full_path, 'w', encoding='utf-8') as f:
+            with open(full_path, "w", encoding="utf-8") as f:
                 f.write(backup.original_content)
 
             # Clean up disk backup if it exists
@@ -213,7 +213,7 @@ class EditRollback:
         except Exception:
             return False
 
-    def get_backup(self, file_path: str) -> Optional[FileBackup]:
+    def get_backup(self, file_path: str) -> FileBackup | None:
         """Get backup info for a file."""
         return self._backups.get(file_path)
 
@@ -221,7 +221,7 @@ class EditRollback:
         """Check if a file has a backup."""
         return file_path in self._backups
 
-    def get_all_backups(self) -> List[FileBackup]:
+    def get_all_backups(self) -> list[FileBackup]:
         """Get all current backups."""
         return list(self._backups.values())
 
@@ -236,7 +236,7 @@ class EditRollback:
         backup_name = f"{safe_name}.{timestamp}.bak"
         backup_path = os.path.join(self.backup_dir, backup_name)
 
-        with open(backup_path, 'w', encoding='utf-8') as f:
+        with open(backup_path, "w", encoding="utf-8") as f:
             f.write(content)
 
         return backup_path
@@ -316,7 +316,7 @@ class TransactionalEdit:
                 tx.commit()
     """
 
-    def __init__(self, project_root: Optional[str] = None):
+    def __init__(self, project_root: str | None = None):
         self.rollback_mgr = EditRollback(project_root)
         self._committed = False
 

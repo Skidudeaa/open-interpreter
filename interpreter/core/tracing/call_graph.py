@@ -6,10 +6,10 @@ enabling the system to understand how code flows and which functions
 are involved in specific behaviors.
 """
 
+import json
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Set
-import json
+from typing import Any
 
 
 @dataclass
@@ -17,6 +17,7 @@ class CallNode:
     """
     Represents a single function/method call in the execution trace.
     """
+
     function_name: str
     module: str
     file_path: str
@@ -24,26 +25,26 @@ class CallNode:
 
     # Call information
     call_id: str = ""
-    parent_call_id: Optional[str] = None
+    parent_call_id: str | None = None
     depth: int = 0
 
     # Timing
-    start_time: Optional[float] = None
-    end_time: Optional[float] = None
+    start_time: float | None = None
+    end_time: float | None = None
 
     # Arguments and return value (optional, can be expensive)
-    arguments: Optional[Dict[str, Any]] = None
-    return_value: Optional[Any] = None
+    arguments: dict[str, Any] | None = None
+    return_value: Any | None = None
 
     # Exception if raised
-    exception: Optional[str] = None
-    exception_type: Optional[str] = None
+    exception: str | None = None
+    exception_type: str | None = None
 
     # Children calls made from this function
-    children: List["CallNode"] = field(default_factory=list)
+    children: list["CallNode"] = field(default_factory=list)
 
     @property
-    def duration_ms(self) -> Optional[float]:
+    def duration_ms(self) -> float | None:
         """Get call duration in milliseconds."""
         if self.start_time and self.end_time:
             return (self.end_time - self.start_time) * 1000
@@ -56,7 +57,7 @@ class CallNode:
             return f"{self.module}.{self.function_name}"
         return self.function_name
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "function_name": self.function_name,
@@ -89,7 +90,7 @@ class CallNode:
             return repr(value)[:200]  # Truncate long reprs
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "CallNode":
+    def from_dict(cls, data: dict[str, Any]) -> "CallNode":
         """Create from dictionary."""
         children_data = data.pop("children", [])
         data.pop("duration_ms", None)  # Computed property
@@ -118,20 +119,21 @@ class CallGraph:
     """
     Represents the complete call graph from an execution.
     """
-    root_calls: List[CallNode] = field(default_factory=list)
-    all_calls: Dict[str, CallNode] = field(default_factory=dict)
+
+    root_calls: list[CallNode] = field(default_factory=list)
+    all_calls: dict[str, CallNode] = field(default_factory=dict)
 
     # Metadata
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
     total_calls: int = 0
 
     # Statistics
-    functions_called: Set[str] = field(default_factory=set)
-    files_touched: Set[str] = field(default_factory=set)
-    exceptions_raised: List[str] = field(default_factory=list)
+    functions_called: set[str] = field(default_factory=set)
+    files_touched: set[str] = field(default_factory=set)
+    exceptions_raised: list[str] = field(default_factory=list)
 
-    def add_call(self, node: CallNode, parent_id: Optional[str] = None):
+    def add_call(self, node: CallNode, parent_id: str | None = None):
         """Add a call to the graph."""
         self.all_calls[node.call_id] = node
         self.total_calls += 1
@@ -156,7 +158,7 @@ class CallGraph:
             node.exception = exception_msg
             self.exceptions_raised.append(f"{exception_type}: {exception_msg}")
 
-    def get_call_chain(self, call_id: str) -> List[CallNode]:
+    def get_call_chain(self, call_id: str) -> list[CallNode]:
         """Get the chain of calls from root to the specified call."""
         chain = []
         current_id = call_id
@@ -168,10 +170,10 @@ class CallGraph:
 
         return list(reversed(chain))
 
-    def get_hot_functions(self, top_n: int = 10) -> List[tuple]:
+    def get_hot_functions(self, top_n: int = 10) -> list[tuple]:
         """Get the most frequently called functions."""
-        call_counts: Dict[str, int] = {}
-        total_time: Dict[str, float] = {}
+        call_counts: dict[str, int] = {}
+        total_time: dict[str, float] = {}
 
         for node in self.all_calls.values():
             name = node.qualified_name
@@ -180,18 +182,16 @@ class CallGraph:
                 total_time[name] = total_time.get(name, 0) + node.duration_ms
 
         # Sort by call count
-        sorted_funcs = sorted(
-            call_counts.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )[:top_n]
+        sorted_funcs = sorted(call_counts.items(), key=lambda x: x[1], reverse=True)[
+            :top_n
+        ]
 
         return [(name, count, total_time.get(name, 0)) for name, count in sorted_funcs]
 
-    def get_slow_functions(self, top_n: int = 10) -> List[tuple]:
+    def get_slow_functions(self, top_n: int = 10) -> list[tuple]:
         """Get the slowest functions by total time."""
-        total_time: Dict[str, float] = {}
-        call_counts: Dict[str, int] = {}
+        total_time: dict[str, float] = {}
+        call_counts: dict[str, int] = {}
 
         for node in self.all_calls.values():
             name = node.qualified_name
@@ -200,15 +200,13 @@ class CallGraph:
                 total_time[name] = total_time.get(name, 0) + node.duration_ms
 
         # Sort by total time
-        sorted_funcs = sorted(
-            total_time.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )[:top_n]
+        sorted_funcs = sorted(total_time.items(), key=lambda x: x[1], reverse=True)[
+            :top_n
+        ]
 
         return [(name, time, call_counts.get(name, 0)) for name, time in sorted_funcs]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "root_calls": [c.to_dict() for c in self.root_calls],
@@ -221,11 +219,17 @@ class CallGraph:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "CallGraph":
+    def from_dict(cls, data: dict[str, Any]) -> "CallGraph":
         """Create from dictionary."""
         graph = cls()
-        graph.start_time = datetime.fromisoformat(data["start_time"]) if data.get("start_time") else None
-        graph.end_time = datetime.fromisoformat(data["end_time"]) if data.get("end_time") else None
+        graph.start_time = (
+            datetime.fromisoformat(data["start_time"])
+            if data.get("start_time")
+            else None
+        )
+        graph.end_time = (
+            datetime.fromisoformat(data["end_time"]) if data.get("end_time") else None
+        )
         graph.total_calls = data.get("total_calls", 0)
         graph.functions_called = set(data.get("functions_called", []))
         graph.files_touched = set(data.get("files_touched", []))

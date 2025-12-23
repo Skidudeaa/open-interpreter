@@ -14,13 +14,11 @@ from .utils.local_storage_path import get_storage_path
 
 
 def conversation_navigator(interpreter):
-    import time
-
     conversations_dir = get_storage_path("conversations")
 
     interpreter.display_message(
         f"""> Conversations are stored in "`{conversations_dir}`".
-    
+
     Select a conversation to resume.
     """
     )
@@ -77,7 +75,7 @@ def conversation_navigator(interpreter):
     selected_filename = readable_names_and_filenames[answers["name"]]
 
     # Open the selected file and load the JSON data
-    with open(os.path.join(conversations_dir, selected_filename), "r") as f:
+    with open(os.path.join(conversations_dir, selected_filename)) as f:
         messages = json.load(f)
 
     # Pass the data into render_past_conversation

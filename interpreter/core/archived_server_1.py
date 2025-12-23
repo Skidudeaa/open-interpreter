@@ -1,6 +1,6 @@
 import asyncio
 import json
-from typing import Generator
+from collections.abc import Generator
 
 from .utils.lazy_import import lazy_import
 
@@ -135,7 +135,7 @@ def server(interpreter, host="0.0.0.0", port=8000):
                     if (
                         response.get("type") == "message"
                         and response["role"] == "assistant"
-                        and response.get("end") == True
+                        and response.get("end")
                     ):
                         await websocket.send_text("\n")
                         await asyncio.sleep(0.01)  # Add a small delay

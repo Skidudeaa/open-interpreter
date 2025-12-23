@@ -79,6 +79,16 @@ class EventType(Enum):
     CONFIRMATION_REQUEST = auto()  # Asking user to approve code
     CONFIRMATION_RESPONSE = auto()  # User responded
 
+    # Feature feedback events (for visibility into advanced features)
+    VALIDATION_START = auto()  # Syntax validation starting
+    VALIDATION_END = auto()  # Syntax validation complete (success/failure)
+    TRACING_START = auto()  # Execution tracing starting
+    TRACING_END = auto()  # Execution tracing complete
+    TEST_START = auto()  # Auto-test starting
+    TEST_END = auto()  # Auto-test complete (passed/failed)
+    MEMORY_RECORD = auto()  # Edit recorded to semantic memory
+    PLUGIN_HOOK = auto()  # Plugin hook executed
+
 
 @dataclass
 class UIEvent:
@@ -280,14 +290,34 @@ class EventBus:
         for handler in handlers:
             try:
                 handler(event)
-            except Exception:
-                pass  # Don't let handler errors crash the UI
+            except Exception as e:
+                # Log handler errors instead of silently swallowing them
+                try:
+                    from ..utils.ui_logger import log_ui_event
+
+                    handler_name = getattr(handler, "__name__", repr(handler))
+                    log_ui_event(
+                        "EventBus",
+                        f"handler error in {handler_name} for {event.type.value}: {e}",
+                    )
+                except Exception:
+                    pass  # If logging fails, still don't crash
 
         for handler in global_handlers:
             try:
                 handler(event)
-            except Exception:
-                pass
+            except Exception as e:
+                # Log handler errors instead of silently swallowing them
+                try:
+                    from ..utils.ui_logger import log_ui_event
+
+                    handler_name = getattr(handler, "__name__", repr(handler))
+                    log_ui_event(
+                        "EventBus",
+                        f"global handler error in {handler_name} for {event.type.value}: {e}",
+                    )
+                except Exception:
+                    pass  # If logging fails, still don't crash
 
     def process_pending(self, max_events: int = 100) -> int:
         """

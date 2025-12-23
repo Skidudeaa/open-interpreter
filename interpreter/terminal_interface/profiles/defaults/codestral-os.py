@@ -4,7 +4,7 @@ This is an Open Interpreter profile. It configures Open Interpreter to run `llam
 Images sent to the model will be described with `moondream`. The model will be instructed how to control your mouse and keyboard.
 """
 
-from importlib.metadata import version, PackageNotFoundError
+from importlib.metadata import PackageNotFoundError, version
 
 REQUIRED_PACKAGES = [
     "opencv-python",
@@ -40,7 +40,7 @@ from interpreter import interpreter
 interpreter.system_message = """You are an AI assistant that writes markdown code snippets to answer the user's request. You speak very concisely and quickly, you say nothing irrelevant to the user's request. For example:
 
 User: Open the chrome app.
-Assistant: On it. 
+Assistant: On it.
 ```python
 import webbrowser
 webbrowser.open('https://chrome.google.com')
@@ -51,7 +51,7 @@ Assistant: No further action is required; the provided snippet opens Chrome.
 You also have access to a special function called `computer.view()`. This will return a description of the user's screen. Do NOT use pyautogui. For example:
 
 User: What's on my screen?
-Assistant: Viewing screen. 
+Assistant: Viewing screen.
 ```python
 computer.view()
 ```

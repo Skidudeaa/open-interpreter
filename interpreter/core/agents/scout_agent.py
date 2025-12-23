@@ -11,19 +11,18 @@ Capabilities:
 - Build file/directory summaries
 """
 
-import os
 import fnmatch
+import os
 import re
-from pathlib import Path
-from typing import List, Optional, Set, Dict, Any
 from dataclasses import dataclass
 
-from .base_agent import BaseAgent, AgentRole, AgentResult, create_result
+from .base_agent import AgentResult, AgentRole, BaseAgent, create_result
 
 
 @dataclass
 class SearchResult:
     """Result from a code search."""
+
     file_path: str
     line_number: int
     content: str
@@ -44,25 +43,50 @@ class ScoutAgent(BaseAgent):
         self,
         interpreter,
         memory=None,
-        root_path: Optional[str] = None,
+        root_path: str | None = None,
+        plugins=None,
+        name: str | None = None,
     ):
-        super().__init__(interpreter, memory)
+        super().__init__(interpreter, memory, plugins=plugins, name=name)
         self.root_path = root_path or os.getcwd()
 
         # File patterns to ignore
         self.ignore_patterns = {
-            '__pycache__', '.git', '.svn', 'node_modules',
-            '.venv', 'venv', 'env', '.env',
-            '*.pyc', '*.pyo', '*.so', '*.dylib',
-            '.DS_Store', 'Thumbs.db',
+            "__pycache__",
+            ".git",
+            ".svn",
+            "node_modules",
+            ".venv",
+            "venv",
+            "env",
+            ".env",
+            "*.pyc",
+            "*.pyo",
+            "*.so",
+            "*.dylib",
+            ".DS_Store",
+            "Thumbs.db",
         }
 
         # File extensions to search
         self.code_extensions = {
-            '.py', '.js', '.ts', '.jsx', '.tsx',
-            '.java', '.go', '.rs', '.rb', '.php',
-            '.c', '.cpp', '.h', '.hpp',
-            '.sh', '.bash', '.zsh',
+            ".py",
+            ".js",
+            ".ts",
+            ".jsx",
+            ".tsx",
+            ".java",
+            ".go",
+            ".rs",
+            ".rb",
+            ".php",
+            ".c",
+            ".cpp",
+            ".h",
+            ".hpp",
+            ".sh",
+            ".bash",
+            ".zsh",
         }
 
     def get_system_message(self) -> str:
@@ -82,7 +106,7 @@ Always provide:
 - Line numbers when relevant
 - Brief descriptions of what each file/function does"""
 
-    def execute(self, task: str, context: Optional[str] = None) -> AgentResult:
+    def execute(self, task: str, context: str | None = None) -> AgentResult:
         """
         Execute a scouting task.
 
@@ -120,24 +144,30 @@ Always provide:
             elif "function" in task_lower or "method" in task_lower:
                 # Search for function definitions
                 name = self._extract_identifier(task)
-                results = self.search_symbol(name, symbol_type='function')
+                results = self.search_symbol(name, symbol_type="function")
                 for r in results[:20]:
                     symbols_found.append(f"{r.file_path}:{r.line_number}")
-                    content.append(f"  {r.file_path}:{r.line_number} - {r.content.strip()[:60]}")
+                    content.append(
+                        f"  {r.file_path}:{r.line_number} - {r.content.strip()[:60]}"
+                    )
 
             elif "class" in task_lower:
                 name = self._extract_identifier(task)
-                results = self.search_symbol(name, symbol_type='class')
+                results = self.search_symbol(name, symbol_type="class")
                 for r in results[:20]:
                     symbols_found.append(f"{r.file_path}:{r.line_number}")
-                    content.append(f"  {r.file_path}:{r.line_number} - {r.content.strip()[:60]}")
+                    content.append(
+                        f"  {r.file_path}:{r.line_number} - {r.content.strip()[:60]}"
+                    )
 
             elif "search" in task_lower or "grep" in task_lower:
                 pattern = self._extract_pattern(task)
                 results = self.search_content(pattern)
                 for r in results[:20]:
                     files_found.append(r.file_path)
-                    content.append(f"  {r.file_path}:{r.line_number} - {r.content.strip()[:60]}")
+                    content.append(
+                        f"  {r.file_path}:{r.line_number} - {r.content.strip()[:60]}"
+                    )
 
             elif "structure" in task_lower or "explore" in task_lower:
                 structure = self.get_directory_structure()
@@ -172,11 +202,7 @@ Always provide:
         self._last_result = result
         return result
 
-    def find_files(
-        self,
-        pattern: str,
-        max_results: int = 100
-    ) -> List[str]:
+    def find_files(self, pattern: str, max_results: int = 100) -> list[str]:
         """
         Find files matching a pattern.
 
@@ -198,8 +224,13 @@ Always provide:
                     continue
 
                 # Check pattern match
-                if fnmatch.fnmatch(filename, pattern) or pattern.lower() in filename.lower():
-                    rel_path = os.path.relpath(os.path.join(root, filename), self.root_path)
+                if (
+                    fnmatch.fnmatch(filename, pattern)
+                    or pattern.lower() in filename.lower()
+                ):
+                    rel_path = os.path.relpath(
+                        os.path.join(root, filename), self.root_path
+                    )
                     matches.append(rel_path)
 
                     if len(matches) >= max_results:
@@ -208,11 +239,8 @@ Always provide:
         return matches
 
     def search_symbol(
-        self,
-        name: str,
-        symbol_type: str = 'any',
-        max_results: int = 50
-    ) -> List[SearchResult]:
+        self, name: str, symbol_type: str = "any", max_results: int = 50
+    ) -> list[SearchResult]:
         """
         Search for a symbol (function, class, variable) in the codebase.
 
@@ -227,12 +255,12 @@ Always provide:
         results = []
 
         # Build regex pattern based on symbol type
-        if symbol_type == 'function':
-            pattern = rf'^\s*(async\s+)?def\s+{re.escape(name)}\s*\('
-        elif symbol_type == 'class':
-            pattern = rf'^\s*class\s+{re.escape(name)}\s*[:\(]'
+        if symbol_type == "function":
+            pattern = rf"^\s*(async\s+)?def\s+{re.escape(name)}\s*\("
+        elif symbol_type == "class":
+            pattern = rf"^\s*class\s+{re.escape(name)}\s*[:\(]"
         else:
-            pattern = rf'\b{re.escape(name)}\b'
+            pattern = rf"\b{re.escape(name)}\b"
 
         regex = re.compile(pattern)
 
@@ -247,15 +275,17 @@ Always provide:
                 rel_path = os.path.relpath(filepath, self.root_path)
 
                 try:
-                    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    with open(filepath, encoding="utf-8", errors="ignore") as f:
                         for line_num, line in enumerate(f, 1):
                             if regex.search(line):
-                                results.append(SearchResult(
-                                    file_path=rel_path,
-                                    line_number=line_num,
-                                    content=line,
-                                    match_type=symbol_type,
-                                ))
+                                results.append(
+                                    SearchResult(
+                                        file_path=rel_path,
+                                        line_number=line_num,
+                                        content=line,
+                                        match_type=symbol_type,
+                                    )
+                                )
 
                                 if len(results) >= max_results:
                                     return results
@@ -265,11 +295,8 @@ Always provide:
         return results
 
     def search_content(
-        self,
-        pattern: str,
-        file_pattern: str = "*",
-        max_results: int = 50
-    ) -> List[SearchResult]:
+        self, pattern: str, file_pattern: str = "*", max_results: int = 50
+    ) -> list[SearchResult]:
         """
         Search for a pattern in file contents.
 
@@ -303,15 +330,17 @@ Always provide:
                 rel_path = os.path.relpath(filepath, self.root_path)
 
                 try:
-                    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    with open(filepath, encoding="utf-8", errors="ignore") as f:
                         for line_num, line in enumerate(f, 1):
                             if regex.search(line):
-                                results.append(SearchResult(
-                                    file_path=rel_path,
-                                    line_number=line_num,
-                                    content=line,
-                                    match_type='pattern',
-                                ))
+                                results.append(
+                                    SearchResult(
+                                        file_path=rel_path,
+                                        line_number=line_num,
+                                        content=line,
+                                        match_type="pattern",
+                                    )
+                                )
 
                                 if len(results) >= max_results:
                                     return results
@@ -321,9 +350,7 @@ Always provide:
         return results
 
     def get_directory_structure(
-        self,
-        max_depth: int = 3,
-        max_files_per_dir: int = 10
+        self, max_depth: int = 3, max_files_per_dir: int = 10
     ) -> str:
         """
         Get a tree representation of the directory structure.
@@ -376,7 +403,9 @@ Always provide:
                 lines.append(f"{prefix}{connector}{f}")
 
             if len(files) > max_files_per_dir:
-                lines.append(f"{prefix}    ... and {len(files) - max_files_per_dir} more files")
+                lines.append(
+                    f"{prefix}    ... and {len(files) - max_files_per_dir} more files"
+                )
 
         lines.append(os.path.basename(self.root_path) + "/")
         _walk(self.root_path)
@@ -397,7 +426,7 @@ Always provide:
         full_path = os.path.join(self.root_path, file_path)
 
         try:
-            with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(full_path, encoding="utf-8", errors="ignore") as f:
                 lines = f.readlines()
 
             total_lines = len(lines)
@@ -432,7 +461,7 @@ Always provide:
             return match.group(1)
 
         # Look for patterns after keywords
-        for keyword in ['matching', 'pattern', 'like', 'for', 'named']:
+        for keyword in ["matching", "pattern", "like", "for", "named"]:
             if keyword in task.lower():
                 parts = task.lower().split(keyword)
                 if len(parts) > 1:
@@ -451,17 +480,17 @@ Always provide:
             return match.group(1)
 
         # Look for identifiers after keywords
-        for keyword in ['function', 'method', 'class', 'called', 'named']:
+        for keyword in ["function", "method", "class", "called", "named"]:
             if keyword in task.lower():
                 idx = task.lower().find(keyword)
-                remaining = task[idx + len(keyword):].strip()
+                remaining = task[idx + len(keyword) :].strip()
                 # Get first word-like thing
-                match = re.match(r'[\w_]+', remaining)
+                match = re.match(r"[\w_]+", remaining)
                 if match:
                     return match.group(0)
 
         # Extract any identifier-like word
-        words = re.findall(r'\b[A-Za-z_]\w*\b', task)
+        words = re.findall(r"\b[A-Za-z_]\w*\b", task)
         if words:
             # Return longest word as it's likely the identifier
             return max(words, key=len)
@@ -469,10 +498,7 @@ Always provide:
         return ""
 
     def _format_context(
-        self,
-        files: List[str],
-        symbols: List[str],
-        content: List[str]
+        self, files: list[str], symbols: list[str], content: list[str]
     ) -> str:
         """Format results as context for the next agent."""
         parts = ["## Scout Results"]

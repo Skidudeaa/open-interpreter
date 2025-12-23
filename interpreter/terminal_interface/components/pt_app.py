@@ -11,41 +11,25 @@ Usage:
     app.run()  # Blocks until exit
 """
 
-from typing import TYPE_CHECKING, Optional, Callable, List
-import asyncio
-from threading import Thread
-from queue import Queue
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from prompt_toolkit import Application
-from prompt_toolkit.application import get_app
 from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.document import Document
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import ANSI, FormattedText
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import (
-    Layout,
-    HSplit,
-    VSplit,
-    Window,
-    WindowAlign,
-    FormattedTextControl,
-    BufferControl,
-    ScrollablePane,
-)
-from prompt_toolkit.layout.containers import ConditionalContainer, Float, FloatContainer
-from prompt_toolkit.layout.dimension import Dimension, D
+from prompt_toolkit.layout import FormattedTextControl, HSplit, Layout, Window
+from prompt_toolkit.layout.containers import ConditionalContainer
+from prompt_toolkit.layout.dimension import D
 from prompt_toolkit.layout.margins import ScrollbarMargin
-from prompt_toolkit.lexers import PygmentsLexer
 from prompt_toolkit.styles import Style
-from prompt_toolkit.widgets import TextArea, Frame
-
+from prompt_toolkit.widgets import Frame, TextArea
 from rich.console import Console
-from rich.text import Text
 
-from .ui_state import UIState, UIMode
-from .ui_events import UIEvent, EventType, EventBus, get_event_bus
 from .theme import THEMES
+from .ui_events import EventBus, EventType, UIEvent, get_event_bus
+from .ui_state import UIMode, UIState
 
 if TYPE_CHECKING:
     from ...core.core import OpenInterpreter
@@ -76,16 +60,16 @@ class OutputBuffer:
     """
 
     def __init__(self, max_lines: int = 1000):
-        self._lines: List[str] = []
+        self._lines: list[str] = []
         self._max_lines = max_lines
         self._width = 120
 
     def append(self, text: str) -> None:
         """Add text to the buffer"""
-        self._lines.extend(text.split('\n'))
+        self._lines.extend(text.split("\n"))
         # Trim to max lines
         if len(self._lines) > self._max_lines:
-            self._lines = self._lines[-self._max_lines:]
+            self._lines = self._lines[-self._max_lines :]
 
     def clear(self) -> None:
         """Clear the buffer"""
@@ -93,7 +77,7 @@ class OutputBuffer:
 
     def get_content(self) -> str:
         """Get buffer content as string"""
-        return '\n'.join(self._lines)
+        return "\n".join(self._lines)
 
     def set_width(self, width: int) -> None:
         """Update rendering width"""
@@ -120,8 +104,8 @@ class InterpreterApp:
     def __init__(
         self,
         interpreter: "OpenInterpreter",
-        state: Optional[UIState] = None,
-        event_bus: Optional[EventBus] = None,
+        state: UIState | None = None,
+        event_bus: EventBus | None = None,
     ):
         self.interpreter = interpreter
         self.state = state or UIState()
@@ -152,93 +136,119 @@ class InterpreterApp:
         )
 
         # Callbacks
-        self._on_input: Optional[Callable[[str], None]] = None
+        self._on_input: Callable[[str], None] | None = None
         self._running = False
 
     def _create_styles(self) -> None:
         """Create prompt_toolkit styles from theme"""
         theme = THEMES.get("dark", THEMES["dark"])
 
-        self.style = Style.from_dict({
-            # Input area
-            'input-area': f'bg:{theme["bg_dark"]}',
-            'input-border': f'{theme["primary"]}',
-
-            # Output area
-            'output-area': '',
-
-            # Status bar
-            'status-bar': f'bg:{theme["bg_medium"]} {theme["secondary"]}',
-            'status-bar.key': f'{theme["primary"]} bold',
-            'status-bar.value': f'{theme["text_muted"]}',
-
-            # Agent strip
-            'agent-strip': f'bg:{theme["bg_medium"]}',
-            'agent.pending': f'{theme["text_muted"]}',
-            'agent.running': f'{theme["warning"]}',
-            'agent.complete': f'{theme["success"]}',
-            'agent.error': f'{theme["error"]}',
-
-            # Prompt
-            'prompt': f'{theme["primary"]} bold',
-        })
+        self.style = Style.from_dict(
+            {
+                # Input area
+                "input-area": f'bg:{theme["bg_dark"]}',
+                "input-border": f'{theme["primary"]}',
+                # Output area
+                "output-area": "",
+                # Status bar
+                "status-bar": f'bg:{theme["bg_medium"]} {theme["secondary"]}',
+                "status-bar.key": f'{theme["primary"]} bold',
+                "status-bar.value": f'{theme["text_muted"]}',
+                # Agent strip
+                "agent-strip": f'bg:{theme["bg_medium"]}',
+                "agent.pending": f'{theme["text_muted"]}',
+                "agent.running": f'{theme["warning"]}',
+                "agent.complete": f'{theme["success"]}',
+                "agent.error": f'{theme["error"]}',
+                # Prompt
+                "prompt": f'{theme["primary"]} bold',
+            }
+        )
 
     def _create_key_bindings(self) -> None:
         """Create key bindings with fallbacks for portability"""
         self.kb = KeyBindings()
 
         # Cancel current operation
-        @self.kb.add('escape')
+        @self.kb.add("escape")
         def _(event):
             self._cancel_operation()
 
+        # Cancel/quit (Ctrl+C)
+        #
+        # - If there's typed input, clear it (like most shells).
+        # - If the interpreter is busy, cancel the current operation.
+        # - If we're idle with an empty buffer, exit the application.
+        @self.kb.add("c-c")
+        def _(event):
+            if self.input_buffer.text.strip():
+                self.input_buffer.text = ""
+                event.app.invalidate()
+                return
+
+            if (
+                self.state.is_responding
+                or self.state.is_streaming
+                or self.state.has_active_agents
+            ):
+                self._cancel_operation()
+                event.app.invalidate()
+                return
+
+            event.app.exit()
+
         # Clear screen
-        @self.kb.add('c-l')
+        @self.kb.add("c-l")
         def _(event):
             self.output_buffer.clear()
             event.app.invalidate()
 
         # Exit application
-        @self.kb.add('c-d')
+        @self.kb.add("c-d")
         def _(event):
-            if not self.input_buffer.text:
+            # Treat whitespace-only buffers as empty so quit works even after
+            # multiline input that left trailing newlines/spaces.
+            if not self.input_buffer.text.strip():
                 event.app.exit()
 
         # Toggle power mode (Alt+P or F2)
-        @self.kb.add('escape', 'p')  # Alt+P as escape sequence
-        @self.kb.add('f2')
+        @self.kb.add("escape", "p")  # Alt+P as escape sequence
+        @self.kb.add("f2")
         def _(event):
             self._toggle_mode()
 
         # Focus agent strip (Alt+A or F4)
-        @self.kb.add('escape', 'a')  # Alt+A as escape sequence
-        @self.kb.add('f4')
+        @self.kb.add("escape", "a")  # Alt+A as escape sequence
+        @self.kb.add("f4")
         def _(event):
             self._focus_agents()
 
         # History search (Ctrl+R)
-        @self.kb.add('c-r')
+        @self.kb.add("c-r")
         def _(event):
             # TODO: Implement history search overlay
             pass
 
         # Submit input (Enter in single-line mode, Ctrl+Enter or Alt+Enter in multiline)
-        @self.kb.add('c-m')  # Enter
+        @self.kb.add("c-m")  # Enter
         def _(event):
             # Check if we should submit or add newline
             text = self.input_buffer.text
-            if text.startswith('"""') and not text.endswith('"""'):
+            if text.strip() == '"""':
+                # Treat a bare triple-quote as "start multiline"
+                self.input_buffer.insert_text("\n")
+            elif text.startswith('"""') and not text.rstrip().endswith('"""'):
                 # In multiline mode, add newline
-                self.input_buffer.insert_text('\n')
-            elif '\n' in text or text.startswith('"""'):
-                # Already multiline, add newline
-                self.input_buffer.insert_text('\n')
+                self.input_buffer.insert_text("\n")
+            elif "\n" in text:
+                # Already multiline, keep inserting newlines
+                self.input_buffer.insert_text("\n")
             else:
                 # Single line, submit
                 self.input_buffer.validate_and_handle()
 
         # Force submit (Alt+Enter)
-        @self.kb.add('escape', 'enter')
+        @self.kb.add("escape", "enter")
         def _(event):
             self.input_buffer.validate_and_handle()
 
@@ -249,7 +259,7 @@ class InterpreterApp:
         self.status_bar = Window(
             content=FormattedTextControl(self._get_status_bar_text),
             height=1,
-            style='class:status-bar',
+            style="class:status-bar",
         )
 
         # Output area (scrollable)
@@ -264,7 +274,7 @@ class InterpreterApp:
             content=Window(
                 content=FormattedTextControl(self._get_agent_strip_text),
                 height=1,
-                style='class:agent-strip',
+                style="class:agent-strip",
             ),
             filter=Condition(lambda: self.state.agent_strip_visible),
         )
@@ -272,11 +282,11 @@ class InterpreterApp:
         # Input area
         self.input_area = TextArea(
             height=D(min=1, max=10, preferred=3),
-            prompt=FormattedText([('class:prompt', '❯ ')]),
+            prompt=FormattedText([("class:prompt", "❯ ")]),
             multiline=True,
             wrap_lines=True,
             accept_handler=self._on_accept,
-            style='class:input-area',
+            style="class:input-area",
         )
 
         # Replace input buffer with our configured one
@@ -286,36 +296,38 @@ class InterpreterApp:
         self.help_bar = Window(
             content=FormattedTextControl(
                 lambda: [
-                    ('class:status-bar.key', ' Esc '),
-                    ('class:status-bar.value', 'Cancel '),
-                    ('class:status-bar.key', ' F2 '),
-                    ('class:status-bar.value', 'Mode '),
-                    ('class:status-bar.key', ' Ctrl+L '),
-                    ('class:status-bar.value', 'Clear '),
-                    ('class:status-bar.key', ' Ctrl+D '),
-                    ('class:status-bar.value', 'Exit '),
+                    ("class:status-bar.key", " Esc "),
+                    ("class:status-bar.value", "Cancel "),
+                    ("class:status-bar.key", " F2 "),
+                    ("class:status-bar.value", "Mode "),
+                    ("class:status-bar.key", " Ctrl+L "),
+                    ("class:status-bar.value", "Clear "),
+                    ("class:status-bar.key", " Ctrl+D "),
+                    ("class:status-bar.value", "Exit "),
                 ]
             ),
             height=1,
-            style='class:status-bar',
+            style="class:status-bar",
         )
 
         # Main layout
         self.layout = Layout(
-            HSplit([
-                self.status_bar,
-                self.output_window,
-                self.agent_strip,
-                Frame(self.input_area, title='Input'),
-                self.help_bar,
-            ]),
+            HSplit(
+                [
+                    self.status_bar,
+                    self.output_window,
+                    self.agent_strip,
+                    Frame(self.input_area, title="Input"),
+                    self.help_bar,
+                ]
+            ),
             focused_element=self.input_area,
         )
 
-    def _get_status_bar_text(self) -> List[tuple]:
+    def _get_status_bar_text(self) -> list[tuple]:
         """Generate status bar content"""
         mode_name = self.state.mode.name
-        model = getattr(self.interpreter, 'model', 'unknown')
+        model = getattr(self.interpreter, "model", "unknown")
         tokens = self.state.context_tokens
         limit = self.state.context_limit
 
@@ -324,13 +336,13 @@ class InterpreterApp:
         token_str = f"{tokens:,}/{limit:,} ({pct:.0f}%)"
 
         return [
-            ('class:status-bar.key', f' {model} '),
-            ('class:status-bar.value', '│ '),
-            ('class:status-bar.key', f'Mode: '),
-            ('class:status-bar.value', f'{mode_name} '),
-            ('class:status-bar.value', '│ '),
-            ('class:status-bar.key', f'Tokens: '),
-            ('class:status-bar.value', f'{token_str} '),
+            ("class:status-bar.key", f" {model} "),
+            ("class:status-bar.value", "│ "),
+            ("class:status-bar.key", "Mode: "),
+            ("class:status-bar.value", f"{mode_name} "),
+            ("class:status-bar.value", "│ "),
+            ("class:status-bar.key", "Tokens: "),
+            ("class:status-bar.value", f"{token_str} "),
         ]
 
     def _get_output_text(self) -> ANSI:
@@ -340,7 +352,7 @@ class InterpreterApp:
             return ANSI("")
         return ANSI(content)
 
-    def _get_agent_strip_text(self) -> List[tuple]:
+    def _get_agent_strip_text(self) -> list[tuple]:
         """Generate agent strip content"""
         if not self.state.active_agents:
             return []
@@ -348,17 +360,17 @@ class InterpreterApp:
         parts = []
         for agent_id, agent in self.state.active_agents.items():
             status_style = {
-                'PENDING': 'class:agent.pending',
-                'RUNNING': 'class:agent.running',
-                'COMPLETE': 'class:agent.complete',
-                'ERROR': 'class:agent.error',
-            }.get(agent.status.name, 'class:agent.pending')
+                "PENDING": "class:agent.pending",
+                "RUNNING": "class:agent.running",
+                "COMPLETE": "class:agent.complete",
+                "ERROR": "class:agent.error",
+            }.get(agent.status.name, "class:agent.pending")
 
             icon = agent.status_icon
             role = agent.role.value.capitalize()
             elapsed = agent.elapsed_display
 
-            parts.append((status_style, f' [{role}: {icon} {elapsed}] '))
+            parts.append((status_style, f" [{role}: {icon} {elapsed}] "))
 
         return parts
 
@@ -378,7 +390,7 @@ class InterpreterApp:
         """Cancel current operation"""
         self.event_bus.emit(UIEvent(type=EventType.UI_CANCEL, source="pt_app"))
         # Signal interpreter to stop
-        if hasattr(self.interpreter, 'stop'):
+        if hasattr(self.interpreter, "stop"):
             self.interpreter.stop()
 
     def _toggle_mode(self) -> None:
@@ -388,11 +400,13 @@ class InterpreterApp:
         next_idx = (current_idx + 1) % len(modes)
         self.state.mode = modes[next_idx]
 
-        self.event_bus.emit(UIEvent(
-            type=EventType.UI_MODE_CHANGE,
-            data={"mode": self.state.mode.name},
-            source="pt_app"
-        ))
+        self.event_bus.emit(
+            UIEvent(
+                type=EventType.UI_MODE_CHANGE,
+                data={"mode": self.state.mode.name},
+                source="pt_app",
+            )
+        )
         self.app.invalidate()
 
     def _focus_agents(self) -> None:
@@ -448,7 +462,7 @@ class InterpreterApp:
 
 def create_interpreter_app(
     interpreter: "OpenInterpreter",
-    state: Optional[UIState] = None,
+    state: UIState | None = None,
 ) -> InterpreterApp:
     """
     Factory function to create an InterpreterApp.

@@ -644,7 +644,8 @@ def main():
     session_mgr.enable_autosave()
 
     # Check for resumable session
-    if resume_prompt := get_resume_prompt(interpreter):
+    skip_resume = any(arg in sys.argv for arg in ["-y", "--auto_run", "--version"])
+    if not skip_resume and (resume_prompt := get_resume_prompt(interpreter)):
         try:
             response = input(f"\n{resume_prompt} ").strip().lower()
             if response == 'y':

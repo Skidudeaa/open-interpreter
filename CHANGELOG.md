@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased] - 2025-12-23
+
+### Changed
+
+- **Tracer redesign**: `TraceContext` class with context manager pattern replaces broken `start()`/`stop()` API
+- **Agent system unification**: Unified `types.py` with shared `AgentResult`, `AgentRole`, `AgentConfig` across SDK and Core
+- **BaseAgent refactor**: Plugin support via `PluginRegistry`, async-compatible `run()` method
+
+### Fixed
+
+- **Broken tracing**: `respond.py` called non-existent `tracer.start()`/`stop()` methods
+- **Memory leaks**: Event handlers now cleanup on session end; agents auto-purge after 5 min
+- **Mode persistence**: `mode_manager.reset()` called on conversation boundaries
+- **Thread safety**: Double-checked locking on all lazy property loaders in `core.py`
+- **Silent errors**: Replaced `except Exception: pass` with logging in plugins.py, profiles.py, base_block.py, ui_events.py
+
+### Added
+
+- **Feature feedback events**: 8 new `EventType` values for UI visibility
+  - `VALIDATION_START/END`, `TRACING_START/END`, `TEST_START/END`, `MEMORY_RECORD`, `PLUGIN_HOOK`
+- **Toast notifications**: Visual feedback when validation, tracing, testing, memory, plugins execute
+- **Plugin visibility**: `PluginRegistry.run_hook()` emits `PLUGIN_HOOK` events
+- **`auto_purge_agents()`**: Removes completed agents older than N seconds
+- **`mode_manager.reset()`**: Resets score/mode at conversation boundaries
+- **`create_core_agent()`**: AgentBuilder method for core implementations (Scout, Surgeon)
+
+---
+
 ## [Unreleased] - 2025-12-22
 
 ### Changed

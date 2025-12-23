@@ -72,6 +72,28 @@ Event-driven architecture with prompt_toolkit integration.
   - [x] Stack display (newest first, max 3 visible)
   - [x] Inline rendering for status bar integration
 
+### Phase 5 - Wiring & Feature Feedback [DONE]
+- [x] Feature visibility events in `ui_events.py`
+  - [x] `VALIDATION_START/END` - Syntax validation lifecycle
+  - [x] `TRACING_START/END` - Execution tracing lifecycle
+  - [x] `TEST_START/END` - Auto-test lifecycle
+  - [x] `MEMORY_RECORD` - Edit recorded to semantic memory
+  - [x] `PLUGIN_HOOK` - Plugin hook executed
+- [x] Event emission in `respond.py`
+  - [x] Validation hook emits start/end with validity status
+  - [x] Tracing hook emits start/end with call count
+  - [x] Memory hook emits record event
+  - [x] Test hook emits start/end with pass/fail counts
+- [x] Toast handlers in `terminal_interface.py`
+  - [x] Subscribe to all feature events
+  - [x] Display contextual toast notifications
+- [x] Plugin visibility in `plugins.py`
+  - [x] `PluginRegistry.run_hook()` emits PLUGIN_HOOK events
+- [x] Lifecycle fixes
+  - [x] `auto_purge_agents()` called on AGENT_COMPLETE
+  - [x] `mode_manager.reset()` called on cleanup and conversation reset
+  - [x] Event handler cleanup via `_cleanup_event_handlers()`
+
 ### Integration [DONE]
 - [x] Wire Phase 2-4 components into `terminal_interface.py`
   - [x] Initialize UIModeManager, ToastManager, AgentStrip, CodeNavigator

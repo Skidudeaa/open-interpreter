@@ -75,14 +75,22 @@ Captures runtime execution for informed edits.
 from interpreter.core.tracing import ExecutionTracer
 
 tracer = ExecutionTracer()
+
+# Context manager pattern (preferred)
+with tracer.trace(code, "python") as ctx:
+    exec(code)
+trace = ctx.trace  # ExecutionTrace with call graph, timing, exceptions
+
+# Or standalone
 trace = tracer.trace_code("result = process_data(input)")
 context = trace.to_context_string()  # LLM-readable
 ```
 
 Components:
-- `ExecutionTracer` - sys.settrace wrapper
+- `ExecutionTracer` - sys.settrace wrapper with thread-local state
+- `TraceContext` - Context manager for tracing lifecycle
 - `CallGraph` - Function call relationships
-- `TraceContext` - Formats traces for LLM
+- `TraceContextGenerator` - Formats traces for LLM
 
 ### Agents (`interpreter/core/agents/`)
 
@@ -102,6 +110,12 @@ Agents:
 - `ScoutAgent` - File/symbol search (no LLM)
 - `SurgeonAgent` - Precise code editing
 - `AgentOrchestrator` - Coordinates workflows, emits UI events
+
+Unified Types (`types.py`):
+- `AgentRole` - SCOUT, SURGEON, ARCHITECT, REVIEWER, TESTER, CUSTOM
+- `AgentStatus` - PENDING, RUNNING, COMPLETE, ERROR, CANCELLED
+- `AgentResult` - success, output, execution_time, tokens_used
+- `AgentConfig` - name, system_prompt, role, tools, max_iterations
 
 Workflows:
 - `BUG_FIX` - Scout → Surgeon
@@ -190,6 +204,11 @@ class LoggingPlugin(AgentPlugin):
 Hooks: `on_before_execute`, `on_after_execute`, `on_before_llm`, `on_after_llm`, `on_before_edit`, `on_after_edit`, `on_error`, `on_tool_call`
 
 Built-in: `LoggingPlugin`, `MetricsPlugin`, `ValidationPlugin`, `MemoryPlugin`, `RateLimitPlugin`
+
+Plugin Integration:
+- `OpenInterpreter.plugin_registry` - Shared registry for all plugins
+- `BaseAgent` supports plugins via constructor injection
+- `PluginRegistry.run_hook()` emits `PLUGIN_HOOK` events for UI visibility
 
 ### MCP Bridge
 
@@ -284,6 +303,13 @@ terminal_interface/
 - **EventBus** - Thread-safe queue, pub/sub handlers, idempotent subscriptions
 - **UIBackend** - Abstract interface; `RichStreamBackend` (fallback), `PromptToolkitBackend` (interactive)
 - **sanitizer** - Blocks dangerous escape sequences (clipboard, hyperlinks)
+
+Feature Events (emitted by `respond.py`):
+- `VALIDATION_START/END` - Syntax validation with validity status
+- `TRACING_START/END` - Execution tracing with call count
+- `TEST_START/END` - Auto-test with pass/fail counts
+- `MEMORY_RECORD` - Edit recorded to semantic memory
+- `PLUGIN_HOOK` - Plugin hook executed
 
 Components:
 - `StatusBar` - Model, message count, agent count, context meter

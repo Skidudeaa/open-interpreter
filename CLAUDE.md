@@ -6,27 +6,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Open Interpreter fork that adds risk-based approval, semantic memory, multi-agent orchestration, edit validation, and an event-driven terminal UI. LLMs run code locally via a chat interface.
 
-## Commands
+## Usage
 
 ```bash
-# Install dependencies
-poetry install
-poetry install -E local    # For --local mode
-poetry install -E os       # For --os mode
-poetry install -E server   # For server features
-
-# Run application
+# Basic
 poetry run interpreter
 
-# Run tests
-poetry run pytest -s -x
+# All features enabled
+OI_ACTIVATE_ALL=true poetry run interpreter
 
-# Run single test
-poetry run pytest -s -x tests/test_file.py::test_name
+# Auto-approve code execution
+poetry run interpreter -y
 
-# Code formatting (automatic via pre-commit, or manual)
-black .
-isort .
+# Specific model
+poetry run interpreter --model gpt-4o
+
+# Local mode (ollama)
+poetry run interpreter --local
+
+# OS mode (computer control)
+poetry run interpreter --os
+
+# Non-interactive (pipe input)
+echo "list files" | poetry run interpreter
+
+# Debug logging
+OI_UI_DEBUG=true poetry run interpreter
+```
+
+## Dev Commands
+
+```bash
+poetry install                    # Install deps
+poetry run pytest -s -x           # Run tests
+poetry run pytest tests/test_x.py::test_name  # Single test
 ```
 
 ## Architecture

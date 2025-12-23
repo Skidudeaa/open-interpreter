@@ -30,7 +30,8 @@ class TestFiles(unittest.TestCase):
             self.files.edit("example/filepath/file", "foobar", "foobarbaz")
 
         # Assert
-        mock_open.assert_any_call("example/filepath/file", "r")
+        # Note: open() called without explicit mode uses default "r"
+        mock_open.assert_any_call("example/filepath/file")
         mock_open.assert_any_call("example/filepath/file", "w")
         mock_write.assert_called_once_with("foobarbaz")
 
@@ -44,7 +45,8 @@ class TestFiles(unittest.TestCase):
                 self.files.edit("example/filepath/file", "barbaz", "foobarbaz")
 
         # Assert
-        mock_open.assert_any_call("example/filepath/file", "r")
+        # Note: open() called without explicit mode uses default "r"
+        mock_open.assert_any_call("example/filepath/file")
         self.assertEqual(
             str(context_manager.exception),
             "Original text not found. Did you mean one of these? foobar",

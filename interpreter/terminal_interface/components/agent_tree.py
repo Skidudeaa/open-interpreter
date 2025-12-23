@@ -59,7 +59,7 @@ class AgentTree:
         AgentStatus.CANCELLED: "text_muted",
     }
 
-    def __init__(self, state: UIState, console: Console = None):
+    def __init__(self, state: UIState, console: Console | None = None):
         """
         Initialize the agent tree.
 
@@ -277,7 +277,7 @@ class AgentTree:
         self.state.selected_agent_id = hierarchy[prev_index][0]
 
 
-def display_agent_tree(state: UIState, console: Console = None):
+def display_agent_tree(state: UIState, console: Console | None = None):
     """
     Convenience function to display the agent tree.
 

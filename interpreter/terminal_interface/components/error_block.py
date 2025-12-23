@@ -210,7 +210,8 @@ class ErrorBlock(BaseBlock):
 
         content = Text()
         content.append(f"{bulb_icon} ", style=THEME["warning"])
-        content.append(self.suggestion, style=THEME["text_secondary"])
+        if self.suggestion:
+            content.append(self.suggestion, style=THEME["text_secondary"])
 
         return Panel(
             content,
@@ -221,7 +222,7 @@ class ErrorBlock(BaseBlock):
         )
 
 
-def display_error(error_text: str, suggestion: str = None):
+def display_error(error_text: str, suggestion: str | None = None):
     """
     Convenience function to display a structured error.
 

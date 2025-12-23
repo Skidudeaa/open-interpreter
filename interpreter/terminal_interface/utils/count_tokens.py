@@ -44,28 +44,32 @@ def token_cost(tokens=0, model="gpt-4"):
         return 0
 
 
-def count_messages_tokens(messages=None, model=None):
+def count_messages_tokens(messages=None, model: str | None = None):
     """
     Count the number of tokens in a list of messages
     """
     if messages is None:
         messages = []
+    # Default to gpt-4 if model not specified
+    effective_model = model or "gpt-4"
     try:
         tokens_used = 0
 
         for message in messages:
             if isinstance(message, str):
-                tokens_used += count_tokens(message, model=model)
+                tokens_used += count_tokens(message, model=effective_model)
             elif "message" in message:
-                tokens_used += count_tokens(message["message"], model=model)
+                tokens_used += count_tokens(message["message"], model=effective_model)
 
                 if "code" in message:
-                    tokens_used += count_tokens(message["code"], model=model)
+                    tokens_used += count_tokens(message["code"], model=effective_model)
 
                 if "output" in message:
-                    tokens_used += count_tokens(message["output"], model=model)
+                    tokens_used += count_tokens(
+                        message["output"], model=effective_model
+                    )
 
-        prompt_cost = token_cost(tokens_used, model=model)
+        prompt_cost = token_cost(tokens_used, model=effective_model)
 
         return (tokens_used, prompt_cost)
     except Exception:

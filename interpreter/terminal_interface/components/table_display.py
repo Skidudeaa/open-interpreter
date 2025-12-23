@@ -30,7 +30,7 @@ class TableDisplay:
         table.show()
     """
 
-    def __init__(self, title: str = None, max_rows: int = 20):
+    def __init__(self, title: str | None = None, max_rows: int = 20):
         self.title = title
         self.max_rows = max_rows
         self.columns: list[str] = []
@@ -48,7 +48,9 @@ class TableDisplay:
         # Extract rows
         self.rows = [[row.get(col, "") for col in self.columns] for row in data]
 
-    def from_list_of_lists(self, data: list[list[Any]], headers: list[str] = None):
+    def from_list_of_lists(
+        self, data: list[list[Any]], headers: list[str] | None = None
+    ):
         """Load data from list of lists with optional headers."""
         if not data:
             return
@@ -168,7 +170,7 @@ class PaginatedTable(TableDisplay):
 
 
 def format_sql_result(
-    rows: list[tuple], columns: list[str] = None, title: str = "Query Result"
+    rows: list[tuple], columns: list[str] | None = None, title: str = "Query Result"
 ) -> str:
     """
     Format SQL query results as a displayable table.

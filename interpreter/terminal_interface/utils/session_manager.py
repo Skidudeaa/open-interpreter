@@ -99,7 +99,7 @@ class SessionManager:
         except Exception:
             pass  # Don't crash on autosave failure
 
-    def save_session(self, session_id: str = None) -> str:
+    def save_session(self, session_id: str | None = None) -> str:
         """
         Save current session to file.
 

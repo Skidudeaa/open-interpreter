@@ -29,7 +29,10 @@ class StatusBar:
     """
 
     def __init__(
-        self, interpreter=None, console: Console = None, ui_state: UIState = None
+        self,
+        interpreter=None,
+        console: Console | None = None,
+        ui_state: UIState | None = None,
     ):
         self.interpreter = interpreter
         self.console = console or Console()
@@ -192,7 +195,7 @@ class StatusBar:
         return " | ".join(parts) if parts else "No session"
 
 
-def display_status_bar(interpreter, console: Console = None):
+def display_status_bar(interpreter, console: Console | None = None):
     """
     Convenience function to display the status bar.
 
@@ -213,7 +216,7 @@ class FeaturesBanner:
     └──────────────────────────────────────────────────────────────┘
     """
 
-    def __init__(self, interpreter=None, console: Console = None):
+    def __init__(self, interpreter=None, console: Console | None = None):
         self.interpreter = interpreter
         self.console = console or Console()
 
@@ -268,6 +271,6 @@ class FeaturesBanner:
             self.console.print(panel)
 
 
-def display_features_banner(interpreter, console: Console = None):
+def display_features_banner(interpreter, console: Console | None = None):
     """Convenience function to display the features banner."""
     FeaturesBanner(interpreter, console).display()

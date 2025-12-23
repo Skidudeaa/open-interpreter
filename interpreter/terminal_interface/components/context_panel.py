@@ -61,7 +61,7 @@ class ContextPanel:
         "module": "📦",
     }
 
-    def __init__(self, state: UIState, console: Console = None):
+    def __init__(self, state: UIState, console: Console | None = None):
         """
         Initialize the context panel.
 
@@ -405,7 +405,7 @@ class ContextPanel:
         self.state.context.memory_mb = 0.0
 
 
-def display_context_panel(state: UIState, console: Console = None):
+def display_context_panel(state: UIState, console: Console | None = None):
     """
     Convenience function to display the context panel.
 

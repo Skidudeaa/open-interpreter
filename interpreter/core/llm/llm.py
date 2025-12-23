@@ -61,7 +61,7 @@ class Llm:
         )  # Will only use if supports_vision is False
 
         self.supports_functions = None  # Will try to auto-detect
-        self.execution_instructions = "To execute code on the user's machine, write a markdown code block. Specify the language after the ```. You will receive the output. Use any programming language."  # If supports_functions is False, this will be added to the system message
+        self.execution_instructions: str | bool = "To execute code on the user's machine, write a markdown code block. Specify the language after the ```. You will receive the output. Use any programming language."  # If supports_functions is False, this will be added to the system message. Can be set to False to disable.
 
         # Optional settings
         self.context_window = None

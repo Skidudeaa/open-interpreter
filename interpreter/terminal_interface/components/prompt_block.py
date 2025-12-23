@@ -29,7 +29,7 @@ class PromptBlock:
         "confirmation": THEME["warning"],  # Amber
     }
 
-    def __init__(self, style: str = "default", console: Console = None):
+    def __init__(self, style: str = "default", console: Console | None = None):
         self.style = style
         self.console = console or Console()
 
@@ -75,7 +75,7 @@ class PromptBlock:
 
         return Confirm.ask(styled_message, default=default, console=self.console)
 
-    def choice(self, message: str, choices: list, default: str = None) -> str:
+    def choice(self, message: str, choices: list, default: str | None = None) -> str:
         """
         Styled choice selection.
 

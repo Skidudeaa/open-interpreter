@@ -92,7 +92,7 @@ def get_current_theme_name() -> str:
     return os.environ.get("OI_THEME", "dark").lower()
 
 
-def get_theme(theme_name: str = None) -> dict:
+def get_theme(theme_name: str | None = None) -> dict:
     """Get a theme by name, defaulting to dark theme."""
     if theme_name is None:
         theme_name = get_current_theme_name()

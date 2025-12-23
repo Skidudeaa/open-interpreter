@@ -38,7 +38,7 @@ class SemanticEditGraph:
             use_duckdb: Try to use DuckDB (faster). Falls back to SQLite if unavailable.
         """
         self.db_path = db_path
-        self._connection = None
+        self._connection: Any = None
         self._use_duckdb = use_duckdb and self._check_duckdb_available()
 
         if self._use_duckdb:

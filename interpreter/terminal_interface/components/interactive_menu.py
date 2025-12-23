@@ -168,7 +168,7 @@ class InteractiveMenu:
     def __init__(
         self,
         options: list[str],
-        descriptions: list[str] = None,
+        descriptions: list[str] | None = None,
         default_index: int = 0,
         allow_cancel: bool = True,
     ):
@@ -188,7 +188,7 @@ class InteractiveMenu:
         # Use shared console for consistency
         self.console = BaseBlock.get_console()
 
-    def _render_content(self, title: str = None) -> Panel:
+    def _render_content(self, title: str | None = None) -> Panel:
         """Build the menu content as a Rich renderable."""
         content = Text()
 
@@ -228,13 +228,13 @@ class InteractiveMenu:
             padding=(1, 2),
         )
 
-    def _render(self, title: str = None):
+    def _render(self, title: str | None = None):
         """Render the current menu state (legacy method, now uses _render_content)."""
         # This method is kept for backward compatibility but show() now uses Live
         self.console.clear()
         self.console.print(self._render_content(title))
 
-    def show(self, title: str = None, timeout: float = 2.0) -> int | None:
+    def show(self, title: str | None = None, timeout: float = 2.0) -> int | None:
         """
         Display the menu and wait for selection.
 
@@ -310,7 +310,7 @@ class InteractiveMenu:
             # Any other error - fall back to simple input
             return self._fallback_show(title)
 
-    def _fallback_show(self, title: str = None) -> int | None:
+    def _fallback_show(self, title: str | None = None) -> int | None:
         """Fallback for systems without raw keyboard access."""
         if title:
             self.console.print(f"\n[bold]{title}[/bold]\n")
@@ -349,8 +349,8 @@ class ConfirmationMenu(InteractiveMenu):
 
 def interactive_choice(
     options: list[str],
-    title: str = None,
-    descriptions: list[str] = None,
+    title: str | None = None,
+    descriptions: list[str] | None = None,
     default: int = 0,
 ) -> int | None:
     """

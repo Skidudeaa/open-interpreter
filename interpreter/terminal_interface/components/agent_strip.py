@@ -59,7 +59,7 @@ class AgentStrip:
         AgentStatus.CANCELLED: "text_muted",
     }
 
-    def __init__(self, state: UIState, console: Console = None):
+    def __init__(self, state: UIState, console: Console | None = None):
         """
         Initialize the agent strip.
 
@@ -206,7 +206,7 @@ class AgentStrip:
             return f"{total} agent{plural1} ({running} running)"
 
 
-def display_agent_strip(state: UIState, console: Console = None):
+def display_agent_strip(state: UIState, console: Console | None = None):
     """
     Convenience function to display the agent strip.
 

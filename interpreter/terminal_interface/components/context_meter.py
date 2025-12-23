@@ -31,7 +31,7 @@ class ContextMeter:
     - 85-100%: Red (critical)
     """
 
-    def __init__(self, state: UIState, console: Console = None):
+    def __init__(self, state: UIState, console: Console | None = None):
         """
         Initialize the context meter.
 
@@ -188,7 +188,7 @@ class ContextMeter:
         return 100 - self.state.context_usage_percent
 
 
-def display_context_meter(state: UIState, console: Console = None):
+def display_context_meter(state: UIState, console: Console | None = None):
     """
     Convenience function to display the context meter.
 

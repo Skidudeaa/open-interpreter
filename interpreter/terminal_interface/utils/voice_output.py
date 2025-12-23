@@ -16,7 +16,7 @@ _voice_process: subprocess.Popen | None = None
 _voice_lock = threading.Lock()
 
 
-def speak(text: str, voice: str = None, async_speak: bool = True) -> bool:
+def speak(text: str, voice: str | None = None, async_speak: bool = True) -> bool:
     """
     Speak text using platform-appropriate TTS.
 
@@ -71,7 +71,7 @@ def _speak_sync(text: str, voice: str, system: str) -> bool:
             return False
 
 
-def _speak_macos(text: str, voice: str = None) -> bool:
+def _speak_macos(text: str, voice: str | None = None) -> bool:
     """macOS speech using 'say' command."""
     global _voice_process
 
@@ -85,7 +85,7 @@ def _speak_macos(text: str, voice: str = None) -> bool:
         return False
 
 
-def _speak_windows(text: str, voice: str = None) -> bool:
+def _speak_windows(text: str, voice: str | None = None) -> bool:
     """Windows speech using PowerShell SAPI or pyttsx3."""
     global _voice_process
 
@@ -111,7 +111,7 @@ def _speak_windows(text: str, voice: str = None) -> bool:
         return False
 
 
-def _speak_linux(text: str, voice: str = None) -> bool:
+def _speak_linux(text: str, voice: str | None = None) -> bool:
     """Linux speech using espeak or pyttsx3."""
     global _voice_process
 
@@ -137,7 +137,7 @@ def _speak_linux(text: str, voice: str = None) -> bool:
     return _try_pyttsx3(text, voice)
 
 
-def _try_pyttsx3(text: str, voice: str = None) -> bool:
+def _try_pyttsx3(text: str, voice: str | None = None) -> bool:
     """Try to use pyttsx3 for speech."""
     try:
         import pyttsx3

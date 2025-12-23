@@ -133,7 +133,7 @@ class UIErrorContext:
         return False
 
 
-def log_ui_event(component: str, event: str, details: str = None):
+def log_ui_event(component: str, event: str, details: str | None = None):
     """Log a UI event for debugging."""
     msg = f"[{component}] {event}"
     if details:

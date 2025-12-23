@@ -32,6 +32,13 @@ try:
     HAS_UI_EVENTS = True
 except ImportError:
     HAS_UI_EVENTS = False
+    # Define stubs for type checking when imports fail
+    EventBus = None  # type: ignore
+    EventType = None  # type: ignore
+    UIEvent = None  # type: ignore
+    get_event_bus = None  # type: ignore
+    UIAgentRole = None  # type: ignore
+    AgentStatus = None  # type: ignore
 
 if TYPE_CHECKING:
     from ..core import OpenInterpreter

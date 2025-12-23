@@ -36,7 +36,7 @@ class NetworkStatus:
         "offline": ("\U0001f4e1", "text_muted"),  # Antenna, gray
     }
 
-    def __init__(self, console: Console = None):
+    def __init__(self, console: Console | None = None):
         self.console = console or Console()
         self.status: str = "connecting"
         self.retry_count: int = 0

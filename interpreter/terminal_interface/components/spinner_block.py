@@ -35,7 +35,7 @@ class SpinnerBlock:
         "analyzing": ("dots12", THEME["primary"], "Analyzing"),
     }
 
-    def __init__(self, spinner_type: str = "thinking", console: Console = None):
+    def __init__(self, spinner_type: str = "thinking", console: Console | None = None):
         self.console = console or Console()
         self.spinner_type = spinner_type
 
@@ -49,7 +49,7 @@ class SpinnerBlock:
         self.live = None
         self.is_active = False
 
-    def start(self, text: str = None):
+    def start(self, text: str | None = None):
         """
         Start the spinner with optional custom text.
 
@@ -85,7 +85,7 @@ class SpinnerBlock:
         if self.is_active and self.live:
             self.live.update(self._render())
 
-    def stop(self, final_message: str = None, success: bool = True):
+    def stop(self, final_message: str | None = None, success: bool = True):
         """
         Stop the spinner and optionally show a completion message.
 
@@ -123,18 +123,18 @@ class SpinnerBlock:
 class ThinkingSpinner(SpinnerBlock):
     """Convenience class for LLM thinking spinner."""
 
-    def __init__(self, console: Console = None):
+    def __init__(self, console: Console | None = None):
         super().__init__(spinner_type="thinking", console=console)
 
 
 class ExecutingSpinner(SpinnerBlock):
     """Convenience class for code execution spinner."""
 
-    def __init__(self, console: Console = None):
+    def __init__(self, console: Console | None = None):
         super().__init__(spinner_type="executing", console=console)
 
 
-def with_spinner(spinner_type: str = "thinking", text: str = None):
+def with_spinner(spinner_type: str = "thinking", text: str | None = None):
     """
     Context manager for spinner display.
 

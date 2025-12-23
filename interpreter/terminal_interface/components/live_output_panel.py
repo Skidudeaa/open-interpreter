@@ -31,7 +31,7 @@ class LiveOutputPanel:
     MAX_VISIBLE_LINES = 8
     SCROLL_ICON = "\U0001f4dc"  # Scroll emoji
 
-    def __init__(self, console: Console = None):
+    def __init__(self, console: Console | None = None):
         self.console = console or Console()
         self.lines: list[str] = []
         self.live: Live = None

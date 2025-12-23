@@ -26,7 +26,20 @@ try:
     from starlette.status import HTTP_403_FORBIDDEN
 except Exception:
     # Server dependencies are not required by the main package.
-    pass
+    # Define stubs for type checking
+    janus = None  # type: ignore
+    uvicorn = None  # type: ignore
+    APIRouter = None  # type: ignore
+    FastAPI = None  # type: ignore
+    File = None  # type: ignore
+    Form = None  # type: ignore
+    Request = None  # type: ignore
+    UploadFile = None  # type: ignore
+    WebSocket = None  # type: ignore
+    JSONResponse = None  # type: ignore
+    PlainTextResponse = None  # type: ignore
+    StreamingResponse = None  # type: ignore
+    HTTP_403_FORBIDDEN = None  # type: ignore
 
 
 complete_message = {"role": "server", "type": "status", "content": "complete"}

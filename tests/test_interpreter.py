@@ -18,6 +18,7 @@ interpreter = OpenInterpreter()
 # Check if FastAPI is available for server tests
 try:
     import fastapi
+
     FASTAPI_AVAILABLE = True
 except ImportError:
     FASTAPI_AVAILABLE = False
@@ -109,7 +110,6 @@ def test_authenticated_acknowledging_breaking_server():
     import websockets
 
     async def test_fastapi_server():
-
         async with websockets.connect("ws://localhost:8000/") as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
@@ -176,7 +176,7 @@ def test_authenticated_acknowledging_breaking_server():
                     raise (
                         Exception(
                             "It shouldn't have finished this soon, accumulated_content is: "
-                            + accumulated_content
+                            + poem
                         )
                     )
 
@@ -256,7 +256,6 @@ def test_server():
     import websockets
 
     async def test_fastapi_server():
-
         async with websockets.connect("ws://localhost:8000/") as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")

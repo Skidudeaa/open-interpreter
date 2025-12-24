@@ -269,7 +269,9 @@ class OpenInterpreter:
 
         # Lock for thread-safe property lazy loading
         # Prevents race conditions when multiple threads access lazy properties
-        self._property_lock = threading.Lock()
+        self._property_lock = (
+            threading.RLock()
+        )  # RLock allows reentrant locking for nested property access
 
         # Auto-test (run tests after file modifications)
         self.enable_auto_test = False  # Disabled by default

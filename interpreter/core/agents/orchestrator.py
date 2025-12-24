@@ -48,6 +48,7 @@ if TYPE_CHECKING:
 class WorkflowType(Enum):
     """Pre-defined workflow types."""
 
+    NONE = "none"  # No agent needed, use LLM directly
     EXPLORE = "explore"  # Scout only
     EDIT = "edit"  # Scout -> Surgeon
     FULL = "full"  # Scout -> Architect -> Surgeon -> Validator
@@ -328,6 +329,42 @@ class AgentOrchestrator:
         """
         task_lower = task.lower()
 
+        # Skip agent routing for short/simple messages
+        if len(task) < 30:
+            return WorkflowType.NONE
+
+        # Require code/file context indicators for agent routing
+        # Without these, let the LLM handle it directly
+        code_indicators = [
+            ".py",
+            ".js",
+            ".ts",
+            ".jsx",
+            ".tsx",
+            ".go",
+            ".rs",
+            ".java",
+            ".cpp",
+            ".c",
+            ".h",
+            "function",
+            "class",
+            "method",
+            "file",
+            "code",
+            "module",
+            "package",
+            "import",
+            "def ",
+            "const ",
+            "let ",
+            "var ",
+        ]
+        has_code_context = any(ind in task_lower for ind in code_indicators)
+
+        if not has_code_context:
+            return WorkflowType.NONE
+
         # Keywords for different workflows
         explore_keywords = [
             "find",
@@ -359,8 +396,8 @@ class AgentOrchestrator:
         if any(kw in task_lower for kw in explore_keywords):
             return WorkflowType.EXPLORE
 
-        # Default to edit for most tasks
-        return WorkflowType.EDIT
+        # Default to LLM (no agent routing) for most tasks
+        return WorkflowType.NONE
 
     def _run_explore_workflow(
         self,

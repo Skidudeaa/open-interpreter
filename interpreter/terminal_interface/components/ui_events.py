@@ -89,6 +89,9 @@ class EventType(Enum):
     MEMORY_RECORD = auto()  # Edit recorded to semantic memory
     PLUGIN_HOOK = auto()  # Plugin hook executed
 
+    # File change events (for diff display)
+    FILE_CHANGE = auto()  # File modified by code execution
+
 
 @dataclass
 class UIEvent:

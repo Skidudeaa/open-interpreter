@@ -71,6 +71,42 @@ def _build_system_message(interpreter):
     return system_message
 
 
+# Extension to language mapping for file diff display
+_EXTENSION_TO_LANGUAGE = {
+    ".py": "python",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".jsx": "javascript",
+    ".tsx": "typescript",
+    ".json": "json",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".toml": "toml",
+    ".md": "markdown",
+    ".html": "html",
+    ".css": "css",
+    ".scss": "scss",
+    ".sql": "sql",
+    ".sh": "bash",
+    ".bash": "bash",
+    ".rs": "rust",
+    ".go": "go",
+    ".java": "java",
+    ".rb": "ruby",
+    ".php": "php",
+    ".c": "c",
+    ".cpp": "cpp",
+    ".h": "c",
+    ".hpp": "cpp",
+}
+
+
+def _detect_language(file_path: str) -> str:
+    """Detect language from file extension for syntax highlighting."""
+    ext = os.path.splitext(file_path)[1].lower()
+    return _EXTENSION_TO_LANGUAGE.get(ext, "text")
+
+
 def respond(interpreter):
     """
     Yields chunks.
@@ -470,8 +506,13 @@ def respond(interpreter):
                 }
 
                 # === FILE CHANGE DETECTION: BEFORE ===
+                # Capture file states if semantic memory OR file diff display is enabled
                 _file_snapshots_before = {}
-                if interpreter.enable_semantic_memory:
+                _should_detect_file_changes = (
+                    interpreter.enable_semantic_memory
+                    or getattr(interpreter, "show_file_diffs", False)
+                )
+                if _should_detect_file_changes:
                     try:
                         from .utils.file_snapshot import capture_source_file_states
 
@@ -640,9 +681,8 @@ def respond(interpreter):
 
                 # === FILE CHANGE DETECTION: AFTER ===
                 _changed_files = {}
-                if interpreter.enable_semantic_memory and _file_snapshots_before:
+                if _file_snapshots_before:
                     try:
-                        from .core import _get_memory_module
                         from .utils.file_snapshot import (
                             capture_source_file_states,
                             diff_file_states,
@@ -655,8 +695,35 @@ def respond(interpreter):
                             _file_snapshots_before, _file_snapshots_after
                         )
 
-                        # Record detected file changes
-                        if _changed_files:
+                        # Emit FILE_CHANGE events for UI diff display
+                        if _changed_files and getattr(
+                            interpreter, "show_file_diffs", False
+                        ):
+                            for file_path, (
+                                old_content,
+                                new_content,
+                            ) in _changed_files.items():
+                                event_bus.emit(
+                                    UIEvent(
+                                        type=EventType.FILE_CHANGE,
+                                        data={
+                                            "file_path": file_path,
+                                            "old_content": old_content,
+                                            "new_content": new_content,
+                                            "language": _detect_language(file_path),
+                                        },
+                                        source="respond",
+                                    )
+                                )
+
+                        # Record detected file changes to semantic memory
+                        if (
+                            _changed_files
+                            and interpreter.enable_semantic_memory
+                            and interpreter.semantic_graph
+                        ):
+                            from .core import _get_memory_module
+
                             memory_module = _get_memory_module()
                             create_edit = memory_module.get(
                                 "create_edit_from_file_change"
@@ -683,7 +750,7 @@ def respond(interpreter):
                                     interpreter.semantic_graph.record_edit(edit)
                     except Exception as e:
                         logger.debug(
-                            f"File change recording failed (non-blocking): {e}"
+                            f"File change detection failed (non-blocking): {e}"
                         )
                         pass  # Non-blocking
 

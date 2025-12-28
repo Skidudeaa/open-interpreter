@@ -9,14 +9,18 @@ Capabilities:
 - Find functions/classes by name
 - Search for code patterns
 - Build file/directory summaries
+- Query semantic memory for institutional knowledge (past edits, context)
 """
 
 import fnmatch
+import logging
 import os
 import re
 from dataclasses import dataclass
 
 from .base_agent import AgentResult, AgentRole, BaseAgent, create_result
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -108,7 +112,13 @@ Always provide:
 
     def execute(self, task: str, context: str | None = None) -> AgentResult:
         """
-        Execute a scouting task.
+        Execute a scouting task with semantic memory enrichment.
+
+        ARCHITECTURE: Two-phase exploration - fast syntactic search followed
+        by semantic memory enrichment for institutional context.
+
+        WHY: Syntactic search (regex, glob, AST) is fast but lacks context.
+        Semantic memory provides historical "why" behind code patterns.
 
         The task can be:
         - "find files matching X"
@@ -121,7 +131,7 @@ Always provide:
             context: Optional context from other agents
 
         Returns:
-            AgentResult with found files and symbols
+            AgentResult with found files, symbols, and memory context
         """
         self.log(f"Starting scout task: {task[:50]}...")
 
@@ -130,6 +140,7 @@ Always provide:
 
         files_found = []
         symbols_found = []
+        symbol_names = []  # Track actual symbol names for memory queries
         content = []
 
         try:
@@ -144,6 +155,7 @@ Always provide:
             elif "function" in task_lower or "method" in task_lower:
                 # Search for function definitions
                 name = self._extract_identifier(task)
+                symbol_names.append(name)  # Track for memory query
                 results = self.search_symbol(name, symbol_type="function")
                 for r in results[:20]:
                     symbols_found.append(f"{r.file_path}:{r.line_number}")
@@ -151,14 +163,25 @@ Always provide:
                         f"  {r.file_path}:{r.line_number} - {r.content.strip()[:60]}"
                     )
 
+                # Enrich with semantic memory for this symbol
+                if self._has_memory() and name:
+                    symbol_history = self._query_symbol_history(name, limit=3)
+                    content.extend(symbol_history)
+
             elif "class" in task_lower:
                 name = self._extract_identifier(task)
+                symbol_names.append(name)  # Track for memory query
                 results = self.search_symbol(name, symbol_type="class")
                 for r in results[:20]:
                     symbols_found.append(f"{r.file_path}:{r.line_number}")
                     content.append(
                         f"  {r.file_path}:{r.line_number} - {r.content.strip()[:60]}"
                     )
+
+                # Enrich with semantic memory for this symbol
+                if self._has_memory() and name:
+                    symbol_history = self._query_symbol_history(name, limit=3)
+                    content.extend(symbol_history)
 
             elif "search" in task_lower or "grep" in task_lower:
                 pattern = self._extract_pattern(task)
@@ -173,6 +196,29 @@ Always provide:
                 structure = self.get_directory_structure()
                 content.append(structure)
                 files_found = self.find_files("*")[:50]
+
+            elif "history" in task_lower or "past" in task_lower or "why" in task_lower:
+                # Explicit request for historical context - prioritize memory
+                if self._has_memory():
+                    keywords = self._extract_keywords_from_task(task)
+                    if keywords:
+                        intent_history = self._query_intent_history(
+                            keywords[0], limit=10
+                        )
+                        content.extend(intent_history)
+
+                    # Also check for file-specific history
+                    pattern = self._extract_pattern(task)
+                    if pattern and pattern != "*":
+                        files_found = self.find_files(pattern)
+                        for f in files_found[:5]:
+                            knowledge = self._get_institutional_knowledge(f)
+                            if knowledge:
+                                content.append(f"\n{knowledge}")
+                else:
+                    content.append(
+                        "Semantic memory not enabled. Enable with OI_ACTIVATE_ALL=true"
+                    )
 
             else:
                 # General exploration - use LLM
@@ -189,6 +235,15 @@ Always provide:
 
         # Deduplicate
         files_found = list(set(files_found))
+
+        # Phase 2: Enrich with semantic memory (if not already done inline)
+        if self._has_memory() and (files_found or symbols_found):
+            memory_context = self._enrich_results_with_memory(
+                task, files_found, symbols_found
+            )
+            if memory_context:
+                content.append("\n## Semantic Memory Context")
+                content.extend(memory_context)
 
         result = create_result(
             role=self.role,
@@ -445,6 +500,287 @@ Always provide:
 
         except Exception as e:
             return f"Error reading {file_path}: {e}"
+
+    # =========================================================================
+    # Semantic Memory Integration
+    # =========================================================================
+
+    def _has_memory(self) -> bool:
+        """Check if semantic memory is available."""
+        return self._memory is not None
+
+    def _query_symbol_history(self, symbol_name: str, limit: int = 5) -> list[str]:
+        """
+        Query semantic memory for past edits affecting a symbol.
+
+        ARCHITECTURE: Integrates semantic graph queries into exploration flow.
+        WHY: Past edit context helps understand why code is structured this way.
+        TRADEOFF: Slight overhead for memory queries vs richer context.
+
+        Args:
+            symbol_name: Name of the symbol to query
+            limit: Maximum edits to return
+
+        Returns:
+            List of formatted edit history strings
+        """
+        if not self._has_memory():
+            return []
+
+        try:
+            edits = self._memory.query_by_symbol(symbol_name, limit=limit)
+            if not edits:
+                return []
+
+            history = [f"\n### Past Edits for '{symbol_name}' ({len(edits)} found)"]
+            for edit in edits:
+                # Format: [type] file:line - intent
+                intent = (
+                    edit.conversation_context.intent_summary
+                    if edit.conversation_context
+                    else "unknown"
+                )
+                history.append(
+                    f"  - [{edit.edit_type.value}] {edit.file_path} - {intent[:60]}"
+                )
+            return history
+
+        except Exception as e:
+            logger.debug(f"Memory query failed for symbol '{symbol_name}': {e}")
+            return []
+
+    def _query_file_history(self, file_path: str, limit: int = 5) -> list[str]:
+        """
+        Query semantic memory for past edits to a file.
+
+        Args:
+            file_path: Path to the file
+            limit: Maximum edits to return
+
+        Returns:
+            List of formatted edit history strings
+        """
+        if not self._has_memory():
+            return []
+
+        try:
+            edits = self._memory.query_by_file(file_path, limit=limit)
+            if not edits:
+                return []
+
+            history = [f"\n### Edit History for '{file_path}' ({len(edits)} found)"]
+            for edit in edits:
+                intent = (
+                    edit.conversation_context.intent_summary
+                    if edit.conversation_context
+                    else "unknown"
+                )
+                primary = edit.primary_symbol.name if edit.primary_symbol else "unknown"
+                history.append(
+                    f"  - [{edit.edit_type.value}] {primary} - {intent[:50]}"
+                )
+            return history
+
+        except Exception as e:
+            logger.debug(f"Memory query failed for file '{file_path}': {e}")
+            return []
+
+    def _query_intent_history(self, keywords: str, limit: int = 5) -> list[str]:
+        """
+        Query semantic memory for past edits matching intent keywords.
+
+        WHY: When user asks about a concept, past edits with similar intent
+        provide valuable context about how this codebase handles that concept.
+
+        Args:
+            keywords: Keywords to search for in past intents
+            limit: Maximum edits to return
+
+        Returns:
+            List of formatted edit history strings
+        """
+        if not self._has_memory():
+            return []
+
+        try:
+            edits = self._memory.query_by_intent(keywords, limit=limit)
+            if not edits:
+                return []
+
+            history = [f"\n### Past Work Related to '{keywords}' ({len(edits)} found)"]
+            for edit in edits:
+                intent = (
+                    edit.conversation_context.intent_summary
+                    if edit.conversation_context
+                    else "unknown"
+                )
+                history.append(
+                    f"  - [{edit.edit_type.value}] {edit.file_path} - {intent[:50]}"
+                )
+            return history
+
+        except Exception as e:
+            logger.debug(f"Memory query failed for intent '{keywords}': {e}")
+            return []
+
+    def _get_institutional_knowledge(self, file_path: str) -> str | None:
+        """
+        Get institutional knowledge for a file from semantic memory.
+
+        This provides LLM-ready context about the file's edit history,
+        including why changes were made and what symbols were affected.
+
+        Args:
+            file_path: Path to the file
+
+        Returns:
+            Formatted institutional knowledge string or None
+        """
+        if not self._has_memory():
+            return None
+
+        try:
+            knowledge = self._memory.get_institutional_knowledge(
+                file_path, max_edits=10
+            )
+            if "No edit history found" not in knowledge:
+                return knowledge
+            return None
+        except Exception as e:
+            logger.debug(
+                f"Failed to get institutional knowledge for '{file_path}': {e}"
+            )
+            return None
+
+    def _extract_keywords_from_task(self, task: str) -> list[str]:
+        """
+        Extract meaningful keywords from a task for intent search.
+
+        Args:
+            task: The exploration task
+
+        Returns:
+            List of keywords (excluding common words)
+        """
+        # Common words to filter out
+        stopwords = {
+            "find",
+            "search",
+            "for",
+            "the",
+            "a",
+            "an",
+            "in",
+            "on",
+            "at",
+            "to",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "being",
+            "have",
+            "has",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "may",
+            "might",
+            "must",
+            "shall",
+            "can",
+            "need",
+            "all",
+            "any",
+            "both",
+            "each",
+            "few",
+            "more",
+            "most",
+            "other",
+            "some",
+            "such",
+            "no",
+            "not",
+            "only",
+            "same",
+            "so",
+            "than",
+            "too",
+            "very",
+            "just",
+            "where",
+            "how",
+            "what",
+            "which",
+            "who",
+            "why",
+            "when",
+            "file",
+            "files",
+            "function",
+            "method",
+            "class",
+            "code",
+            "pattern",
+        }
+
+        words = re.findall(r"\b[a-zA-Z_][a-zA-Z0-9_]*\b", task.lower())
+        keywords = [w for w in words if w not in stopwords and len(w) > 2]
+        return keywords[:5]  # Limit to top 5
+
+    def _enrich_results_with_memory(
+        self,
+        task: str,
+        files_found: list[str],
+        symbols_found: list[str],
+    ) -> list[str]:
+        """
+        Enrich search results with semantic memory context.
+
+        ARCHITECTURE: Post-search enrichment adds institutional knowledge
+        without slowing down the initial fast search.
+
+        WHY: Combining syntactic search with semantic memory provides
+        both speed (direct file ops) and depth (historical context).
+
+        Args:
+            task: Original exploration task
+            files_found: Files found by syntactic search
+            symbols_found: Symbols found by syntactic search
+
+        Returns:
+            List of memory context strings to append to results
+        """
+        memory_context = []
+
+        # 1. Query by symbols found
+        for symbol_ref in symbols_found[:3]:  # Limit to first 3
+            # Parse "file:line" format
+            if ":" in symbol_ref:
+                parts = symbol_ref.split(":")
+                # Try to extract symbol name from file content
+                pass  # Symbol name not directly available here
+
+        # 2. Query by files found
+        for file_path in files_found[:3]:  # Limit to first 3
+            file_history = self._query_file_history(file_path, limit=3)
+            memory_context.extend(file_history)
+
+        # 3. Query by task keywords
+        keywords = self._extract_keywords_from_task(task)
+        if keywords:
+            # Use first meaningful keyword for intent search
+            intent_history = self._query_intent_history(keywords[0], limit=3)
+            memory_context.extend(intent_history)
+
+        return memory_context
 
     def _should_ignore(self, name: str) -> bool:
         """Check if a file/directory should be ignored."""

@@ -246,7 +246,9 @@ class OpenInterpreter:
         # Semantic memory (lazy-initialized)
         self._semantic_graph = None
         self._conversation_linker = None
-        self.enable_semantic_memory = False  # Disabled by default
+        self.enable_semantic_memory = (
+            True  # Enabled by default for institutional knowledge
+        )
         self.semantic_memory_path = get_storage_path("semantic_graph.db")
 
         # Validation (lazy-initialized)
@@ -278,6 +280,9 @@ class OpenInterpreter:
 
         # Trace feedback (feed execution traces to LLM on failure)
         self.enable_trace_feedback = False  # Disabled by default
+
+        # File diff display (show diffs when code modifies files)
+        self.show_file_diffs = True  # Enabled by default
 
         # Check for OI_ACTIVATE_ALL environment variable (set at module load)
         if _OI_ACTIVATE_ALL:

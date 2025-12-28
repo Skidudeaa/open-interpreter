@@ -258,6 +258,27 @@ def terminal_interface(interpreter, message):
                 f"🔌 {plugin_name}: {hook_name}", level=ToastLevel.INFO, duration=1.5
             )
 
+        elif event.type == EventType.FILE_CHANGE:
+            # Display diff for file changes made by code execution
+            file_path = event.data.get("file_path", "")
+            old_content = event.data.get("old_content", "")
+            new_content = event.data.get("new_content", "")
+            language = event.data.get("language", "text")
+
+            # Show the diff
+            if old_content != new_content and not interpreter.plain_text_display:
+                try:
+                    from rich.console import Console
+
+                    console = Console()
+                    console.print()  # Spacing
+                    console.print(
+                        f"  [bold cyan]📄 {file_path}[/bold cyan]", highlight=False
+                    )
+                    show_diff(old_content, new_content, language)
+                except Exception as e:
+                    log_ui_event("FILE_CHANGE", f"diff display failed: {e}")
+
         # Let mode manager process all events for auto-escalation
         mode_manager.process_event(event)
 
@@ -283,6 +304,7 @@ def terminal_interface(interpreter, message):
         EventType.TEST_END,
         EventType.MEMORY_RECORD,
         EventType.PLUGIN_HOOK,
+        EventType.FILE_CHANGE,
     ]
     for event_type in _subscribed_events:
         event_bus.subscribe(event_type, handle_agent_event)

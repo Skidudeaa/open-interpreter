@@ -332,8 +332,17 @@ class Display:
 
 
 def take_screenshot_to_pil(screen=0, combine_screens=True):
+    # Check for headless environment
+    if screeninfo is None:
+        raise RuntimeError(
+            "Display operations require a graphical environment. "
+            "screeninfo module unavailable (no X11/display detected)."
+        )
+
     # Get information about all screens
     monitors = screeninfo.get_monitors()
+    if not monitors:
+        raise RuntimeError("No monitors detected.")
     if screen == -1:  # All screens
         # Take a screenshot of each screen and save them in a list
         screenshots = [
@@ -431,5 +440,7 @@ def take_screenshot_to_pil(screen=0, combine_screens=True):
 
 
 def get_displays():
+    if screeninfo is None:
+        return []
     monitors = screeninfo.get_monitors()
-    return monitors
+    return monitors if monitors else []

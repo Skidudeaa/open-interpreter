@@ -369,6 +369,13 @@ class OpenInterpreter:
         # File diff display (show diffs when code modifies files)
         self.show_file_diffs = True  # Enabled by default
 
+        # Auto-commit (commit changes after successful edits)
+        self.auto_commit = False  # Disabled by default, explicit opt-in
+
+        # Context compaction (intelligent context management)
+        self.enable_context_compaction = True  # Enabled by default
+        self.context_preserve_recent = 8  # Messages to keep verbatim
+
         # Check for OI_ACTIVATE_ALL environment variable (set at module load)
         if _OI_ACTIVATE_ALL:
             self.enable_semantic_memory = True
@@ -378,6 +385,7 @@ class OpenInterpreter:
             self.enable_auto_test = True
             self.enable_trace_feedback = True
             self.enable_plugins = True
+            self.auto_commit = True
 
         # Load persistent settings from ~/.config/open-interpreter/settings.json
         # These override both defaults and OI_ACTIVATE_ALL
@@ -398,11 +406,19 @@ class OpenInterpreter:
             "enable_plugins",
             "enable_auto_test",
             "enable_trace_feedback",
+            "auto_commit",
+            "enable_context_compaction",
+            "context_preserve_recent",
         ]
 
         for flag in feature_flags:
             if flag in settings:
-                setattr(self, flag, bool(settings[flag]))
+                value = settings[flag]
+                # context_preserve_recent is an int, not a bool
+                if flag == "context_preserve_recent":
+                    setattr(self, flag, int(value))
+                else:
+                    setattr(self, flag, bool(value))
 
     def save_current_settings(self) -> bool:
         """
@@ -420,6 +436,9 @@ class OpenInterpreter:
             "enable_plugins": self.enable_plugins,
             "enable_auto_test": self.enable_auto_test,
             "enable_trace_feedback": self.enable_trace_feedback,
+            "auto_commit": self.auto_commit,
+            "enable_context_compaction": self.enable_context_compaction,
+            "context_preserve_recent": self.context_preserve_recent,
         }
         return save_settings(settings)
 
@@ -552,7 +571,7 @@ class OpenInterpreter:
     def activate_all_features(self):
         """
         Enable all advanced features: semantic memory, validation, tracing, agents,
-        auto-test, trace feedback, and plugins.
+        auto-test, trace feedback, plugins, auto-commit, and context compaction.
         Returns self for method chaining.
         """
         self.enable_semantic_memory = True
@@ -562,6 +581,8 @@ class OpenInterpreter:
         self.enable_auto_test = True
         self.enable_trace_feedback = True
         self.enable_plugins = True
+        self.auto_commit = True
+        self.enable_context_compaction = True
         return self
 
     def local_setup(self):

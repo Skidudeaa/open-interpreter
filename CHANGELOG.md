@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased] - 2025-12-29
+
+### Added
+
+- **Auto-commit**: Git commits after successful file edits with semantic messages
+  - `interpreter.auto_commit = True` (disabled by default)
+  - Format: `[OI] {edit_type}: {symbol}` with file list and affected symbols
+  - `AutoCommitter` class in `validation/auto_commit.py`
+  - Non-blocking: git failures logged but don't interrupt execution
+
+- **Context compaction**: LLM-generated technical flows replace simple message deletion
+  - `interpreter.enable_context_compaction = True` (enabled by default)
+  - `interpreter.context_preserve_recent = 8` (messages kept verbatim)
+  - Binary search for optimal split point
+  - Generates decision points with WHY + abbreviated diffs
+  - Falls back to tokentrim on failure
+  - New module: `interpreter/core/context/`
+
+- **GIT_COMMIT event**: UI feedback when auto-commit completes
+
+---
+
 ## [Unreleased] - 2025-12-23
 
 ### Changed

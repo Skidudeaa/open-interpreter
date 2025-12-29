@@ -734,6 +734,9 @@ def respond(interpreter):
                                 if m.get("role") == "user"
                             ]
 
+                            # Collect all edits for batch processing
+                            edits_to_commit = []
+
                             for file_path, (
                                 old_content,
                                 new_content,
@@ -748,6 +751,45 @@ def respond(interpreter):
                                         else "",
                                     )
                                     interpreter.semantic_graph.record_edit(edit)
+                                    edits_to_commit.append(edit)
+
+                            # === AUTO-COMMIT HOOK ===
+                            if interpreter.auto_commit and edits_to_commit:
+                                try:
+                                    from .validation.auto_commit import (
+                                        batch_auto_commit,
+                                    )
+
+                                    commit_hash = batch_auto_commit(
+                                        edits=edits_to_commit,
+                                        project_root=interpreter.computer.cwd or ".",
+                                    )
+
+                                    if commit_hash:
+                                        # Update all edits with the commit hash
+                                        for edit in edits_to_commit:
+                                            edit.git_commit_hash = commit_hash
+                                            interpreter.semantic_graph.update_edit_commit_hash(
+                                                edit.id, commit_hash
+                                            )
+
+                                        # Emit commit event for UI feedback
+                                        event_bus = get_event_bus()
+                                        event_bus.emit(
+                                            UIEvent(
+                                                type=EventType.GIT_COMMIT,
+                                                data={
+                                                    "commit_hash": commit_hash,
+                                                    "files_count": len(edits_to_commit),
+                                                },
+                                                source="respond",
+                                            )
+                                        )
+                                        _status["committed"] = True
+                                except Exception as commit_error:
+                                    logger.debug(
+                                        f"Auto-commit failed (non-blocking): {commit_error}"
+                                    )
                     except Exception as e:
                         logger.debug(
                             f"File change detection failed (non-blocking): {e}"

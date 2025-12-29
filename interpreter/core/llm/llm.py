@@ -225,7 +225,24 @@ class Llm:
         system_message = messages[0]["content"]
         messages = messages[1:]
 
-        # Trim messages
+        # === CONTEXT COMPACTION ===
+        # Intelligent context management: generate technical flow for old messages
+        # instead of just deleting them (which tokentrim does as fallback)
+        if getattr(self.interpreter, "enable_context_compaction", False):
+            try:
+                from ..context.compaction import ContextCompactor
+
+                compactor = ContextCompactor(self.interpreter)
+                messages = compactor.compact(messages, system_message)
+            except Exception as e:
+                # Non-blocking: fall through to tokentrim
+                import logging
+
+                logging.getLogger(__name__).debug(
+                    f"Context compaction failed (falling back to tokentrim): {e}"
+                )
+
+        # Trim messages (fallback for compaction or primary if compaction disabled)
         try:
             if self.context_window and self.max_tokens:
                 trim_to_be_this_many_tokens = (

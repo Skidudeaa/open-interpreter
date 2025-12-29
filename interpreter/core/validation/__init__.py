@@ -10,6 +10,7 @@ Validates code edits before applying them using:
 No Docker required - uses temp files and subprocess isolation.
 """
 
+from .auto_commit import AutoCommitter, auto_commit_edit, batch_auto_commit
 from .rollback import EditRollback
 from .syntax_checker import SyntaxChecker
 from .test_discovery import TestDiscovery
@@ -21,4 +22,7 @@ __all__ = [
     "SyntaxChecker",
     "TestDiscovery",
     "EditRollback",
+    "AutoCommitter",
+    "auto_commit_edit",
+    "batch_auto_commit",
 ]

@@ -91,6 +91,7 @@ class EventType(Enum):
 
     # File change events (for diff display)
     FILE_CHANGE = auto()  # File modified by code execution
+    GIT_COMMIT = auto()  # Auto-commit completed
 
 
 @dataclass

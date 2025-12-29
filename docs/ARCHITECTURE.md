@@ -9,7 +9,9 @@ interpreter/
 │   ├── memory/          # Semantic edit tracking
 │   ├── tracing/         # Execution tracing
 │   ├── agents/          # Multi-agent orchestration
-│   └── validation/      # Edit validation
+│   ├── validation/      # Edit validation + auto-commit
+│   ├── context/         # Context compaction
+│   └── llm/             # LLM abstraction
 └── sdk/                 # Developer API
 ```
 
@@ -34,12 +36,18 @@ interpreter.enable_tracing = True
 interpreter.enable_agents = True
 interpreter.enable_auto_test = True
 interpreter.enable_trace_feedback = True
+interpreter.auto_commit = True  # Commit after edits
+interpreter.enable_context_compaction = True  # Technical flows instead of deletion
+interpreter.context_preserve_recent = 8  # Messages to keep verbatim
 ```
 
 Hooks in `respond.py` (execution loop):
 - Pre-execution: syntax validation, file state snapshot
 - Wrap execution: tracing
-- Post-execution: file change detection, semantic memory recording, auto-test, trace feedback
+- Post-execution: file change detection, semantic memory recording, auto-commit, auto-test, trace feedback
+
+Context management in `llm.py`:
+- Before tokentrim: context compaction generates technical flows for old messages
 
 ## Core Modules
 
@@ -153,6 +161,47 @@ Components:
 - `TestDiscovery` - Finds related tests
 - `EditRollback` - Git-based rollback
 - `TransactionalEdit` - Context manager for safe edits
+- `AutoCommitter` - Git commits with semantic messages
+
+### Auto-Commit (`interpreter/core/validation/auto_commit.py`)
+
+Commits file changes after successful edits.
+
+```python
+interpreter.auto_commit = True  # Enable
+
+# Commit message format:
+# [OI] feature: validate_email
+#
+# Add input validation for email field
+#
+# Files: validators.py, models.py
+# Affected: validate_email, UserModel
+```
+
+Components:
+- `AutoCommitter` - Git staging and commit with semantic messages
+- `batch_auto_commit()` - Convenience function for respond.py hook
+
+### Context (`interpreter/core/context/`)
+
+Intelligent context management using LLM-generated technical flows.
+
+```python
+interpreter.enable_context_compaction = True  # Default
+interpreter.context_preserve_recent = 8  # Messages to keep verbatim
+```
+
+Instead of tokentrim's "delete oldest messages", generates:
+- Decision points with WHY reasoning
+- Abbreviated diffs of file changes
+- Phase-based organization
+- Current state checkpoint
+
+Components:
+- `ContextCompactor` - Binary search for optimal split point
+- `TechnicalFlowGenerator` - LLM-based flow document generation
+- `TokenBudgetCalculator` - Token counting utilities
 
 ## SDK (`interpreter/sdk/`)
 

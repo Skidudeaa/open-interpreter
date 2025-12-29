@@ -391,6 +391,40 @@ class SemanticEditGraph:
             return Edit.from_dict(json.loads(result[0]))
         return None
 
+    def update_edit_commit_hash(self, edit_id: str, commit_hash: str) -> bool:
+        """
+        Update the git_commit_hash for an existing edit.
+
+        # WHY: Auto-commit happens after edit is recorded; need to update with hash.
+        # TRADEOFF: Extra DB write vs. accurate commit tracking.
+
+        Args:
+            edit_id: The edit ID to update
+            commit_hash: The git commit hash
+
+        Returns:
+            True if updated successfully
+        """
+        try:
+            if self._use_duckdb:
+                self._connection.execute(
+                    "UPDATE edits SET git_commit_hash = ? WHERE id = ?",
+                    [commit_hash, edit_id],
+                )
+            else:
+                cursor = self._connection.cursor()
+                cursor.execute(
+                    "UPDATE edits SET git_commit_hash = ? WHERE id = ?",
+                    (commit_hash, edit_id),
+                )
+                self._connection.commit()
+
+            logger.debug(f"Updated edit {edit_id} with commit hash {commit_hash[:8]}")
+            return True
+        except Exception as e:
+            logger.debug(f"Failed to update commit hash for {edit_id}: {e}")
+            return False
+
     def query_by_symbol(
         self, symbol_name: str, limit: int = 10, include_related: bool = True
     ) -> list[Edit]:

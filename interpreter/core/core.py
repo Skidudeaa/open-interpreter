@@ -126,6 +126,85 @@ def _get_agents_module():
     return _agents_module
 
 
+# =============================================================================
+# Persistent Settings
+# =============================================================================
+
+_settings_cache = None
+
+
+def _get_settings_path() -> str:
+    """Get path to persistent settings file."""
+    return get_storage_path("settings.json")
+
+
+def _load_settings() -> dict:
+    """
+    Load settings from persistent config file.
+
+    Settings file location: ~/.config/open-interpreter/settings.json
+
+    Example settings.json:
+    {
+        "enable_semantic_memory": true,
+        "enable_validation": true,
+        "enable_tracing": false,
+        "enable_agents": true,
+        "enable_plugins": true,
+        "enable_auto_test": false,
+        "enable_trace_feedback": false
+    }
+    """
+    global _settings_cache
+    if _settings_cache is not None:
+        return _settings_cache
+
+    settings_path = _get_settings_path()
+    try:
+        if os_module.path.exists(settings_path):
+            with open(settings_path) as f:
+                _settings_cache = json.load(f)
+                return _settings_cache
+    except Exception:
+        pass  # Non-blocking - use defaults
+
+    _settings_cache = {}
+    return _settings_cache
+
+
+def save_settings(settings: dict) -> bool:
+    """
+    Save settings to persistent config file.
+
+    Args:
+        settings: Dict of settings to save (merged with existing)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    global _settings_cache
+    settings_path = _get_settings_path()
+
+    try:
+        # Load existing settings
+        existing = _load_settings().copy()
+        # Merge with new settings
+        existing.update(settings)
+
+        # Ensure directory exists
+        os_module.makedirs(os_module.path.dirname(settings_path), exist_ok=True)
+
+        # Write atomically
+        with open(settings_path, "w") as f:
+            json.dump(existing, f, indent=2)
+
+        # Update cache
+        _settings_cache = existing
+        return True
+    except Exception:
+        return False
+
+
 class OpenInterpreter:
     """
     This class (one instance is called an `interpreter`) is the "grand central station" of this project.
@@ -254,7 +333,7 @@ class OpenInterpreter:
         # Validation (lazy-initialized)
         self._validator = None
         self._syntax_checker = None
-        self.enable_validation = False  # Disabled by default
+        self.enable_validation = True  # Enabled by default for syntax checking
 
         # Tracing (lazy-initialized)
         self._tracer = None
@@ -263,11 +342,11 @@ class OpenInterpreter:
 
         # Agents (lazy-initialized)
         self._agent_orchestrator = None
-        self.enable_agents = False  # Disabled by default
+        self.enable_agents = True  # Enabled by default for smart exploration
 
         # Plugin system (lazy-initialized)
         self._plugin_registry = None
-        self.enable_plugins = False  # Disabled by default
+        self.enable_plugins = True  # Enabled by default for extensibility
 
         # Lock for thread-safe property lazy loading
         # Prevents race conditions when multiple threads access lazy properties
@@ -293,6 +372,50 @@ class OpenInterpreter:
             self.enable_auto_test = True
             self.enable_trace_feedback = True
             self.enable_plugins = True
+
+        # Load persistent settings from ~/.config/open-interpreter/settings.json
+        # These override both defaults and OI_ACTIVATE_ALL
+        self._apply_persistent_settings()
+
+    def _apply_persistent_settings(self):
+        """Apply settings from persistent config file."""
+        settings = _load_settings()
+        if not settings:
+            return
+
+        # Map of setting names to attribute names
+        feature_flags = [
+            "enable_semantic_memory",
+            "enable_validation",
+            "enable_tracing",
+            "enable_agents",
+            "enable_plugins",
+            "enable_auto_test",
+            "enable_trace_feedback",
+        ]
+
+        for flag in feature_flags:
+            if flag in settings:
+                setattr(self, flag, bool(settings[flag]))
+
+    def save_current_settings(self) -> bool:
+        """
+        Save current feature flag settings to persistent config.
+
+        Usage:
+            interpreter.enable_tracing = True
+            interpreter.save_current_settings()  # Now persists across sessions
+        """
+        settings = {
+            "enable_semantic_memory": self.enable_semantic_memory,
+            "enable_validation": self.enable_validation,
+            "enable_tracing": self.enable_tracing,
+            "enable_agents": self.enable_agents,
+            "enable_plugins": self.enable_plugins,
+            "enable_auto_test": self.enable_auto_test,
+            "enable_trace_feedback": self.enable_trace_feedback,
+        }
+        return save_settings(settings)
 
     @property
     def semantic_graph(self):

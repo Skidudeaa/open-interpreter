@@ -101,6 +101,40 @@ interpreter.auto_run = True                  # Skip confirmations
 interpreter.system_message += "Custom instructions..."
 ```
 
+### Feature Flags
+
+Settings persist in `~/.config/open-interpreter/settings.json`:
+
+```json
+{
+  "enable_semantic_memory": true,
+  "enable_validation": true,
+  "enable_agents": true,
+  "enable_plugins": true,
+  "enable_tracing": false,
+  "enable_auto_test": false,
+  "enable_trace_feedback": false
+}
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `enable_semantic_memory` | ✅ ON | Records edits with context, enables institutional knowledge |
+| `enable_validation` | ✅ ON | Syntax checking before code execution |
+| `enable_agents` | ✅ ON | Multi-agent orchestration (Scout, Surgeon) |
+| `enable_plugins` | ✅ ON | Plugin hooks for extensibility |
+| `enable_tracing` | ❌ OFF | Runtime execution tracing (high overhead) |
+| `enable_auto_test` | ❌ OFF | Auto-run related tests after changes |
+| `enable_trace_feedback` | ❌ OFF | Feed traces to LLM on failure |
+
+**To change and persist:**
+```python
+interpreter.enable_tracing = True
+interpreter.save_current_settings()  # Saves to settings.json
+```
+
+**Priority:** Code defaults → `OI_ACTIVATE_ALL=true` → `settings.json` (highest)
+
 ## Docs
 
 | Topic | Location |

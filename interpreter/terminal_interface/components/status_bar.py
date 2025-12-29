@@ -220,39 +220,44 @@ class FeaturesBanner:
         self.interpreter = interpreter
         self.console = console or Console()
 
-    def get_enabled_features(self) -> list:
-        """Get list of enabled features."""
+    def get_all_features(self) -> dict:
+        """Get dict of all features with their status."""
         if not self.interpreter:
-            return []
+            return {}
 
-        features = []
-        if getattr(self.interpreter, "enable_semantic_memory", False):
-            features.append("memory")
-        if getattr(self.interpreter, "enable_validation", False):
-            features.append("validation")
-        if getattr(self.interpreter, "enable_tracing", False):
-            features.append("tracing")
-        if getattr(self.interpreter, "enable_agents", False):
-            features.append("agents")
-        if getattr(self.interpreter, "enable_auto_test", False):
-            features.append("auto-test")
-        if getattr(self.interpreter, "enable_trace_feedback", False):
-            features.append("trace-fb")
-        return features
+        return {
+            "memory": getattr(self.interpreter, "enable_semantic_memory", False),
+            "validation": getattr(self.interpreter, "enable_validation", False),
+            "agents": getattr(self.interpreter, "enable_agents", False),
+            "plugins": getattr(self.interpreter, "enable_plugins", False),
+            "tracing": getattr(self.interpreter, "enable_tracing", False),
+            "auto-test": getattr(self.interpreter, "enable_auto_test", False),
+            "trace-fb": getattr(self.interpreter, "enable_trace_feedback", False),
+        }
+
+    def get_enabled_features(self) -> list:
+        """Get list of enabled features (for backwards compat)."""
+        return [k for k, v in self.get_all_features().items() if v]
 
     def render(self) -> Panel:
-        """Render the features banner."""
-        features = self.get_enabled_features()
+        """Render the features banner showing all features."""
+        features = self.get_all_features()
 
         if not features:
             return None
 
         check = "\u2713"  # ✓
+        cross = "\u2717"  # ✗
         bolt = "\u26a1"  # ⚡
 
         parts = []
-        for f in features:
-            parts.append(f"[{THEME['success']}]{f} {check}[/{THEME['success']}]")
+        for name, enabled in features.items():
+            if enabled:
+                parts.append(f"[{THEME['success']}]{name} {check}[/{THEME['success']}]")
+            else:
+                parts.append(
+                    f"[{THEME['text_muted']}]{name} {cross}[/{THEME['text_muted']}]"
+                )
 
         content = Text.from_markup(f"{bolt} Features: " + "  ".join(parts))
 
@@ -265,7 +270,7 @@ class FeaturesBanner:
         )
 
     def display(self):
-        """Print the features banner if any features are enabled."""
+        """Print the features banner."""
         panel = self.render()
         if panel:
             self.console.print(panel)

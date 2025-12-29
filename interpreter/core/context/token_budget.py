@@ -63,15 +63,33 @@ class TokenBudgetCalculator:
         if self.interpreter.llm.context_window:
             return self.interpreter.llm.context_window
 
+        model = self.interpreter.llm.model or ""
+
         # Try to detect from litellm
         try:
             import litellm
 
-            model = self.interpreter.llm.model
             info = litellm.get_model_info(model)
             return info.get("max_input_tokens", 8000)
         except Exception:
-            return 8000  # Conservative default
+            pass
+
+        # Fallback for models not yet in litellm registry
+        # WHY: New models (e.g., gemini-3-flash-preview) may not be registered yet
+        model_lower = model.lower()
+        if "gemini" in model_lower:
+            # Gemini models typically have 1M+ context
+            if "pro" in model_lower:
+                return 2097152  # 2M for Pro variants
+            return 1048576  # 1M for Flash/other variants
+        elif "claude" in model_lower:
+            return 200000  # Claude models
+        elif "gpt-4" in model_lower:
+            if "turbo" in model_lower or "o" in model_lower:
+                return 128000
+            return 8192
+
+        return 8000  # Conservative default for unknown models
 
     def get_max_tokens(self) -> int:
         """Get the maximum output tokens."""

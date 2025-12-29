@@ -129,6 +129,12 @@ def _get_agents_module():
 # =============================================================================
 # Persistent Settings
 # =============================================================================
+# NOTE: Thread safety analysis (2024-12):
+# - _load_settings() and save_settings() are NOT locked with _module_lock
+# - Race condition risk is LOW for CLI usage (single-threaded settings access)
+# - For SDK/server with concurrent save_current_settings() calls, last-write-wins
+# - If this becomes a problem, wrap with _module_lock like the lazy-load functions above
+# =============================================================================
 
 _settings_cache = None
 

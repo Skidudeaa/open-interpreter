@@ -271,7 +271,7 @@ class InputHandler:
                 )
                 return
 
-            event.app.exit()
+            event.app.exit(exception=EOFError())
 
         # Clear screen
         @kb.add("c-l")
@@ -284,7 +284,7 @@ class InputHandler:
             # Treat whitespace-only buffers as empty so quit works even after
             # multiline input that left trailing newlines/spaces.
             if not event.current_buffer.text.strip():
-                event.app.exit()
+                event.app.exit(exception=EOFError())
 
         # Mode toggle - Alt+P (as escape sequence) and F2
         @kb.add("escape", "p")

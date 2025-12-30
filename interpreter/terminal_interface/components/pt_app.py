@@ -221,7 +221,7 @@ class InterpreterApp:
                 event.app.invalidate()
                 return
 
-            event.app.exit()
+            event.app.exit(exception=EOFError())
 
         # Clear screen
         @self.kb.add("c-l")
@@ -235,7 +235,7 @@ class InterpreterApp:
             # Treat whitespace-only buffers as empty so quit works even after
             # multiline input that left trailing newlines/spaces.
             if not self.input_buffer.text.strip():
-                event.app.exit()
+                event.app.exit(exception=EOFError())
 
         # Toggle power mode (Alt+P or F2)
         @self.kb.add("escape", "p")  # Alt+P as escape sequence

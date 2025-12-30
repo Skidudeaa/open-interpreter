@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased] - 2025-12-30
+
+### Fixed
+
+- **Ctrl+C/Ctrl+D exit**: `event.app.exit()` returned empty string instead of raising exception, causing main loop to continue. Now uses `event.app.exit(exception=EOFError())`.
+
+---
+
 ## [Unreleased] - 2025-12-29
 
 ### Added

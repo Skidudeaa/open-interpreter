@@ -110,6 +110,7 @@ OI_NO_TUI=true                    # Disable interactive mode
 2. **Lazy Loading** - Memory, validation, tracing, agents loaded on first use (thread-safe double-checked locking)
 3. **Generator-Based Streaming** - `respond()` yields chunks for real-time display
 4. **Git-Based Rollback** - `TransactionalEdit` context manager for atomic file changes
+5. **Exit via Exception** - Ctrl+C/D use `event.app.exit(exception=EOFError())` so prompt_toolkit raises instead of returning empty string
 
 ## Code Style
 

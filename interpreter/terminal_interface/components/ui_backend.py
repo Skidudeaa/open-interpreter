@@ -431,15 +431,17 @@ class PromptToolkitBackend(UIBackend):
             completer = create_completer(self.interpreter)
 
             # IMPORTANT:
-            # - multiline=True makes Enter insert a newline (appears "frozen" to users expecting Enter to submit).
-            # - Only enable multiline when the interpreter explicitly requests it.
-            multiline_enabled = bool(getattr(self.interpreter, "multi_line", False))
-
+            # - multiline=False lets custom key bindings handle smart multiline detection.
+            # - The InputHandler's _should_insert_newline() triggers multiline only for:
+            #   1. Triple-quote blocks (""")
+            #   2. Text that already contains newlines
+            # - This way Enter submits by default (expected UX), and users can still
+            #   do multiline input via """ or Alt+Enter/Ctrl+O.
             session = PromptSession(
                 history=self._input_handler.history,
                 auto_suggest=AutoSuggestFromHistory(),
                 completer=completer,
-                multiline=multiline_enabled,
+                multiline=False,
                 key_bindings=self._input_handler.create_key_bindings(),
                 enable_history_search=True,
                 complete_while_typing=False,
@@ -452,14 +454,7 @@ class PromptToolkitBackend(UIBackend):
                 ]
             )
 
-            bottom_toolbar = None
-            if multiline_enabled:
-                # Make it obvious how to submit, otherwise it looks like the UI is stuck.
-                bottom_toolbar = (
-                    "Multiline: Enter=newline, Esc+Enter=submit, Ctrl+C=cancel"
-                )
-
-            result = session.prompt(formatted_prompt, bottom_toolbar=bottom_toolbar)
+            result = session.prompt(formatted_prompt)
             return result or ""
 
         except KeyboardInterrupt:
@@ -490,7 +485,7 @@ def is_tty() -> bool:
 def prompt_toolkit_available() -> bool:
     """Check if prompt_toolkit is installed"""
     try:
-        import prompt_toolkit
+        import prompt_toolkit  # noqa: F401
 
         return True
     except ImportError:

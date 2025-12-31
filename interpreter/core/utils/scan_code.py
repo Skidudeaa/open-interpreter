@@ -29,15 +29,21 @@ def scan_code(code, language, interpreter):
 
     # Run semgrep
     try:
-        # HACK: we need to give the subprocess shell access so that the semgrep from our pyproject.toml is available
-        # the global namespace might have semgrep from guarddog installed, but guarddog is currently
-        # pinned to an old semgrep version that has issues with reading the semgrep registry
-        # while scanning a single file like the temporary one we generate
-        # if guarddog solves [#249](https://github.com/DataDog/guarddog/issues/249) we can change this approach a bit
+        # NOTE: Using list form instead of shell=True to avoid command injection risk.
+        # The cwd parameter handles the directory change safely.
         with yaspin(text="  Scanning code...").green.right.binary as loading:
             scan = subprocess.run(
-                f"cd {temp_path} && semgrep scan --config auto --quiet --error {file_name}",
-                shell=True,
+                [
+                    "semgrep",
+                    "scan",
+                    "--config",
+                    "auto",
+                    "--quiet",
+                    "--error",
+                    file_name,
+                ],
+                cwd=temp_path,
+                capture_output=True,
             )
 
         if scan.returncode == 0:
@@ -47,8 +53,8 @@ def scan_code(code, language, interpreter):
             )
             print("")
 
-        # TODO: it would be great if we could capture any vulnerabilities identified by semgrep
-        # and add them to the conversation history
+        # TODO(enhancement): Parse scan.stdout/stderr to extract vulnerabilities
+        # and add them to the conversation history for LLM context
 
     except Exception as e:
         print(f"Could not scan {language} code. Have you installed 'semgrep'?")

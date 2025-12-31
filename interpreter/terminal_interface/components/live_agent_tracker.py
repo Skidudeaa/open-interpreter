@@ -7,9 +7,12 @@ in real-time as agents work. Uses Rich's Live display for flicker-free updates.
 Format: [🔍 Scout ⏳ 2.3s] [🔧 Surgeon ✓ 1.1s] [🏗️ Architect ▶ running]
 """
 
+import logging
 import threading
 import time
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 from rich.console import Console
 from rich.live import Live
@@ -204,8 +207,8 @@ class LiveAgentTracker:
         if self._live and self._running:
             try:
                 self._live.update(self._render())
-            except Exception:
-                pass  # Ignore render errors during shutdown
+            except Exception as e:
+                logger.debug(f"Render error during shutdown: {e}")
 
     def _update_loop(self):
         """Background thread for periodic updates."""
@@ -247,8 +250,8 @@ class LiveAgentTracker:
         if self._live:
             try:
                 self._live.stop()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Error stopping live display: {e}")
             self._live = None
 
         # Wait for update thread

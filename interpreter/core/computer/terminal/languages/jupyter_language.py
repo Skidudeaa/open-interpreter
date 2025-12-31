@@ -18,7 +18,7 @@ from jupyter_client import KernelManager
 
 from ..base_language import BaseLanguage
 
-DEBUG_MODE = False
+DEBUG_MODE = os.environ.get("OI_DEBUG_JUPYTER", "").lower() in ("true", "1", "yes")
 
 # When running from an executable, ipykernel calls itself infinitely
 # This is a workaround to detect it and launch it manually

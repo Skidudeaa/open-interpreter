@@ -19,40 +19,41 @@ class Vision:
     def load(self, load_moondream=True, load_easyocr=True):
         # print("Loading vision models (Moondream, EasyOCR)...\n")
 
-        with (
-            contextlib.redirect_stdout(open(os.devnull, "w")),
-            contextlib.redirect_stderr(open(os.devnull, "w")),
-        ):
-            if self.easyocr is None and load_easyocr:
-                import easyocr
+        with open(os.devnull, "w") as devnull_out, open(os.devnull, "w") as devnull_err:
+            with (
+                contextlib.redirect_stdout(devnull_out),
+                contextlib.redirect_stderr(devnull_err),
+            ):
+                if self.easyocr is None and load_easyocr:
+                    import easyocr
 
-                self.easyocr = easyocr.Reader(
-                    ["en"]
-                )  # this needs to run only once to load the model into memory
+                    self.easyocr = easyocr.Reader(
+                        ["en"]
+                    )  # this needs to run only once to load the model into memory
 
-            if self.model is None and load_moondream:
-                import transformers  # Wait until we use it. Transformers can't be lazy loaded for some reason!
+                if self.model is None and load_moondream:
+                    import transformers  # Wait until we use it. Transformers can't be lazy loaded for some reason!
 
-                os.environ["TOKENIZERS_PARALLELISM"] = "false"
+                    os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-                if self.computer.debug:
-                    print(
-                        "Open Interpreter will use Moondream (tiny vision model) to describe images to the language model. Set `interpreter.llm.vision_renderer = None` to disable this behavior."
+                    if self.computer.debug:
+                        print(
+                            "Open Interpreter will use Moondream (tiny vision model) to describe images to the language model. Set `interpreter.llm.vision_renderer = None` to disable this behavior."
+                        )
+                        print(
+                            "Alternatively, you can use a vision-supporting LLM and set `interpreter.llm.supports_vision = True`."
+                        )
+                    model_id = "vikhyatk/moondream2"
+                    revision = "2024-04-02"
+                    print("loading model")
+
+                    self.model = transformers.AutoModelForCausalLM.from_pretrained(
+                        model_id, trust_remote_code=True, revision=revision
                     )
-                    print(
-                        "Alternatively, you can use a vision-supporting LLM and set `interpreter.llm.supports_vision = True`."
+                    self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+                        model_id, revision=revision
                     )
-                model_id = "vikhyatk/moondream2"
-                revision = "2024-04-02"
-                print("loading model")
-
-                self.model = transformers.AutoModelForCausalLM.from_pretrained(
-                    model_id, trust_remote_code=True, revision=revision
-                )
-                self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-                    model_id, revision=revision
-                )
-                return True
+                    return True
 
     def ocr(
         self,
@@ -164,10 +165,11 @@ class Vision:
         elif pil_image:
             img = pil_image
 
-        with contextlib.redirect_stdout(open(os.devnull, "w")):
-            enc_image = self.model.encode_image(img)
-            answer = self.model.answer_question(
-                enc_image, query, self.tokenizer, max_length=400
-            )
+        with open(os.devnull, "w") as devnull:
+            with contextlib.redirect_stdout(devnull):
+                enc_image = self.model.encode_image(img)
+                answer = self.model.answer_question(
+                    enc_image, query, self.tokenizer, max_length=400
+                )
 
         return answer

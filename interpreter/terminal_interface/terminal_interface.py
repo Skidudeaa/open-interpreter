@@ -8,12 +8,15 @@ try:
 except ImportError:
     pass
 
+import logging
 import os
 import random
 import re
 import subprocess
 import tempfile
 import time
+
+logger = logging.getLogger(__name__)
 
 from ..core.utils.scan_code import scan_code
 from ..core.utils.system_debug_info import system_info
@@ -103,7 +106,7 @@ def _fuzzy_find_file(filename: str, search_dir: str = ".") -> tuple[str | None, 
     return best_match, best_score
 
 
-def expand_at_references(message: str) -> str:
+def expand_at_references(message):
     """
     Expand @path references by prepending file contents.
 
@@ -112,14 +115,18 @@ def expand_at_references(message: str) -> str:
     Uses fuzzy matching to recover from typos (95%+ auto-subs, 85%+ suggests).
 
     Args:
-        message: User message potentially containing @path references
+        message: User message (string) or LMC format messages (list/dict)
 
     Returns:
-        Message with file contents prepended as context blocks
+        Message with file contents prepended as context blocks (strings only)
 
     WHY: File references give users a quick way to include file context without copy-paste.
     TRADEOFF: Silent failure on missing files was confusing; now we report unresolved refs.
     """
+    # Only process string messages - LMC format (list/dict) passes through unchanged
+    if not isinstance(message, str):
+        return message
+
     # Pattern: @ followed by path chars, not preceded by non-whitespace (skip emails)
     pattern = r"(?<!\S)@([\w./_~-]+)"
     matches = re.findall(pattern, message)
@@ -600,7 +607,8 @@ def terminal_interface(interpreter, message):
                     try:
                         thinking_spinner = ThinkingSpinner()
                         thinking_spinner.start("Thinking")
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"ThinkingSpinner failed to start: {e}")
                         thinking_spinner = None  # Continue without spinner
 
             # Expand @file references to include file contents
@@ -1106,7 +1114,8 @@ def terminal_interface(interpreter, message):
                 # Cleanup handlers before exiting
                 _cleanup_event_handlers()
                 break
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Terminal interface error: {e}")
             # Stop spinner on error to avoid terminal lock
             if "thinking_spinner" in locals() and thinking_spinner:
                 thinking_spinner.stop()

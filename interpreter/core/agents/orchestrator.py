@@ -19,6 +19,14 @@ from typing import TYPE_CHECKING, Optional
 from .base_agent import AgentResult, AgentRole, BaseAgent
 
 # Import UI event system for agent visualization
+HAS_UI_EVENTS = False
+EventBus = None
+EventType = None
+UIEvent = None
+get_event_bus = None
+UIAgentRole = None
+AgentStatus = None
+
 try:
     from ...terminal_interface.components.ui_events import (
         EventBus,
@@ -31,14 +39,7 @@ try:
 
     HAS_UI_EVENTS = True
 except ImportError:
-    HAS_UI_EVENTS = False
-    # Define stubs for type checking when imports fail
-    EventBus = None  # type: ignore
-    EventType = None  # type: ignore
-    UIEvent = None  # type: ignore
-    get_event_bus = None  # type: ignore
-    UIAgentRole = None  # type: ignore
-    AgentStatus = None  # type: ignore
+    pass
 
 if TYPE_CHECKING:
     from ..core import OpenInterpreter

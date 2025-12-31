@@ -680,7 +680,6 @@ def create_router(async_interpreter):
             print(error)
             print("\n\n--- (ERROR ABOVE WILL BE SENT WHEN POSSIBLE) ---\n\n")
 
-    # TODO
     @router.post("/")
     async def post_input(payload: dict[str, Any]):
         try:
@@ -753,9 +752,14 @@ def create_router(async_interpreter):
 
         @router.get("/download/{filename}")
         async def download_file(filename: str):
+            def file_iterator(path: str):
+                with open(path, "rb") as f:
+                    while chunk := f.read(8192):
+                        yield chunk
+
             try:
                 return StreamingResponse(
-                    open(filename, "rb"), media_type="application/octet-stream"
+                    file_iterator(filename), media_type="application/octet-stream"
                 )
             except Exception as e:
                 return {"error": str(e)}, 500

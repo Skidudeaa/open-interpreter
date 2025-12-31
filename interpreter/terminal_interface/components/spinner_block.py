@@ -8,7 +8,11 @@ Features:
 - Success/failure completion indicators
 """
 
+import logging
+
 from rich.console import Console
+
+logger = logging.getLogger(__name__)
 from rich.live import Live
 from rich.spinner import Spinner
 from rich.table import Table
@@ -68,9 +72,15 @@ class SpinnerBlock:
             )
             self.live.start()
             self.is_active = True
-        except Exception:
+        except Exception as e:
             # If spinner fails to start, print simple fallback so user knows something is happening
+            logger.debug(f"Spinner failed to start: {e}")
             self.is_active = False
+            if self.live:
+                try:
+                    self.live.stop()
+                except Exception:
+                    pass
             self.live = None
             self.console.print(f"[{self.color}]● {self.text}...[/{self.color}]")
 

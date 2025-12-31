@@ -38,8 +38,27 @@ class SubprocessLanguage(BaseLanguage):
     def terminate(self):
         if self.process:
             self.process.terminate()
-            self.process.stdin.close()
-            self.process.stdout.close()
+            try:
+                self.process.stdin.close()
+            except Exception:
+                pass
+            try:
+                self.process.stdout.close()
+            except Exception:
+                pass
+            try:
+                if self.process.stderr:
+                    self.process.stderr.close()
+            except Exception:
+                pass
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
+            except Exception:
+                pass
+            self.process = None
 
     def start_process(self):
         if self.process:

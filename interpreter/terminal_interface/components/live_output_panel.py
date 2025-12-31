@@ -9,7 +9,11 @@ Instead of scrolling thousands of lines, this panel:
 4. Buffers all output for post-execution access
 """
 
+import logging
+
 from rich.console import Console
+
+logger = logging.getLogger(__name__)
 from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
@@ -49,8 +53,9 @@ class LiveOutputPanel:
                 )
                 self.live.start()
                 self.is_active = True
-            except Exception:
+            except Exception as e:
                 # Graceful degradation if Live fails
+                logger.debug(f"Live output panel failed to start: {e}")
                 self.live = None
                 self.is_active = False
 

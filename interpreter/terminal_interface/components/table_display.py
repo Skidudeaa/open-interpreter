@@ -65,10 +65,14 @@ class TableDisplay:
 
     def from_csv(self, csv_text: str):
         """Parse CSV text into table."""
-        reader = csv.reader(io.StringIO(csv_text))
-        rows = list(reader)
-        if rows:
-            self.from_list_of_lists(rows)
+        try:
+            reader = csv.reader(io.StringIO(csv_text))
+            rows = list(reader)
+            if rows:
+                self.from_list_of_lists(rows)
+        except csv.Error:
+            # Malformed CSV (e.g., embedded newlines in unquoted fields)
+            pass
 
     def from_json(self, json_text: str):
         """Parse JSON array into table."""
@@ -198,6 +202,106 @@ def format_sql_result(
     return capture.get()
 
 
+def _looks_like_csv(output: str) -> bool:
+    """
+    Robust CSV detection using multiple heuristics.
+
+    Returns True only if output strongly appears to be CSV data,
+    avoiding false positives on logs, stack traces, prose, etc.
+    """
+    lines = output.strip().split("\n")
+
+    # Need at least 2 lines (header + 1 data row)
+    if len(lines) < 2:
+        return False
+
+    # Reject if any line is too long (likely prose or logs)
+    if any(len(line) > 500 for line in lines[:10]):
+        return False
+
+    # Reject common non-CSV patterns
+    non_csv_indicators = [
+        "Traceback (most recent call last)",  # Python stack trace
+        'File "',  # Stack trace file refs
+        "Error:",  # Error messages
+        "Exception:",  # Exception messages
+        "WARNING:",  # Log output
+        "INFO:",  # Log output
+        "DEBUG:",  # Log output
+        ">>>",  # Python REPL
+        "...",  # Continuation/progress
+        "━",  # Progress bars (Rich)
+        "─",  # Box drawing
+        "│",  # Box drawing
+        "├",  # Box drawing
+        "└",  # Box drawing
+        "Collecting ",  # pip install
+        "Downloading ",  # pip install
+        "Installing ",  # pip install
+        "Successfully installed",  # pip install
+        "Requirement already",  # pip install
+        "npm ",  # npm output
+        "yarn ",  # yarn output
+        "git ",  # git output
+        "fatal:",  # git errors
+        "  at ",  # JS stack traces
+        "    at ",  # JS stack traces
+    ]
+
+    full_text = output[:2000]  # Check first 2KB
+    if any(indicator in full_text for indicator in non_csv_indicators):
+        return False
+
+    # Use csv.Sniffer to detect if it looks like CSV
+    try:
+        sample = "\n".join(lines[:10])
+        dialect = csv.Sniffer().sniff(sample, delimiters=",\t;|")
+        has_header = csv.Sniffer().has_header(sample)
+    except csv.Error:
+        return False
+
+    # Parse and validate structure
+    try:
+        reader = csv.reader(io.StringIO(output), dialect)
+        rows = list(reader)
+    except csv.Error:
+        return False
+
+    if len(rows) < 2:
+        return False
+
+    header = rows[0]
+    data_rows = rows[1:]
+
+    # Need at least 2 columns
+    if len(header) < 2:
+        return False
+
+    # Headers should look like column names (not sentences)
+    for col in header:
+        col = col.strip()
+        # Reject if header looks like a sentence (too many words or too long)
+        if len(col) > 50 or col.count(" ") > 4:
+            return False
+        # Reject if header contains sentence-ending punctuation
+        if col.endswith((".", "!", "?")):
+            return False
+
+    # Check row consistency - most rows should have same column count
+    col_count = len(header)
+    matching_rows = sum(1 for row in data_rows if len(row) == col_count)
+    if matching_rows < len(data_rows) * 0.8:  # 80% must match
+        return False
+
+    # Check that fields are reasonably sized (not prose paragraphs)
+    for row in data_rows[:5]:
+        for field in row:
+            if len(field) > 200:  # Single field too long
+                return False
+
+    return True
+
+
 def detect_and_format_table(output: str) -> str | None:
     """
     Detect if output contains tabular data and format it.
@@ -208,29 +312,34 @@ def detect_and_format_table(output: str) -> str | None:
     Returns:
         Formatted table string if table detected, None otherwise
     """
-    # Try to detect CSV
-    if "," in output and "\n" in output:
-        lines = output.strip().split("\n")
-        if all(line.count(",") == lines[0].count(",") for line in lines[:5]):
+    # Quick rejection - need comma/tab and newline for CSV
+    if not (("," in output or "\t" in output) and "\n" in output):
+        pass  # Skip CSV detection
+    elif _looks_like_csv(output):
+        try:
             table = TableDisplay()
             table.from_csv(output)
-            if table.columns:
+            if table.columns and len(table.columns) > 1 and len(table.rows) > 0:
                 console = Console(force_terminal=True)
                 with console.capture() as capture:
                     table.show()
                 return capture.get()
+        except Exception:
+            pass  # Not valid CSV, continue
 
     # Try to detect JSON array
-    if output.strip().startswith("["):
+    stripped = output.strip()
+    if stripped.startswith("[") and stripped.endswith("]"):
         try:
             data = json.loads(output)
-            if isinstance(data, list) and data and isinstance(data[0], dict):
+            if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
                 table = TableDisplay()
                 table.from_dicts(data)
-                console = Console(force_terminal=True)
-                with console.capture() as capture:
-                    table.show()
-                return capture.get()
+                if table.columns and len(table.columns) > 1:
+                    console = Console(force_terminal=True)
+                    with console.capture() as capture:
+                        table.show()
+                    return capture.get()
         except json.JSONDecodeError:
             pass
 

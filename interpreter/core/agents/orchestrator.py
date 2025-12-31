@@ -242,13 +242,16 @@ class AgentOrchestrator:
 
     def _create_agent(self, role: AgentRole) -> BaseAgent:
         """Create an agent for the given role."""
+        from .architect_agent import ArchitectAgent
         from .scout_agent import ScoutAgent
         from .surgeon_agent import SurgeonAgent
+        from .validator_agent import ValidatorAgent
 
         agent_classes = {
             AgentRole.SCOUT: ScoutAgent,
             AgentRole.SURGEON: SurgeonAgent,
-            # Add more as implemented
+            AgentRole.ARCHITECT: ArchitectAgent,
+            AgentRole.VALIDATOR: ValidatorAgent,
         }
 
         agent_class = agent_classes.get(role)
@@ -456,16 +459,18 @@ class AgentOrchestrator:
 
         context = scout_result.context_for_next
 
-        # Architect phase (if implemented)
-        if AgentRole.ARCHITECT in self._agents or False:  # Check if available
-            architect_id, architect_result = self._execute_agent_with_events(
-                AgentRole.ARCHITECT, task, context=context, parent_id=scout_id
-            )
-            result.agent_results[AgentRole.ARCHITECT] = architect_result
-            context = architect_result.context_for_next or context
-            parent_for_surgeon = architect_id
-        else:
-            parent_for_surgeon = scout_id
+        # Architect phase
+        architect_id, architect_result = self._execute_agent_with_events(
+            AgentRole.ARCHITECT, task, context=context, parent_id=scout_id
+        )
+        result.agent_results[AgentRole.ARCHITECT] = architect_result
+
+        if not architect_result.success:
+            result.errors.append("Architect phase failed")
+            return
+
+        context = architect_result.context_for_next or context
+        parent_for_surgeon = architect_id
 
         # Surgeon phase
         surgeon_id, surgeon_result = self._execute_agent_with_events(
@@ -484,8 +489,8 @@ class AgentOrchestrator:
                 if not surgeon.apply_edit(edit):
                     result.errors.append(f"Failed to apply edit to {edit.file_path}")
 
-        # Validator phase (if implemented and edits were applied)
-        if auto_apply and AgentRole.VALIDATOR in self._agents or False:
+        # Validator phase (run after edits are applied)
+        if auto_apply:
             validator_id, validator_result = self._execute_agent_with_events(
                 AgentRole.VALIDATOR,
                 f"Validate edits for: {task}",
@@ -500,9 +505,10 @@ class AgentOrchestrator:
         result: WorkflowResult,
     ):
         """Run validation-only workflow."""
-        # For now, just run basic validation
-        # Full validator agent can be implemented later
-        result.errors.append("Validator agent not yet implemented")
+        validator_id, validator_result = self._execute_agent_with_events(
+            AgentRole.VALIDATOR, task
+        )
+        result.agent_results[AgentRole.VALIDATOR] = validator_result
 
     def _build_final_context(self, result: WorkflowResult) -> str:
         """Build a combined context from all agent results."""

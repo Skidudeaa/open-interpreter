@@ -177,16 +177,27 @@ def respond(interpreter):
                         latest_task
                     )
 
-                    # Only use agents for EXPLORE and EDIT workflows (VALIDATE/FULL need more agents)
-                    if workflow in (WorkflowType.EXPLORE, WorkflowType.EDIT):
+                    # Route EXPLORE, EDIT, and VALIDATE workflows to agents
+                    if workflow in (
+                        WorkflowType.EXPLORE,
+                        WorkflowType.EDIT,
+                        WorkflowType.VALIDATE,
+                    ):
                         logger.debug(
                             f"Routing to agent orchestrator: workflow={workflow.value}"
                         )
 
-                        result = interpreter.agent_orchestrator.handle_task(
+                        # Run with live status panel if not in plain text mode
+                        from .agents.live_status import run_with_live_status
+
+                        result = run_with_live_status(
+                            interpreter.agent_orchestrator,
                             latest_task,
                             workflow=workflow,
                             auto_apply=interpreter.auto_run,
+                            plain_text=getattr(
+                                interpreter, "plain_text_display", False
+                            ),
                         )
 
                         # Yield the orchestrator's result as assistant message

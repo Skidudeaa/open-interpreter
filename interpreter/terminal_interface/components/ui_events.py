@@ -152,11 +152,15 @@ class EventBus:
             process(event)
     """
 
-    def __init__(self, max_queue_size: int = 10000):
+    def __init__(self, max_queue_size: int = 10000, immediate_dispatch: bool = True):
         self._queue: Queue[UIEvent] = Queue(maxsize=max_queue_size)
         self._handlers: dict[EventType, list[EventHandler]] = {}
         self._global_handlers: list[EventHandler] = []
         self._lock = Lock()
+
+        # Immediate dispatch mode - call handlers synchronously on emit
+        # This is the default for real-time UI updates
+        self._immediate_dispatch = immediate_dispatch
 
         # Rate limiting (optional)
         self._last_emit_time: dict[EventType, float] = {}
@@ -228,11 +232,14 @@ class EventBus:
 
         Thread-safe. Can be called from any thread.
 
+        If immediate_dispatch is enabled (default), handlers are called
+        synchronously. Otherwise, events are queued for later processing.
+
         Args:
             event: The event to emit
 
         Returns:
-            True if event was queued, False if rate-limited or queue full
+            True if event was processed/queued, False if rate-limited or queue full
         """
         # Check rate limiting
         if event.type in self._rate_limits:
@@ -243,7 +250,12 @@ class EventBus:
                 return False  # Rate limited
             self._last_emit_time[event.type] = now
 
-        # Queue the event
+        # Immediate dispatch - call handlers synchronously
+        if self._immediate_dispatch:
+            self.dispatch(event)
+            return True
+
+        # Queue-based - add to queue for later processing
         try:
             self._queue.put_nowait(event)
             return True

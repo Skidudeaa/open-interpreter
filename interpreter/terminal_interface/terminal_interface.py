@@ -171,14 +171,27 @@ def terminal_interface(interpreter, message):
     # Subscribe to agent events to update UI state
     event_bus = get_event_bus()
 
+    # Agent role icons for visual display
+    _agent_icons = {
+        "scout": "🔍",
+        "surgeon": "🔧",
+        "architect": "🏗️",
+        "validator": "✅",
+        "historian": "📚",
+        "reviewer": "👁️",
+        "tester": "🧪",
+        "custom": "🤖",
+    }
+
+    # No inline printing - status is tracked in ui_state and displayed via Live panel
+
     def handle_agent_event(event: UIEvent):
-        """Process agent events to update UI state."""
+        """Process agent events to update UI state (no printing - state only)."""
         if event.type == EventType.AGENT_SPAWN:
             from .components.ui_state import AgentRole
 
             agent_id = event.data.get("agent_id", "unknown")
             role_str = event.data.get("role", "custom")
-            # Convert role string to AgentRole enum
             try:
                 role = (
                     AgentRole(role_str)
@@ -194,7 +207,6 @@ def terminal_interface(interpreter, message):
             agent_id = event.data.get("agent_id")
             if agent_id:
                 ui_state.update_agent_status(agent_id, AgentStatus.COMPLETE)
-            # Periodically clean up old completed agents to prevent memory growth
             ui_state.auto_purge_agents(max_age_seconds=300.0)
 
         elif event.type == EventType.AGENT_ERROR:

@@ -61,18 +61,64 @@ except Exception:
     pass
 
 
+def _fuzzy_find_file(filename: str, search_dir: str = ".") -> tuple[str | None, int]:
+    """
+    Find a file using fuzzy matching.
+
+    Args:
+        filename: The filename to search for (basename only)
+        search_dir: Directory to search in
+
+    Returns:
+        Tuple of (matched_path, score) or (None, 0) if no good match
+
+    WHY: Helps recover from typos like 'generat_today.sh' → 'generate_today.sh'
+    TRADEOFF: Only searches current dir to stay fast; 95%+ auto-substitutes, 85%+ suggests.
+    """
+    try:
+        from rapidfuzz import fuzz
+    except ImportError:
+        return None, 0
+
+    try:
+        files = os.listdir(search_dir)
+    except OSError:
+        return None, 0
+
+    target = os.path.basename(filename)
+    best_match = None
+    best_score = 0
+
+    for f in files:
+        # Skip directories, only match files
+        full_path = os.path.join(search_dir, f)
+        if not os.path.isfile(full_path):
+            continue
+
+        score = fuzz.ratio(target.lower(), f.lower())
+        if score > best_score:
+            best_score = score
+            best_match = full_path
+
+    return best_match, best_score
+
+
 def expand_at_references(message: str) -> str:
     """
     Expand @path references by prepending file contents.
 
     Finds @filepath patterns and prepends the file contents as context.
     The original @filepath stays in the message for reference.
+    Uses fuzzy matching to recover from typos (95%+ auto-subs, 85%+ suggests).
 
     Args:
         message: User message potentially containing @path references
 
     Returns:
         Message with file contents prepended as context blocks
+
+    WHY: File references give users a quick way to include file context without copy-paste.
+    TRADEOFF: Silent failure on missing files was confusing; now we report unresolved refs.
     """
     # Pattern: @ followed by path chars, not preceded by non-whitespace (skip emails)
     pattern = r"(?<!\S)@([\w./_~-]+)"
@@ -82,6 +128,8 @@ def expand_at_references(message: str) -> str:
         return message
 
     context_parts = []
+    unresolved_paths = []
+    fuzzy_suggestions = []
     seen_paths = set()
 
     for path in matches:
@@ -89,24 +137,71 @@ def expand_at_references(message: str) -> str:
             continue
         seen_paths.add(path)
 
-        expanded = os.path.expanduser(path)
-        if os.path.isfile(expanded):
+        # Try multiple path resolutions
+        candidates = [
+            os.path.expanduser(path),  # Handle ~/path
+            os.path.abspath(path),  # Handle relative paths
+        ]
+        # If path starts with ./ or ../, also try from home
+        if path.startswith(("./", "../")):
+            candidates.append(os.path.join(os.path.expanduser("~"), path))
+
+        resolved = None
+        for candidate in candidates:
+            if os.path.isfile(candidate):
+                resolved = candidate
+                break
+
+        # Fuzzy matching fallback
+        if not resolved:
+            search_dir = os.path.dirname(path) if os.path.dirname(path) else "."
+            fuzzy_match, score = _fuzzy_find_file(path, search_dir)
+
+            if fuzzy_match and score >= 95:
+                # High confidence - auto-substitute
+                resolved = fuzzy_match
+                fuzzy_suggestions.append(
+                    f"@{path} → @{os.path.basename(fuzzy_match)} (auto-corrected, {score:.0f}%)"
+                )
+            elif fuzzy_match and score >= 85:
+                # Medium confidence - suggest but don't substitute
+                fuzzy_suggestions.append(
+                    f"@{path}: did you mean @{os.path.basename(fuzzy_match)}? ({score:.0f}%)"
+                )
+
+        if resolved:
             try:
-                with open(expanded, encoding="utf-8") as f:
+                with open(resolved, encoding="utf-8") as f:
                     content = f.read()
                 # Truncate very large files
                 if len(content) > 100000:
                     content = content[:100000] + "\n... (truncated)"
                 context_parts.append(f"--- {path} ---\n{content}\n--- end {path} ---")
-            except (OSError, UnicodeDecodeError):
-                # Skip unreadable files (binary, permissions, etc.)
-                pass
+            except (OSError, UnicodeDecodeError) as e:
+                # Report read errors
+                unresolved_paths.append(f"@{path} (error: {e})")
+        else:
+            unresolved_paths.append(f"@{path} (not found)")
 
+    result_parts = []
+
+    # Report fuzzy matches/suggestions first
+    if fuzzy_suggestions:
+        result_parts.append("[Fuzzy matching: " + "; ".join(fuzzy_suggestions) + "]")
+
+    # Report unresolved references
+    if unresolved_paths:
+        warning = "[File references not resolved: " + ", ".join(unresolved_paths) + "]"
+        result_parts.append(warning)
+
+    # Add resolved file contents
     if context_parts:
-        context = "\n\n".join(context_parts)
-        return f"{context}\n\n{message}"
+        result_parts.extend(context_parts)
 
-    return message
+    # Add original message
+    result_parts.append(message)
+
+    return "\n\n".join(result_parts)
 
 
 def terminal_interface(interpreter, message):
@@ -430,7 +525,7 @@ def terminal_interface(interpreter, message):
                 except (KeyboardInterrupt, EOFError):
                     # Treat Ctrl-D on an empty line the same as Ctrl-C by exiting gracefully
                     interpreter.display_message("\n\n`Exiting...`")
-                    raise KeyboardInterrupt
+                    raise KeyboardInterrupt from None
 
             try:
                 # This lets users hit the up arrow key for past messages

@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased] - 2025-12-31
+
+### Fixed
+
+- **Bare except clause**: `scripts/wtf.py` used `except:` which swallowed KeyboardInterrupt/SystemExit. Now catches specific exceptions.
+- **Undefined variable bug**: `keyboard.py` referenced `clipboard_history` after failed try block. Now initialized to `None` before try.
+- **Silent failures**: Added debug logging to `search.py` provider init, `core.py` settings loader, `telemetry.py` network errors.
+- **Missing timeout**: `telemetry.py` HTTP requests now have 5s timeout to prevent hangs.
+- **Empty stub**: `pt_app.py` `_focus_agents()` now has proper docstring and early-return guard.
+
+---
+
 ## [Unreleased] - 2025-12-30
 
 ### Fixed

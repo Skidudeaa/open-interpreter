@@ -43,6 +43,12 @@ user_id = get_or_create_uuid()
 
 
 def send_telemetry(event_name, properties=None):
+    """
+    Send anonymous telemetry event to PostHog.
+
+    This is non-blocking and will silently fail if network is unavailable.
+    Telemetry can be disabled via DISABLE_TELEMETRY env var or CLI flag.
+    """
     if properties is None:
         properties = {}
     properties["oi_version"] = version("open-interpreter")
@@ -55,6 +61,10 @@ def send_telemetry(event_name, properties=None):
             "properties": properties,
             "distinct_id": user_id,
         }
-        requests.post(url, headers=headers, data=json.dumps(data))
+        requests.post(url, headers=headers, data=json.dumps(data), timeout=5)
+    except requests.RequestException:
+        # Network error - telemetry is non-blocking, ignore silently
+        pass
     except Exception:
+        # Unexpected error - still non-blocking, but could log at debug level
         pass

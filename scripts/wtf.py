@@ -375,7 +375,8 @@ def main():
                 model = wtf_model
             else:
                 model = profile.get("llm", {}).get("model", "gpt-4o-mini")
-    except:
+    except (FileNotFoundError, yaml.YAMLError, KeyError, TypeError):
+        # Profile doesn't exist or is malformed - use default model
         model = "gpt-4o-mini"
 
     # If they're using a local model (improve this heuristic) use the LOCAL_SYSTEM_MESSAGE

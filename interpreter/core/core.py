@@ -171,8 +171,18 @@ def _load_settings() -> dict:
             with open(settings_path) as f:
                 _settings_cache = json.load(f)
                 return _settings_cache
-    except Exception:
-        pass  # Non-blocking - use defaults
+    except json.JSONDecodeError as e:
+        # Malformed settings file - log and use defaults
+        import logging
+
+        logging.getLogger(__name__).warning(
+            f"Settings file {settings_path} is malformed: {e}. Using defaults."
+        )
+    except OSError as e:
+        # File access issue - log at debug level
+        import logging
+
+        logging.getLogger(__name__).debug(f"Could not load settings: {e}")
 
     _settings_cache = {}
     return _settings_cache

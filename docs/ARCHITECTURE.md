@@ -415,6 +415,10 @@ Performance:
 
 Exception Handling:
 - Use `except Exception:` not bare `except:` (preserves SystemExit, KeyboardInterrupt)
+- Prefer specific exceptions: `except (FileNotFoundError, json.JSONDecodeError):` over generic
+- Initialize variables before try blocks if used after: `clipboard_history = None; try: ...`
+- Add debug logging for silent failures: `logger.debug(f"Provider init failed: {e}")`
+- Network requests need timeouts: `requests.post(..., timeout=5)`
 - Convenience functions (show_diff, display_error) use try-finally for cleanup
 - EventBus logs dropped events via ui_logger
 

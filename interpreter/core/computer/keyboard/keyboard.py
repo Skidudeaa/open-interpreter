@@ -23,9 +23,12 @@ class Keyboard:
         if interval:
             pyautogui.write(text, interval=interval)
         else:
+            # Save clipboard state to restore later
+            clipboard_history = None
             try:
                 clipboard_history = self.computer.clipboard.view()
             except Exception:
+                # Clipboard may be unavailable (headless, permissions, etc.)
                 pass
 
             ends_in_enter = False
@@ -49,10 +52,13 @@ class Keyboard:
             if ends_in_enter:
                 self.press("enter")
 
-            try:
-                self.computer.clipboard.copy(clipboard_history)
-            except Exception:
-                pass
+            # Restore clipboard if we successfully saved it
+            if clipboard_history is not None:
+                try:
+                    self.computer.clipboard.copy(clipboard_history)
+                except Exception:
+                    # Clipboard restore failed - non-critical
+                    pass
 
         time.sleep(delay / 2)
 

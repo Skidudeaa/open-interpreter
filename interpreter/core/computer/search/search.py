@@ -66,6 +66,10 @@ class Search:
         if self._providers_initialized:
             return
 
+        import logging
+
+        logger = logging.getLogger(__name__)
+
         # Try Tavily
         try:
             from .providers.tavily import TavilyProvider
@@ -73,8 +77,10 @@ class Search:
             provider = TavilyProvider()
             if provider.is_available():
                 self._providers["tavily"] = provider
-        except Exception:
-            pass
+        except ImportError:
+            logger.debug("Tavily provider not available (missing dependency)")
+        except Exception as e:
+            logger.debug(f"Tavily provider init failed: {e}")
 
         # Try Google
         try:
@@ -83,8 +89,10 @@ class Search:
             provider = GoogleProvider()
             if provider.is_available():
                 self._providers["google"] = provider
-        except Exception:
-            pass
+        except ImportError:
+            logger.debug("Google provider not available (missing dependency)")
+        except Exception as e:
+            logger.debug(f"Google provider init failed: {e}")
 
         # Try DuckDuckGo (always try, no API key needed)
         try:
@@ -93,8 +101,10 @@ class Search:
             provider = DuckDuckGoProvider()
             if provider.is_available():
                 self._providers["duckduckgo"] = provider
-        except Exception:
-            pass
+        except ImportError:
+            logger.debug("DuckDuckGo provider not available (missing dependency)")
+        except Exception as e:
+            logger.debug(f"DuckDuckGo provider init failed: {e}")
 
         self._providers_initialized = True
 

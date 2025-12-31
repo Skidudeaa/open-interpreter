@@ -435,9 +435,18 @@ class InterpreterApp:
         self.app.invalidate()
 
     def _focus_agents(self) -> None:
-        """Focus the agent strip for navigation"""
-        # TODO: Implement agent navigation
-        pass
+        """
+        Focus the agent strip for navigation.
+
+        Currently a no-op placeholder for future agent panel navigation.
+        When implemented, this will allow keyboard-based agent selection
+        and management in POWER/DEBUG modes.
+        """
+        # Agent navigation requires multi-agent orchestration to be enabled
+        # and visible agent panel - skip if not applicable
+        if not self.state.agents:
+            return
+        # Future: cycle focus through agent cards or open agent panel
 
     def _show_history_search(self, event) -> None:
         """

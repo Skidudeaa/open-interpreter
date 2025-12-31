@@ -61,6 +61,54 @@ except Exception:
     pass
 
 
+def expand_at_references(message: str) -> str:
+    """
+    Expand @path references by prepending file contents.
+
+    Finds @filepath patterns and prepends the file contents as context.
+    The original @filepath stays in the message for reference.
+
+    Args:
+        message: User message potentially containing @path references
+
+    Returns:
+        Message with file contents prepended as context blocks
+    """
+    # Pattern: @ followed by path chars, not preceded by non-whitespace (skip emails)
+    pattern = r"(?<!\S)@([\w./_~-]+)"
+    matches = re.findall(pattern, message)
+
+    if not matches:
+        return message
+
+    context_parts = []
+    seen_paths = set()
+
+    for path in matches:
+        if path in seen_paths:
+            continue
+        seen_paths.add(path)
+
+        expanded = os.path.expanduser(path)
+        if os.path.isfile(expanded):
+            try:
+                with open(expanded, encoding="utf-8") as f:
+                    content = f.read()
+                # Truncate very large files
+                if len(content) > 100000:
+                    content = content[:100000] + "\n... (truncated)"
+                context_parts.append(f"--- {path} ---\n{content}\n--- end {path} ---")
+            except (OSError, UnicodeDecodeError):
+                # Skip unreadable files (binary, permissions, etc.)
+                pass
+
+    if context_parts:
+        context = "\n\n".join(context_parts)
+        return f"{context}\n\n{message}"
+
+    return message
+
+
 def terminal_interface(interpreter, message):
     # Auto run and offline (this.. this isn't right) don't display messages.
     # Probably worth abstracting this to something like "debug_cli" at some point.
@@ -447,6 +495,9 @@ def terminal_interface(interpreter, message):
                         thinking_spinner.start("Thinking")
                     except Exception:
                         thinking_spinner = None  # Continue without spinner
+
+            # Expand @file references to include file contents
+            message = expand_at_references(message)
 
             for chunk in interpreter.chat(message, display=False, stream=True):
                 yield chunk

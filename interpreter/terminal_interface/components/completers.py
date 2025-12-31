@@ -140,6 +140,58 @@ class ConversationCompleter(Completer):
                 )
 
 
+class AtFileCompleter(Completer):
+    """
+    Complete file paths after @ symbol.
+
+    Enables @filename syntax for referencing files in messages.
+    Handles:
+    - @./relative/path
+    - @~/home/path
+    - @/absolute/path
+    - @filename (from current directory)
+
+    Skips email-like patterns (text@domain).
+    """
+
+    def __init__(self):
+        self._path_completer = PathCompleter(
+            expanduser=True,
+            only_directories=False,
+        )
+
+    def get_completions(
+        self, document: Document, complete_event
+    ) -> Iterable[Completion]:
+        text = document.text_before_cursor
+
+        # Find last @ symbol
+        at_pos = text.rfind("@")
+        if at_pos == -1:
+            return
+
+        # Skip if @ is preceded by non-whitespace (email-like: user@domain)
+        if at_pos > 0 and not text[at_pos - 1].isspace():
+            return
+
+        # Get partial path after @
+        partial_path = text[at_pos + 1 :]
+
+        # Create a fake document for the path portion
+        path_doc = Document(partial_path, len(partial_path))
+
+        for completion in self._path_completer.get_completions(
+            path_doc, complete_event
+        ):
+            # Adjust start position relative to full document
+            yield Completion(
+                text=completion.text,
+                start_position=completion.start_position,
+                display=f"@{completion.display or completion.text}",
+                display_meta="file reference",
+            )
+
+
 class FilePathCompleter(Completer):
     """
     Smart file path completer.
@@ -200,12 +252,14 @@ class CombinedCompleter(Completer):
 
     Order:
     1. Magic commands (if starts with %)
-    2. File paths (if contains path chars)
-    3. Conversation history
+    2. At-file references (if contains @)
+    3. File paths (if contains path chars)
+    4. Conversation history
     """
 
     def __init__(self, interpreter: "OpenInterpreter"):
         self.magic_completer = MagicCommandCompleter()
+        self.at_file_completer = AtFileCompleter()
         self.path_completer = FilePathCompleter()
         self.conversation_completer = ConversationCompleter(interpreter)
 
@@ -218,6 +272,15 @@ class CombinedCompleter(Completer):
         if text.startswith("%"):
             yield from self.magic_completer.get_completions(document, complete_event)
             return
+
+        # At-file references (@filename)
+        if "@" in document.text_before_cursor:
+            at_completions = list(
+                self.at_file_completer.get_completions(document, complete_event)
+            )
+            if at_completions:
+                yield from at_completions
+                return
 
         # File paths
         path_completions = list(
@@ -236,6 +299,7 @@ def create_completer(
     include_paths: bool = True,
     include_magic: bool = True,
     include_history: bool = True,
+    include_at_file: bool = True,
     fuzzy: bool = True,
 ) -> Completer:
     """
@@ -246,6 +310,7 @@ def create_completer(
         include_paths: Include file path completion
         include_magic: Include magic command completion
         include_history: Include conversation history completion
+        include_at_file: Include @file reference completion
         fuzzy: Use fuzzy matching
 
     Returns:
@@ -255,6 +320,9 @@ def create_completer(
 
     if include_magic:
         completers.append(MagicCommandCompleter())
+
+    if include_at_file:
+        completers.append(AtFileCompleter())
 
     if include_paths:
         completers.append(FilePathCompleter())

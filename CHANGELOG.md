@@ -2,6 +2,14 @@
 
 ## [Unreleased] - 2025-12-31
 
+### Added
+
+- **@file references**: Type `@filename` in CLI to reference files. Tab-completes paths, prepends file content as context when sent to LLM.
+  - `AtFileCompleter` in `completers.py` - triggers on `@`, skips email patterns
+  - `expand_at_references()` in `terminal_interface.py` - reads files and prepends content
+  - Supports `@./relative`, `@~/home`, `@/absolute` paths
+  - Truncates files >100KB, deduplicates multiple references to same file
+
 ### Fixed
 
 - **Bare except clause**: `scripts/wtf.py` used `except:` which swallowed KeyboardInterrupt/SystemExit. Now catches specific exceptions.

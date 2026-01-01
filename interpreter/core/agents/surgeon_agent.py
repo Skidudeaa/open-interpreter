@@ -1,14 +1,21 @@
 """
 SurgeonAgent - Precise code editing agent.
 
-Optimized for making minimal, correct code changes.
-Uses context from Scout and Architect agents to make targeted edits.
+ARCHITECTURE: Makes minimal, correct code changes with optional
+Scout collaboration to find related files when context is sparse.
+
+WHY: Good edits require understanding context. When context is missing,
+Surgeon can ask Scout to find related files before making changes.
+
+TRADEOFF: Scout queries add latency but prevent blind edits.
+Only used when context appears insufficient.
 
 Capabilities:
 - String replacement edits
 - Function/class additions
 - Import management
 - Code refactoring
+- Collaborative context gathering via Scout queries
 """
 
 import difflib
@@ -96,7 +103,10 @@ You can propose multiple edits in one response."""
 
     def execute(self, task: str, context: str | None = None) -> AgentResult:
         """
-        Execute a surgical edit task.
+        Execute a surgical edit task with optional Scout collaboration.
+
+        ARCHITECTURE: If context is sparse and we can collaborate,
+        ask Scout to find related files first. This prevents blind edits.
 
         Args:
             task: The edit task description
@@ -106,6 +116,10 @@ You can propose multiple edits in one response."""
             AgentResult with proposed edits
         """
         self.log(f"Starting surgical edit: {task[:50]}...")
+
+        # Check if we need more context
+        if self._needs_more_context(task, context):
+            context = self._gather_additional_context(task, context)
 
         # Build messages with context
         messages = self.prepare_messages(task, context)
@@ -149,6 +163,63 @@ You can propose multiple edits in one response."""
             files_found=[e.file_path for e in valid_edits],
             context_for_next=self._format_for_validator(valid_edits),
         )
+
+    def _needs_more_context(self, task: str, context: str | None) -> bool:
+        """
+        Check if we need to gather more context before editing.
+
+        WHY: Edits without context are risky. If we don't know what
+        files exist or how they're structured, we should ask Scout.
+        """
+        # If we can't collaborate, don't try
+        if not self.can_collaborate():
+            return False
+
+        # If we have substantial context, we're good
+        if context and len(context) > 500:
+            return False
+
+        # If task mentions specific files that we can verify exist, we're good
+        import re
+
+        file_refs = re.findall(r"[\w/\\]+\.\w+", task)
+        if file_refs:
+            for ref in file_refs:
+                full_path = os.path.join(self.root_path, ref)
+                if os.path.exists(full_path):
+                    return False  # File exists, we have enough context
+
+        # Generic edit task without file context - we need Scout
+        return True
+
+    def _gather_additional_context(
+        self, task: str, existing_context: str | None
+    ) -> str:
+        """
+        Ask Scout to find related files for this edit task.
+
+        ARCHITECTURE: Surgeon asks Scout "what files are related to X?"
+        Scout's LLM-powered search finds relevant code.
+        """
+        self.log("Context sparse, asking Scout for related files...")
+
+        try:
+            from .types import AgentRole
+
+            scout_query = f"Find files related to this edit task: {task}"
+            scout_result = self.ask_agent(AgentRole.SCOUT, scout_query)
+
+            if scout_result.success and scout_result.content:
+                # Combine Scout's findings with existing context
+                new_context = f"## Scout Findings\n{scout_result.content}"
+                if existing_context:
+                    return f"{existing_context}\n\n{new_context}"
+                return new_context
+
+        except Exception as e:
+            self.log(f"Scout collaboration failed: {e}")
+
+        return existing_context or ""
 
     def propose_edit(
         self,
@@ -280,7 +351,7 @@ You can propose multiple edits in one response."""
 
     def get_pending_edits(self) -> list[EditProposal]:
         """Get list of proposed but not yet applied edits."""
-        applied_set = set(id(e) for e in self._applied_edits)
+        applied_set = {id(e) for e in self._applied_edits}
         return [e for e in self._proposed_edits if id(e) not in applied_set]
 
     def _parse_edit_proposals(self, response: str) -> list[EditProposal]:

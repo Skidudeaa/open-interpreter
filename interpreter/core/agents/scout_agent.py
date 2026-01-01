@@ -1,26 +1,58 @@
 """
-ScoutAgent - Codebase exploration agent.
+ScoutAgent - LLM-powered codebase exploration agent.
 
-Optimized for fast, shallow reads to find relevant files and code.
-Used as the first step in multi-agent workflows to gather context.
+ARCHITECTURE: Two-phase exploration with LLM intelligence:
+1. LLM analyzes task → generates targeted search queries
+2. Fast syntactic search (regex, glob, AST)
+3. LLM synthesizes findings into actionable context
+
+WHY: Pure pattern matching is fast but dumb. LLM understands intent,
+can generate better search terms, and synthesize meaningful summaries.
+
+TRADEOFF: Adds LLM latency (~1-3s) but produces dramatically better results.
+The LLM calls are minimal and focused - just analysis and synthesis.
 
 Capabilities:
-- Search for files by pattern
-- Find functions/classes by name
-- Search for code patterns
+- LLM-powered task analysis for smart search query generation
+- Search for files by pattern (glob, fuzzy match)
+- Find functions/classes by name (AST-aware)
+- Search for code patterns (regex)
 - Build file/directory summaries
-- Query semantic memory for institutional knowledge (past edits, context)
+- Query semantic memory for institutional knowledge
+- Synthesize findings into coherent context for downstream agents
 """
 
 import fnmatch
+import json
 import logging
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .base_agent import AgentResult, AgentRole, BaseAgent, create_result
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SearchQuery:
+    """A single search query derived from LLM analysis."""
+
+    query_type: str  # 'grep', 'glob', 'symbol', 'semantic'
+    pattern: str  # The search pattern
+    description: str  # What we're looking for
+
+
+@dataclass
+class SearchAnalysis:
+    """LLM analysis of a search task."""
+
+    understanding: str  # What the LLM understands about the task
+    search_queries: list[SearchQuery] = field(default_factory=list)
+    file_patterns: list[str] = field(default_factory=list)
+    keywords: list[str] = field(default_factory=list)
+    symbols: list[str] = field(default_factory=list)  # Function/class names
+    semantic_query: str = ""  # For semantic memory search
 
 
 @dataclass
@@ -35,10 +67,14 @@ class SearchResult:
 
 class ScoutAgent(BaseAgent):
     """
-    Agent for exploring and searching codebases.
+    LLM-powered agent for exploring and searching codebases.
 
-    Uses file system operations and pattern matching rather than
-    LLM calls for most operations, making it fast and reliable.
+    ARCHITECTURE: Hybrid approach combining LLM intelligence with fast
+    syntactic search. LLM understands intent and generates smart queries,
+    then fast file operations execute the searches.
+
+    WHY: Pure regex/glob is fast but misses context. Pure LLM is slow
+    for file traversal. This hybrid gets the best of both.
     """
 
     role = AgentRole.SCOUT
@@ -93,157 +129,136 @@ class ScoutAgent(BaseAgent):
             ".zsh",
         }
 
+        # Enable/disable LLM-powered analysis (can be disabled for speed)
+        self.use_llm_analysis = True
+
     def get_system_message(self) -> str:
         return """You are a Scout Agent specialized in exploring codebases.
 
-Your job is to quickly find relevant files, functions, and code patterns.
-You should be fast and thorough, providing clear summaries of what you find.
+Your job is to deeply understand what the user is looking for and find
+all relevant files, functions, and code patterns.
 
-When searching:
-1. Start with file/directory structure
-2. Look for relevant filenames
-3. Search for specific patterns or symbols
-4. Summarize your findings clearly
+When analyzing a task:
+1. Understand the INTENT - what does the user actually want to know?
+2. Generate smart search queries - what terms, patterns, file names?
+3. Consider related concepts - what else might be relevant?
+4. Think about code structure - where would this functionality live?
 
-Always provide:
+When presenting findings:
 - File paths relative to the project root
-- Line numbers when relevant
-- Brief descriptions of what each file/function does"""
+- Line numbers for specific code
+- Brief but informative descriptions
+- Highlight key discoveries that answer the user's question
+
+You can collaborate with other agents if needed:
+- Ask Architect about code structure
+- Provide context to Surgeon for edits"""
 
     def execute(self, task: str, context: str | None = None) -> AgentResult:
         """
-        Execute a scouting task with semantic memory enrichment.
+        Execute a scouting task with LLM-powered analysis.
 
-        ARCHITECTURE: Two-phase exploration - fast syntactic search followed
-        by semantic memory enrichment for institutional context.
+        ARCHITECTURE: Three-phase exploration:
+        1. LLM analyzes task → generates smart search queries
+        2. Fast syntactic search (regex, glob, file traversal)
+        3. LLM synthesizes findings into actionable context
 
-        WHY: Syntactic search (regex, glob, AST) is fast but lacks context.
-        Semantic memory provides historical "why" behind code patterns.
+        WHY: LLM understands intent ("review the auth pipeline" → search for
+        auth, login, session, token). Pure regex would miss related concepts.
 
-        The task can be:
-        - "find files matching X"
-        - "search for function Y"
-        - "explore directory Z"
-        - General exploration request
+        TRADEOFF: 2 LLM calls add ~2-4s latency but produce dramatically better
+        results. For simple queries, can fall back to fast regex-only mode.
 
         Args:
             task: The search/exploration task
             context: Optional context from other agents
 
         Returns:
-            AgentResult with found files, symbols, and memory context
+            AgentResult with found files, symbols, and synthesized findings
         """
         self.log(f"Starting scout task: {task[:50]}...")
 
-        # Parse the task to determine search type
-        task_lower = task.lower()
-
         files_found = []
         symbols_found = []
-        symbol_names = []  # Track actual symbol names for memory queries
+        all_search_results: list[SearchResult] = []
         content = []
 
         try:
-            if "file" in task_lower or "find" in task_lower:
-                # Extract pattern from task
-                pattern = self._extract_pattern(task)
-                files_found = self.find_files(pattern)
-                content.append(f"Found {len(files_found)} files matching pattern")
-                for f in files_found[:20]:
-                    content.append(f"  - {f}")
-
-            elif "function" in task_lower or "method" in task_lower:
-                # Search for function definitions
-                name = self._extract_identifier(task)
-                symbol_names.append(name)  # Track for memory query
-                results = self.search_symbol(name, symbol_type="function")
-                for r in results[:20]:
-                    symbols_found.append(f"{r.file_path}:{r.line_number}")
-                    content.append(
-                        f"  {r.file_path}:{r.line_number} - {r.content.strip()[:60]}"
-                    )
-
-                # Enrich with semantic memory for this symbol
-                if self._has_memory() and name:
-                    symbol_history = self._query_symbol_history(name, limit=3)
-                    content.extend(symbol_history)
-
-            elif "class" in task_lower:
-                name = self._extract_identifier(task)
-                symbol_names.append(name)  # Track for memory query
-                results = self.search_symbol(name, symbol_type="class")
-                for r in results[:20]:
-                    symbols_found.append(f"{r.file_path}:{r.line_number}")
-                    content.append(
-                        f"  {r.file_path}:{r.line_number} - {r.content.strip()[:60]}"
-                    )
-
-                # Enrich with semantic memory for this symbol
-                if self._has_memory() and name:
-                    symbol_history = self._query_symbol_history(name, limit=3)
-                    content.extend(symbol_history)
-
-            elif "search" in task_lower or "grep" in task_lower:
-                pattern = self._extract_pattern(task)
-                results = self.search_content(pattern)
-                for r in results[:20]:
-                    files_found.append(r.file_path)
-                    content.append(
-                        f"  {r.file_path}:{r.line_number} - {r.content.strip()[:60]}"
-                    )
-
-            elif "structure" in task_lower or "explore" in task_lower:
-                structure = self.get_directory_structure()
-                content.append(structure)
-                files_found = self.find_files("*")[:50]
-
-            elif "history" in task_lower or "past" in task_lower or "why" in task_lower:
-                # Explicit request for historical context - prioritize memory
-                if self._has_memory():
-                    keywords = self._extract_keywords_from_task(task)
-                    if keywords:
-                        intent_history = self._query_intent_history(
-                            keywords[0], limit=10
-                        )
-                        content.extend(intent_history)
-
-                    # Also check for file-specific history
-                    pattern = self._extract_pattern(task)
-                    if pattern and pattern != "*":
-                        files_found = self.find_files(pattern)
-                        for f in files_found[:5]:
-                            knowledge = self._get_institutional_knowledge(f)
-                            if knowledge:
-                                content.append(f"\n{knowledge}")
-                else:
-                    content.append(
-                        "Semantic memory not enabled. Enable with OI_ACTIVATE_ALL=true"
-                    )
-
+            # Phase 1: LLM analyzes the task
+            if self.use_llm_analysis:
+                analysis = self._analyze_task(task, context)
+                self.log(f"LLM understanding: {analysis.understanding[:60]}...")
+                content.append(f"## Understanding\n{analysis.understanding}\n")
             else:
-                # General exploration - use LLM
-                messages = self.prepare_messages(task, context)
-                response = self.run_interpreter(messages)
-                content.append(response)
+                # Fallback to old keyword-based analysis
+                analysis = self._fallback_analyze_task(task)
+
+            # Phase 2: Execute smart searches based on LLM analysis
+            for query in analysis.search_queries:
+                results = self._execute_search_query(query)
+                all_search_results.extend(results)
+
+            # Also search file patterns
+            for pattern in analysis.file_patterns:
+                files = self.find_files(pattern)
+                files_found.extend(files)
+
+            # Search for specific symbols
+            for symbol in analysis.symbols:
+                results = self.search_symbol(symbol)
+                for r in results:
+                    symbols_found.append(f"{r.file_path}:{r.line_number}")
+                    all_search_results.append(r)
+
+            # Grep for keywords
+            for keyword in analysis.keywords:
+                results = self.search_content(keyword)
+                all_search_results.extend(results[:10])  # Limit per keyword
+
+            # Collect files from search results
+            for result in all_search_results:
+                if result.file_path not in files_found:
+                    files_found.append(result.file_path)
+
+            # Deduplicate
+            files_found = list(dict.fromkeys(files_found))  # Preserve order
+
+            # Phase 3: LLM synthesizes findings
+            if self.use_llm_analysis and (files_found or all_search_results):
+                synthesis = self._synthesize_findings(
+                    task, analysis, files_found, all_search_results
+                )
+                content.append(f"## Findings\n{synthesis}")
+            else:
+                # Fallback: Just list results
+                if files_found:
+                    content.append(f"## Files Found ({len(files_found)})")
+                    for f in files_found[:30]:
+                        content.append(f"  - {f}")
+
+                if all_search_results:
+                    content.append(f"\n## Code Matches ({len(all_search_results)})")
+                    for r in all_search_results[:20]:
+                        content.append(
+                            f"  {r.file_path}:{r.line_number} - {r.content.strip()[:60]}"
+                        )
+
+            # Enrich with semantic memory
+            if self._has_memory() and (files_found or symbols_found):
+                memory_context = self._enrich_results_with_memory(
+                    task, files_found, symbols_found
+                )
+                if memory_context:
+                    content.append("\n## Historical Context")
+                    content.extend(memory_context)
 
         except Exception as e:
+            logger.exception(f"Scout error: {e}")
             return create_result(
                 role=self.role,
                 success=False,
                 content=f"Scout error: {str(e)}",
             )
-
-        # Deduplicate
-        files_found = list(set(files_found))
-
-        # Phase 2: Enrich with semantic memory (if not already done inline)
-        if self._has_memory() and (files_found or symbols_found):
-            memory_context = self._enrich_results_with_memory(
-                task, files_found, symbols_found
-            )
-            if memory_context:
-                content.append("\n## Semantic Memory Context")
-                content.extend(memory_context)
 
         result = create_result(
             role=self.role,
@@ -256,6 +271,249 @@ Always provide:
 
         self._last_result = result
         return result
+
+    # =========================================================================
+    # LLM-Powered Analysis Methods
+    # =========================================================================
+
+    def _analyze_task(self, task: str, context: str | None = None) -> SearchAnalysis:
+        """
+        Use LLM to understand the task and generate smart search queries.
+
+        ARCHITECTURE: Single focused LLM call to understand user intent
+        and generate targeted search parameters.
+
+        WHY: LLM can understand "review the auth pipeline" means searching
+        for authentication, login, session, token, middleware, etc.
+
+        Args:
+            task: The exploration task
+            context: Optional context from other agents
+
+        Returns:
+            SearchAnalysis with queries, patterns, keywords, symbols
+        """
+        prompt = f"""Analyze this codebase exploration task and generate search parameters.
+
+Task: {task}
+
+{f"Context: {context}" if context else ""}
+
+Return a JSON object with:
+{{
+    "understanding": "Brief explanation of what the user wants to find",
+    "file_patterns": ["*.py", "auth*.js"],  // Glob patterns for relevant files
+    "keywords": ["authenticate", "login"],  // Terms to grep for
+    "symbols": ["UserAuth", "login_handler"],  // Function/class names to find
+    "search_queries": [
+        {{"type": "grep", "pattern": "def login", "description": "Find login functions"}},
+        {{"type": "glob", "pattern": "*auth*.py", "description": "Auth-related files"}}
+    ],
+    "semantic_query": "Natural language description for semantic search"
+}}
+
+Think about:
+- What concepts are related to this task?
+- What file names might contain this functionality?
+- What function/class names are likely?
+- What code patterns would be relevant?
+
+Return ONLY valid JSON, no markdown or explanation."""
+
+        messages = [{"role": "user", "type": "message", "content": prompt}]
+
+        try:
+            response = self.run_interpreter(messages, self.get_system_message())
+            return self._parse_analysis_response(response, original_task=task)
+        except Exception as e:
+            self.log(f"LLM analysis failed: {e}, falling back to keyword extraction")
+            return self._fallback_analyze_task(task)
+
+    def _parse_analysis_response(
+        self, response: str, original_task: str = ""
+    ) -> SearchAnalysis:
+        """Parse LLM JSON response into SearchAnalysis."""
+        try:
+            # Try to extract JSON from response
+            response = response.strip()
+
+            # Empty response - fall back immediately
+            if not response:
+                return self._fallback_analyze_task(original_task)
+
+            # Handle markdown code blocks
+            if "```json" in response:
+                response = response.split("```json")[1].split("```")[0]
+            elif "```" in response:
+                response = response.split("```")[1].split("```")[0]
+
+            data = json.loads(response)
+
+            # Build search queries
+            queries = []
+            for q in data.get("search_queries", []):
+                queries.append(
+                    SearchQuery(
+                        query_type=q.get("type", "grep"),
+                        pattern=q.get("pattern", ""),
+                        description=q.get("description", ""),
+                    )
+                )
+
+            return SearchAnalysis(
+                understanding=data.get("understanding", "Exploring codebase"),
+                search_queries=queries,
+                file_patterns=data.get("file_patterns", []),
+                keywords=data.get("keywords", []),
+                symbols=data.get("symbols", []),
+                semantic_query=data.get("semantic_query", ""),
+            )
+
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            self.log(f"Failed to parse LLM response: {e}")
+            # Fall back to task-based analysis
+            return self._fallback_analyze_task(original_task)
+
+    def _fallback_analyze_task(self, task: str) -> SearchAnalysis:
+        """
+        Fallback analysis when LLM is disabled or fails.
+
+        ARCHITECTURE: Parse common search phrases to extract patterns,
+        symbols, and keywords directly from the task text.
+
+        WHY: Tests use mock interpreters with no LLM. Production can
+        fall back here when LLM fails or is disabled for speed.
+        """
+        task_lower = task.lower()
+        keywords = []
+        patterns = []
+        symbols = []
+        search_queries = []
+
+        # Extract any quoted strings as specific searches
+        quoted = re.findall(r'["\']([^"\']+)["\']', task)
+
+        # Handle file pattern searches: "find files matching *.py"
+        for q in quoted:
+            if "*" in q or q.startswith("."):
+                patterns.append(q)
+                search_queries.append(SearchQuery("glob", q, f"Files matching {q}"))
+            elif q[0].isupper() or "_" in q:
+                # Looks like a symbol name
+                symbols.append(q)
+                search_queries.append(SearchQuery("symbol", q, f"Symbol {q}"))
+            else:
+                keywords.append(q)
+                search_queries.append(SearchQuery("grep", q, f"Pattern {q}"))
+
+        # Look for file patterns in unquoted text
+        for word in task.split():
+            if "*" in word and word not in patterns:
+                patterns.append(word)
+            if word[0].isupper() and "_" not in word and len(word) > 2:
+                if word not in symbols:
+                    symbols.append(word)  # Likely class name
+
+        # Extract remaining keywords
+        extracted_kw = self._extract_keywords_from_task(task)
+        for kw in extracted_kw:
+            if kw not in keywords:
+                keywords.append(kw)
+
+        # Common task patterns
+        if "function" in task_lower or "method" in task_lower:
+            for sym in symbols + quoted:
+                if sym not in [q.pattern for q in search_queries]:
+                    search_queries.append(SearchQuery("symbol", sym, f"Function {sym}"))
+
+        if "class" in task_lower:
+            for sym in symbols + quoted:
+                if sym not in [q.pattern for q in search_queries]:
+                    search_queries.append(SearchQuery("symbol", sym, f"Class {sym}"))
+
+        # Default file patterns if none found
+        if not patterns:
+            patterns = ["*.py"]
+
+        understanding = "Fallback search: "
+        if patterns:
+            understanding += f"patterns={patterns[:3]} "
+        if symbols:
+            understanding += f"symbols={symbols[:3]} "
+        if keywords:
+            understanding += f"keywords={keywords[:3]}"
+
+        return SearchAnalysis(
+            understanding=understanding.strip(),
+            keywords=keywords,
+            file_patterns=patterns,
+            symbols=symbols,
+            search_queries=search_queries,
+        )
+
+    def _execute_search_query(self, query: SearchQuery) -> list[SearchResult]:
+        """Execute a single search query."""
+        if query.query_type == "grep":
+            return self.search_content(query.pattern)[:20]
+        elif query.query_type == "glob":
+            files = self.find_files(query.pattern)
+            return [SearchResult(f, 0, "", "filename") for f in files[:20]]
+        elif query.query_type == "symbol":
+            return self.search_symbol(query.pattern)[:20]
+        else:
+            return self.search_content(query.pattern)[:20]
+
+    def _synthesize_findings(
+        self,
+        task: str,
+        analysis: SearchAnalysis,
+        files_found: list[str],
+        search_results: list[SearchResult],
+    ) -> str:
+        """
+        Use LLM to synthesize search findings into coherent context.
+
+        WHY: Raw search results are noisy. LLM can identify what's actually
+        relevant and explain how the pieces fit together.
+        """
+        # Prepare a summary of findings for the LLM
+        files_summary = "\n".join(f"  - {f}" for f in files_found[:30])
+
+        results_summary = []
+        for r in search_results[:30]:
+            results_summary.append(
+                f"  {r.file_path}:{r.line_number}: {r.content.strip()[:80]}"
+            )
+        results_text = "\n".join(results_summary)
+
+        prompt = f"""Synthesize these search findings to answer the user's question.
+
+Original Task: {task}
+
+Understanding: {analysis.understanding}
+
+Files Found ({len(files_found)}):
+{files_summary}
+
+Code Matches ({len(search_results)}):
+{results_text}
+
+Provide a clear, concise summary that:
+1. Answers the user's question directly
+2. Highlights the most important files/code
+3. Explains how the pieces fit together
+4. Notes any gaps or areas that need more investigation
+
+Be specific - reference actual file paths and line numbers."""
+
+        messages = [{"role": "user", "type": "message", "content": prompt}]
+
+        try:
+            return self.run_interpreter(messages, self.get_system_message())
+        except Exception as e:
+            self.log(f"Synthesis failed: {e}")
+            # Return raw findings
+            return f"Files: {len(files_found)}, Matches: {len(search_results)}"
 
     def find_files(self, pattern: str, max_results: int = 100) -> list[str]:
         """
@@ -762,11 +1020,11 @@ Always provide:
 
         # 1. Query by symbols found
         for symbol_ref in symbols_found[:3]:  # Limit to first 3
-            # Parse "file:line" format
+            # Parse "file:line" format to extract file path
             if ":" in symbol_ref:
-                parts = symbol_ref.split(":")
-                # Try to extract symbol name from file content
-                pass  # Symbol name not directly available here
+                file_path = symbol_ref.split(":")[0]
+                file_history = self._query_file_history(file_path, limit=2)
+                memory_context.extend(file_history)
 
         # 2. Query by files found
         for file_path in files_found[:3]:  # Limit to first 3

@@ -35,7 +35,6 @@ try:
         get_event_bus,
     )
     from ...terminal_interface.components.ui_state import AgentRole as UIAgentRole
-    from ...terminal_interface.components.ui_state import AgentStatus
 
     HAS_UI_EVENTS = True
 except ImportError:
@@ -242,7 +241,15 @@ class AgentOrchestrator:
         return self._agents[role]
 
     def _create_agent(self, role: AgentRole) -> BaseAgent:
-        """Create an agent for the given role."""
+        """
+        Create an agent for the given role.
+
+        ARCHITECTURE: Agents receive orchestrator reference for inter-agent
+        communication via ask_agent().
+
+        WHY: Enables agents to collaborate - Scout can ask Architect about
+        structure, Surgeon can ask Scout for related files.
+        """
         from .architect_agent import ArchitectAgent
         from .scout_agent import ScoutAgent
         from .surgeon_agent import SurgeonAgent
@@ -259,11 +266,16 @@ class AgentOrchestrator:
         if not agent_class:
             raise ValueError(f"No agent implementation for role: {role}")
 
-        return agent_class(
+        agent = agent_class(
             interpreter=self.interpreter,
             memory=self.memory,
             root_path=self.root_path,
         )
+
+        # Wire orchestrator reference for inter-agent communication
+        agent._orchestrator = self
+
+        return agent
 
     def handle_task(
         self,
@@ -344,7 +356,15 @@ class AgentOrchestrator:
 
         # Strong intent words - if user says these, trust them and route to agents
         # No need for code indicators when intent is explicit
-        strong_explore = {"review", "explain", "analyze", "examine", "look at", "check out", "walk through"}
+        strong_explore = {
+            "review",
+            "explain",
+            "analyze",
+            "examine",
+            "look at",
+            "check out",
+            "walk through",
+        }
         strong_edit = {"fix", "refactor", "rewrite", "implement", "add feature"}
         strong_validate = {"run tests", "test this", "verify"}
 
@@ -357,32 +377,92 @@ class AgentOrchestrator:
 
         # Code file extensions that warrant agent routing
         code_extensions = {
-            ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".rb",
-            ".java", ".cpp", ".c", ".h", ".hpp", ".cs", ".swift", ".kt",
-            ".php", ".scala", ".ex", ".exs", ".clj", ".hs", ".ml",
+            ".py",
+            ".js",
+            ".ts",
+            ".jsx",
+            ".tsx",
+            ".go",
+            ".rs",
+            ".rb",
+            ".java",
+            ".cpp",
+            ".c",
+            ".h",
+            ".hpp",
+            ".cs",
+            ".swift",
+            ".kt",
+            ".php",
+            ".scala",
+            ".ex",
+            ".exs",
+            ".clj",
+            ".hs",
+            ".ml",
         }
         # Non-code extensions - skip agent routing
-        non_code_extensions = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
-                               ".mp3", ".mp4", ".wav", ".pdf", ".zip", ".tar"}
+        non_code_extensions = {
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".gif",
+            ".svg",
+            ".ico",
+            ".mp3",
+            ".mp4",
+            ".wav",
+            ".pdf",
+            ".zip",
+            ".tar",
+        }
 
         # Check if task references code files (not images/media)
         has_code_file = any(ext in task_lower for ext in code_extensions)
         has_non_code_only = (
-            any(ext in task_lower for ext in non_code_extensions)
-            and not has_code_file
+            any(ext in task_lower for ext in non_code_extensions) and not has_code_file
         )
 
         # Code context keywords (language-agnostic)
         code_keywords = {
-            "function", "class", "method", "module", "package", "import",
-            "def ", "const ", "let ", "var ", "async ", "await ",
-            "error", "bug", "exception", "traceback", "stack trace",
+            "function",
+            "class",
+            "method",
+            "module",
+            "package",
+            "import",
+            "def ",
+            "const ",
+            "let ",
+            "var ",
+            "async ",
+            "await ",
+            "error",
+            "bug",
+            "exception",
+            "traceback",
+            "stack trace",
             # Project/codebase references
-            "codebase", "repository", "repo", "project", "source",
-            "pipeline", "service", "handler", "controller", "middleware",
-            "api", "endpoint", "route", "model", "schema", "database",
+            "codebase",
+            "repository",
+            "repo",
+            "project",
+            "source",
+            "pipeline",
+            "service",
+            "handler",
+            "controller",
+            "middleware",
+            "api",
+            "endpoint",
+            "route",
+            "model",
+            "schema",
+            "database",
         }
-        has_code_context = has_code_file or any(kw in task_lower for kw in code_keywords)
+        has_code_context = has_code_file or any(
+            kw in task_lower for kw in code_keywords
+        )
 
         # Skip agents for non-code files without code context
         if has_non_code_only and not has_code_context:
@@ -392,14 +472,43 @@ class AgentOrchestrator:
 
         # Workflow keywords - check user intent first, then full task
         explore_kw = {
-            "find", "search", "list", "show", "what", "where", "how",
-            "explore", "review", "look", "examine", "analyze", "explain",
-            "understand", "describe", "read", "see", "check out",
+            "find",
+            "search",
+            "list",
+            "show",
+            "what",
+            "where",
+            "how",
+            "explore",
+            "review",
+            "look",
+            "examine",
+            "analyze",
+            "explain",
+            "understand",
+            "describe",
+            "read",
+            "see",
+            "check out",
         }
         edit_kw = {
-            "fix", "add", "change", "update", "modify", "edit", "implement",
-            "refactor", "rename", "remove", "delete", "create", "write",
-            "replace", "insert", "move", "rewrite",
+            "fix",
+            "add",
+            "change",
+            "update",
+            "modify",
+            "edit",
+            "implement",
+            "refactor",
+            "rename",
+            "remove",
+            "delete",
+            "create",
+            "write",
+            "replace",
+            "insert",
+            "move",
+            "rewrite",
         }
         validate_kw = {"test", "verify", "validate", "run tests", "unittest"}
 

@@ -23,6 +23,9 @@ if TYPE_CHECKING:
     from ..core import OpenInterpreter
     from ..memory import SemanticEditGraph
 
+    # Forward reference for orchestrator
+    from .orchestrator import AgentOrchestrator
+
 # Lazy-loaded plugin registry to avoid circular imports
 _PluginRegistry = None
 
@@ -61,6 +64,7 @@ class BaseAgent(ABC):
         memory: Optional["SemanticEditGraph"] = None,
         plugins: list["AgentPlugin"] | None = None,
         name: str | None = None,
+        orchestrator: Optional["AgentOrchestrator"] = None,
     ):
         """
         Initialize the agent.
@@ -70,14 +74,18 @@ class BaseAgent(ABC):
             memory: Optional shared SemanticEditGraph
             plugins: Optional list of AgentPlugin instances
             name: Optional agent name (defaults to role value)
+            orchestrator: Optional orchestrator for inter-agent communication
         """
         self.interpreter = interpreter
         self._memory = memory
         self._name = name
+        self._orchestrator: Optional[AgentOrchestrator] = orchestrator
 
         # Agent state
         self._active = False
         self._last_result: AgentResult | None = None
+        self._current_context: str | None = None  # Track context for inter-agent calls
+        self._call_depth: int = 0  # Prevent infinite agent loops
 
         # Initialize plugin registry
         self._plugin_registry: PluginRegistry | None = None
@@ -108,6 +116,101 @@ class BaseAgent(ABC):
             PluginRegistryClass = _get_plugin_registry_class()
             self._plugin_registry = PluginRegistryClass()
         self._plugin_registry.register(plugin)
+
+    # =========================================================================
+    # Inter-Agent Communication
+    # =========================================================================
+
+    MAX_AGENT_CALL_DEPTH = 3  # Prevent infinite agent loops
+
+    def ask_agent(
+        self,
+        role: AgentRole,
+        question: str,
+        context: str | None = None,
+    ) -> AgentResult:
+        """
+        Ask another agent a question and get a response.
+
+        ARCHITECTURE: Enables agent collaboration by allowing any agent to
+        query siblings for specialized knowledge.
+
+        WHY: Scout can ask Architect about structure, Surgeon can ask Scout
+        to find related files - agents can leverage each other's expertise.
+
+        TRADEOFF: Adds latency (nested agent calls) but enables smarter behavior.
+        Max depth prevents infinite loops.
+
+        Args:
+            role: The AgentRole to query
+            question: The question to ask
+            context: Optional additional context
+
+        Returns:
+            AgentResult from the queried agent
+
+        Raises:
+            RuntimeError: If orchestrator not set or max depth exceeded
+        """
+        if self._orchestrator is None:
+            raise RuntimeError(
+                f"{self.name} cannot call ask_agent(): no orchestrator set. "
+                "Agents must be created via AgentOrchestrator for collaboration."
+            )
+
+        if self._call_depth >= self.MAX_AGENT_CALL_DEPTH:
+            return AgentResult(
+                role=role,
+                success=False,
+                error=f"Max agent call depth ({self.MAX_AGENT_CALL_DEPTH}) exceeded. "
+                f"Preventing potential infinite loop.",
+            )
+
+        # Get the sibling agent
+        sibling = self.get_sibling_agent(role)
+
+        # Inherit call depth to prevent deep recursion
+        sibling._call_depth = self._call_depth + 1
+
+        # Combine contexts
+        combined_context = context
+        if self._current_context:
+            if combined_context:
+                combined_context = f"{self._current_context}\n\n{combined_context}"
+            else:
+                combined_context = self._current_context
+
+        self.log(f"Asking {role.value}: {question[:50]}...")
+
+        try:
+            result = sibling.execute(question, context=combined_context)
+            return result
+        finally:
+            # Reset sibling's call depth
+            sibling._call_depth = 0
+
+    def get_sibling_agent(self, role: AgentRole) -> "BaseAgent":
+        """
+        Get another agent from the orchestrator.
+
+        Args:
+            role: The AgentRole to get
+
+        Returns:
+            The agent instance
+
+        Raises:
+            RuntimeError: If orchestrator not set
+        """
+        if self._orchestrator is None:
+            raise RuntimeError(
+                f"{self.name} cannot get sibling agent: no orchestrator set."
+            )
+        return self._orchestrator.get_agent(role)
+
+    def can_collaborate(self) -> bool:
+        """Check if this agent can collaborate with others."""
+        return self._orchestrator is not None
 
     def _run_hook_sync(self, hook_name: str, value: Any, **kwargs) -> Any:
         """
@@ -152,7 +255,7 @@ class BaseAgent(ABC):
 
             # Use existing event loop or create new one
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 # Already in async context - create task
                 import concurrent.futures
 
@@ -207,6 +310,9 @@ class BaseAgent(ABC):
 
         start_time = time.time()
 
+        # Store context for inter-agent calls
+        self._current_context = context
+
         # Run BEFORE_EXECUTE hook
         task = self._run_hook_sync("before_execute", task)
 
@@ -238,6 +344,7 @@ class BaseAgent(ABC):
 
         finally:
             self._active = False
+            self._current_context = None  # Clear context after execution
 
     @abstractmethod
     def get_system_message(self) -> str:

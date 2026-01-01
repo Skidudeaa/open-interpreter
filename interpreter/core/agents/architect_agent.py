@@ -1,14 +1,20 @@
 """
 ArchitectAgent - Structural analysis and implementation design agent.
 
-Analyzes codebases to understand architecture, dependencies, and patterns.
-Produces implementation plans for complex tasks that guide other agents.
+ARCHITECTURE: Analyzes codebases using AST parsing and pattern recognition.
+Can collaborate with Scout to discover files when context is sparse.
+
+WHY: Good architecture analysis requires knowing what files exist.
+When Architect doesn't have file context, it asks Scout to explore first.
+
+TRADEOFF: Scout queries add latency but ensure comprehensive analysis.
 
 Capabilities:
 - AST-based code analysis
 - Dependency graph construction
 - Pattern recognition
 - Implementation planning
+- Collaborative file discovery via Scout queries
 """
 
 import ast
@@ -158,7 +164,10 @@ Always output structured plans that other agents can follow."""
 
     def execute(self, task: str, context: str | None = None) -> "AgentResult":
         """
-        Execute an architecture/planning task.
+        Execute an architecture/planning task with optional Scout collaboration.
+
+        ARCHITECTURE: If we need to analyze structure but don't have file
+        context, ask Scout to explore first. This ensures comprehensive analysis.
 
         Args:
             task: The task description
@@ -170,6 +179,10 @@ Always output structured plans that other agents can follow."""
         self.log(f"Starting architecture task: {task[:50]}...")
 
         task_lower = task.lower()
+
+        # Check if we need Scout to find files first
+        if self._needs_file_discovery(task, context):
+            context = self._discover_files_via_scout(task, context)
 
         try:
             if "analyze" in task_lower or "structure" in task_lower:
@@ -199,6 +212,72 @@ Always output structured plans that other agents can follow."""
                 content=f"Architecture analysis error: {str(e)}",
                 error=str(e),
             )
+
+    def _needs_file_discovery(self, task: str, context: str | None) -> bool:
+        """
+        Check if we need Scout to discover files first.
+
+        WHY: Architecture analysis is more valuable when we know what
+        files exist. If context is sparse, Scout can help.
+        """
+        # Can't collaborate if no orchestrator
+        if not self.can_collaborate():
+            return False
+
+        # If we have substantial context with file references, we're good
+        if context and len(context) > 300:
+            return False
+
+        # If task mentions specific concepts but no files, we need discovery
+        concept_keywords = {
+            "module",
+            "component",
+            "service",
+            "handler",
+            "controller",
+            "model",
+            "view",
+            "api",
+            "endpoint",
+            "pipeline",
+            "system",
+        }
+
+        task_lower = task.lower()
+        has_concepts = any(kw in task_lower for kw in concept_keywords)
+
+        # Check for file references in task
+        file_refs = re.findall(r"[\w/\\]+\.\w+", task)
+        has_files = bool(file_refs)
+
+        # Need discovery if task mentions concepts but not specific files
+        return has_concepts and not has_files
+
+    def _discover_files_via_scout(self, task: str, existing_context: str | None) -> str:
+        """
+        Ask Scout to find relevant files for architecture analysis.
+
+        ARCHITECTURE: Architect asks "find files related to X module",
+        Scout returns relevant files, Architect analyzes them.
+        """
+        self.log("Asking Scout to discover relevant files...")
+
+        try:
+            from .types import AgentRole
+
+            scout_query = f"Find all files related to: {task}"
+            scout_result = self.ask_agent(AgentRole.SCOUT, scout_query)
+
+            if scout_result.success and scout_result.content:
+                new_context = f"## Scout Discovery\n{scout_result.content}"
+                if existing_context:
+                    return f"{existing_context}\n\n{new_context}"
+                return new_context
+
+        except Exception as e:
+            self.log(f"Scout discovery failed: {e}")
+
+        return existing_context or ""
 
     def analyze_file(self, file_path: str) -> CodeStructure | None:
         """

@@ -256,6 +256,7 @@ def terminal_interface(interpreter, message):
         interactive = True
 
     active_block = None
+    pending_message_start = None  # Buffer "start" until non-empty content arrives
     voice_subprocess = None
 
     # Phase 2-4: Initialize UI components
@@ -810,6 +811,22 @@ def terminal_interface(interpreter, message):
                         print(chunk.get("content", ""), end="", flush=True)
                     continue
 
+                # Discard empty message (buffered start but no content received)
+                if (
+                    "end" in chunk
+                    and chunk.get("type") == "message"
+                    and pending_message_start
+                ):
+                    if getattr(interpreter, "debug_empty_responses", False):
+                        import sys
+
+                        print(
+                            "[EMPTY] Discarding message block: start received but no content",
+                            file=sys.stderr,
+                        )
+                    pending_message_start = None
+                    continue
+
                 if "end" in chunk and active_block:
                     # Skip rendering empty message blocks (no content received)
                     if (
@@ -852,13 +869,19 @@ def terminal_interface(interpreter, message):
                 # Assistant message blocks
                 if chunk["type"] == "message":
                     if "start" in chunk:
-                        # Get role from chunk, default to assistant
-                        role = chunk.get("role", "assistant")
-                        active_block = MessageBlock(role=role)
-                        render_cursor = True
+                        # Buffer start - only create block when non-empty content arrives
+                        pending_message_start = chunk
+                        continue
 
-                    if "content" in chunk:
-                        active_block.message += chunk["content"]
+                    if "content" in chunk and chunk["content"]:
+                        # Create block on first non-empty content (deferred creation)
+                        if pending_message_start:
+                            role = pending_message_start.get("role", "assistant")
+                            active_block = MessageBlock(role=role)
+                            render_cursor = True
+                            pending_message_start = None
+                        if active_block:
+                            active_block.message += chunk["content"]
 
                     if "end" in chunk and interpreter.os:
                         last_message = interpreter.messages[-1]["content"]

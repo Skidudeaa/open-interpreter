@@ -207,8 +207,13 @@ def run_tool_calling_llm(llm, request_params):
         ):
             import sys
 
+            # delta may be dict or Pydantic model
+            try:
+                keys = list(delta.keys()) if hasattr(delta, "keys") else list(delta.model_fields.keys())
+            except Exception:
+                keys = ["unknown"]
             print(
-                f"[EMPTY] LLM returned empty content, delta keys: {list(delta.keys())}",
+                f"[EMPTY] LLM returned empty content, delta keys: {keys}",
                 file=sys.stderr,
             )
 

@@ -169,6 +169,7 @@ class BaseBlock:
                 except Exception:
                     pass  # Ignore errors on cancel
                 self._live = None
+            self._live_started = False
 
     def refresh(self, cursor=True):
         """Refresh the display. Subclasses must implement."""

@@ -790,7 +790,7 @@ class OpenInterpreter:
                     }
                     break
 
-                if chunk["content"] == "":
+                if chunk.get("content") == "":
                     if self.debug_empty_responses:
                         import sys
 

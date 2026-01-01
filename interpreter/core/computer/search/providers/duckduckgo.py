@@ -1,7 +1,7 @@
 """
 DuckDuckGo Search Provider - Free web search without API key.
 
-Uses the duckduckgo-search library for search results.
+Uses the ddgs library (formerly duckduckgo-search) for search results.
 No API key required, but has rate limiting.
 """
 
@@ -14,15 +14,22 @@ DDGS = None
 
 
 def _get_ddgs():
-    """Lazy load duckduckgo-search."""
+    """Lazy load ddgs (or fallback to duckduckgo-search)."""
     global DDGS
     if DDGS is None:
+        # Try new ddgs package first
         try:
-            from duckduckgo_search import DDGS as _DDGS
+            from ddgs import DDGS as _DDGS
 
             DDGS = _DDGS
         except ImportError:
-            pass
+            # Fall back to old package
+            try:
+                from duckduckgo_search import DDGS as _DDGS
+
+                DDGS = _DDGS
+            except ImportError:
+                pass
     return DDGS
 
 
@@ -87,7 +94,9 @@ class DuckDuckGoProvider(SearchProvider):
                         )
                     )
             return results
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"DuckDuckGo search failed: {e}")
             return []
 
     def is_available(self) -> bool:

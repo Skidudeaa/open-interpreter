@@ -325,7 +325,8 @@ class BaseAgent(ABC):
 
             # Collect response
             response_parts = []
-            for chunk in self.interpreter.chat(display=False, stream=True):
+            # Pass empty message to trigger response to pre-populated messages
+            for chunk in self.interpreter.chat(message="", display=False, stream=True):
                 if chunk.get("type") == "message" and chunk.get("role") == "assistant":
                     response_parts.append(chunk.get("content", ""))
 

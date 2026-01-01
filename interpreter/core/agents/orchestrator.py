@@ -342,6 +342,19 @@ class AgentOrchestrator:
         else:
             user_intent = task_lower[:100]  # First 100 chars for long messages
 
+        # Strong intent words - if user says these, trust them and route to agents
+        # No need for code indicators when intent is explicit
+        strong_explore = {"review", "explain", "analyze", "examine", "look at", "check out", "walk through"}
+        strong_edit = {"fix", "refactor", "rewrite", "implement", "add feature"}
+        strong_validate = {"run tests", "test this", "verify"}
+
+        if any(kw in user_intent for kw in strong_explore):
+            return WorkflowType.EXPLORE
+        if any(kw in user_intent for kw in strong_validate):
+            return WorkflowType.VALIDATE
+        if any(kw in user_intent for kw in strong_edit):
+            return WorkflowType.EDIT
+
         # Code file extensions that warrant agent routing
         code_extensions = {
             ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".rb",

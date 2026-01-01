@@ -791,11 +791,12 @@ class OpenInterpreter:
                     break
 
                 if chunk.get("content") == "":
-                    if self.debug_empty_responses:
+                    # Only log empty assistant messages (not console/computer chunks)
+                    if self.debug_empty_responses and chunk.get("role") == "assistant":
                         import sys
 
                         print(
-                            f"[EMPTY] Filtered empty chunk: type={chunk.get('type')}, role={chunk.get('role')}",
+                            f"[EMPTY] Filtered empty chunk: type={chunk.get('type')}",
                             file=sys.stderr,
                         )
                     continue

@@ -325,11 +325,9 @@ class AgentOrchestrator:
         """
         Detect the appropriate workflow from the task.
 
-        Args:
-            task: The task description
-
-        Returns:
-            WorkflowType
+        WHY: Route tasks to specialized agents for better results.
+        TRADEOFF: Simple keyword matching vs LLM-based classification.
+                  Keywords are fast but can misroute; we prioritize user intent.
         """
         task_lower = task.lower()
 
@@ -337,70 +335,78 @@ class AgentOrchestrator:
         if len(task) < 30:
             return WorkflowType.NONE
 
-        # Require code/file context indicators for agent routing
-        # Without these, let the LLM handle it directly
-        code_indicators = [
-            ".py",
-            ".js",
-            ".ts",
-            ".jsx",
-            ".tsx",
-            ".go",
-            ".rs",
-            ".java",
-            ".cpp",
-            ".c",
-            ".h",
-            "function",
-            "class",
-            "method",
-            "file",
-            "code",
-            "module",
-            "package",
-            "import",
-            "def ",
-            "const ",
-            "let ",
-            "var ",
-        ]
-        has_code_context = any(ind in task_lower for ind in code_indicators)
+        # Extract user intent BEFORE @file expansion (everything before first @)
+        # This is the user's actual request, not expanded file content
+        if "@" in task:
+            user_intent = task.split("@")[0].strip().lower()
+        else:
+            user_intent = task_lower[:100]  # First 100 chars for long messages
 
+        # Code file extensions that warrant agent routing
+        code_extensions = {
+            ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".rb",
+            ".java", ".cpp", ".c", ".h", ".hpp", ".cs", ".swift", ".kt",
+            ".php", ".scala", ".ex", ".exs", ".clj", ".hs", ".ml",
+        }
+        # Non-code extensions - skip agent routing
+        non_code_extensions = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
+                               ".mp3", ".mp4", ".wav", ".pdf", ".zip", ".tar"}
+
+        # Check if task references code files (not images/media)
+        has_code_file = any(ext in task_lower for ext in code_extensions)
+        has_non_code_only = (
+            any(ext in task_lower for ext in non_code_extensions)
+            and not has_code_file
+        )
+
+        # Code context keywords (language-agnostic)
+        code_keywords = {
+            "function", "class", "method", "module", "package", "import",
+            "def ", "const ", "let ", "var ", "async ", "await ",
+            "error", "bug", "exception", "traceback", "stack trace",
+            # Project/codebase references
+            "codebase", "repository", "repo", "project", "source",
+            "pipeline", "service", "handler", "controller", "middleware",
+            "api", "endpoint", "route", "model", "schema", "database",
+        }
+        has_code_context = has_code_file or any(kw in task_lower for kw in code_keywords)
+
+        # Skip agents for non-code files without code context
+        if has_non_code_only and not has_code_context:
+            return WorkflowType.NONE
         if not has_code_context:
             return WorkflowType.NONE
 
-        # Keywords for different workflows
-        explore_keywords = [
-            "find",
-            "search",
-            "list",
-            "show",
-            "what",
-            "where",
-            "explore",
-        ]
-        edit_keywords = [
-            "fix",
-            "add",
-            "change",
-            "update",
-            "modify",
-            "edit",
-            "implement",
-        ]
-        validate_keywords = ["test", "check", "verify", "validate"]
+        # Workflow keywords - check user intent first, then full task
+        explore_kw = {
+            "find", "search", "list", "show", "what", "where", "how",
+            "explore", "review", "look", "examine", "analyze", "explain",
+            "understand", "describe", "read", "see", "check out",
+        }
+        edit_kw = {
+            "fix", "add", "change", "update", "modify", "edit", "implement",
+            "refactor", "rename", "remove", "delete", "create", "write",
+            "replace", "insert", "move", "rewrite",
+        }
+        validate_kw = {"test", "verify", "validate", "run tests", "unittest"}
 
-        # Check for keywords
-        if any(kw in task_lower for kw in validate_keywords):
+        # Priority 1: User's explicit intent (before @file content)
+        if user_intent:
+            if any(kw in user_intent for kw in explore_kw):
+                return WorkflowType.EXPLORE
+            if any(kw in user_intent for kw in validate_kw):
+                return WorkflowType.VALIDATE
+            if any(kw in user_intent for kw in edit_kw):
+                return WorkflowType.EDIT
+
+        # Priority 2: Full task content (fallback)
+        if any(kw in task_lower for kw in validate_kw):
             return WorkflowType.VALIDATE
-
-        if any(kw in task_lower for kw in edit_keywords):
+        if any(kw in task_lower for kw in edit_kw):
             return WorkflowType.EDIT
-
-        if any(kw in task_lower for kw in explore_keywords):
+        if any(kw in task_lower for kw in explore_kw):
             return WorkflowType.EXPLORE
 
-        # Default to LLM (no agent routing) for most tasks
         return WorkflowType.NONE
 
     def _run_explore_workflow(

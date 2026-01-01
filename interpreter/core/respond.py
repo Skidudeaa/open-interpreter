@@ -188,17 +188,23 @@ def respond(interpreter):
                         )
 
                         # Run with live status panel if not in plain text mode
+                        from .agents import base_agent
                         from .agents.live_status import run_with_live_status
 
-                        result = run_with_live_status(
-                            interpreter.agent_orchestrator,
-                            latest_task,
-                            workflow=workflow,
-                            auto_apply=interpreter.auto_run,
-                            plain_text=getattr(
-                                interpreter, "plain_text_display", False
-                            ),
-                        )
+                        # Set flag to prevent nested interpreter.chat() calls
+                        base_agent._INTERPRETER_ACTIVE = True
+                        try:
+                            result = run_with_live_status(
+                                interpreter.agent_orchestrator,
+                                latest_task,
+                                workflow=workflow,
+                                auto_apply=interpreter.auto_run,
+                                plain_text=getattr(
+                                    interpreter, "plain_text_display", False
+                                ),
+                            )
+                        finally:
+                            base_agent._INTERPRETER_ACTIVE = False
 
                         # Yield the orchestrator's result as assistant message
                         if result.success:

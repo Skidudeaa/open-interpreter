@@ -29,6 +29,10 @@ if TYPE_CHECKING:
 # Lazy-loaded plugin registry to avoid circular imports
 _PluginRegistry = None
 
+# Global flag to prevent nested interpreter.chat() calls
+# When True, agents will skip LLM calls and use fallbacks
+_INTERPRETER_ACTIVE = False
+
 
 def _get_plugin_registry_class():
     """Lazy load PluginRegistry to avoid circular imports."""
@@ -86,6 +90,7 @@ class BaseAgent(ABC):
         self._last_result: AgentResult | None = None
         self._current_context: str | None = None  # Track context for inter-agent calls
         self._call_depth: int = 0  # Prevent infinite agent loops
+        self._in_llm_call: bool = False  # Prevent nested LLM calls
 
         # Initialize plugin registry
         self._plugin_registry: PluginRegistry | None = None
@@ -400,6 +405,7 @@ class BaseAgent(ABC):
         self,
         messages: list[dict[str, str]],
         system_message: str | None = None,
+        timeout: float = 30.0,
     ) -> str:
         """
         Run the interpreter with the given messages.
@@ -407,15 +413,23 @@ class BaseAgent(ABC):
         Args:
             messages: Messages to send
             system_message: Optional override system message
+            timeout: Timeout in seconds (default 30s)
 
         Returns:
             The assistant's response content
         """
+        # Prevent nested LLM calls - can cause hangs
+        global _INTERPRETER_ACTIVE
+        if self._in_llm_call or _INTERPRETER_ACTIVE:
+            self.log("Skipping LLM call to prevent nested interpreter hang")
+            return ""
+
         # Store original settings
         original_system = self.interpreter.system_message
         original_auto_run = self.interpreter.auto_run
         original_loop = self.interpreter.loop
 
+        self._in_llm_call = True
         try:
             # Apply agent settings
             if system_message:
@@ -430,16 +444,24 @@ class BaseAgent(ABC):
             # Set messages and run
             self.interpreter.messages = messages.copy()
 
-            # Collect response
+            # Collect response with timeout protection
+            import time
+
             response_parts = []
+            start_time = time.time()
+
             # Pass empty message to trigger response to pre-populated messages
             for chunk in self.interpreter.chat(message="", display=False, stream=True):
+                if time.time() - start_time > timeout:
+                    self.log(f"LLM call timed out after {timeout}s")
+                    break
                 if chunk.get("type") == "message" and chunk.get("role") == "assistant":
                     response_parts.append(chunk.get("content", ""))
 
             return "".join(response_parts)
 
         finally:
+            self._in_llm_call = False
             # Restore original settings
             self.interpreter.system_message = original_system
             self.interpreter.auto_run = original_auto_run

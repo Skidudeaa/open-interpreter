@@ -290,6 +290,7 @@ class OpenInterpreter:
         self.offline = offline
         self.auto_run = auto_run
         self.verbose = verbose
+        self.debug_empty_responses = False  # Targeted debug for blank response issues
         self.debug = debug
         self.max_output = max_output
         self.safe_mode = safe_mode
@@ -790,6 +791,13 @@ class OpenInterpreter:
                     break
 
                 if chunk["content"] == "":
+                    if self.debug_empty_responses:
+                        import sys
+
+                        print(
+                            f"[EMPTY] Filtered empty chunk: type={chunk.get('type')}, role={chunk.get('role')}",
+                            file=sys.stderr,
+                        )
                     continue
 
                 # If active_line is None, we finished running code.

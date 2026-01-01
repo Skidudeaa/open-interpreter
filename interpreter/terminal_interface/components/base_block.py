@@ -160,6 +160,16 @@ class BaseBlock:
                 except Exception as e:
                     logger.debug(f"BaseBlock.end: fallback refresh failed: {e}")
 
+    def cancel(self):
+        """Cancel this block without rendering (for empty content)."""
+        with self._live_lock:
+            if self._live is not None:
+                try:
+                    self._live.stop()
+                except Exception:
+                    pass  # Ignore errors on cancel
+                self._live = None
+
     def refresh(self, cursor=True):
         """Refresh the display. Subclasses must implement."""
         raise NotImplementedError("Subclasses must implement this method")

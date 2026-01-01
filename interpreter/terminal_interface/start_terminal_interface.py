@@ -72,6 +72,13 @@ def start_terminal_interface(interpreter):
             "attribute": {"object": interpreter, "attr_name": "verbose"},
         },
         {
+            "name": "debug_empty",
+            "nickname": "de",
+            "help_text": "debug blank/empty responses from the model",
+            "type": bool,
+            "attribute": {"object": interpreter, "attr_name": "debug_empty_responses"},
+        },
+        {
             "name": "model",
             "nickname": "m",
             "help_text": "language model to use",

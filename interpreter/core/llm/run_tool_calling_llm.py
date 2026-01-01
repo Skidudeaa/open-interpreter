@@ -199,6 +199,19 @@ def run_tool_calling_llm(llm, request_params):
         # Accumulate deltas
         accumulated_deltas = merge_deltas(accumulated_deltas, delta)
 
+        # Log when content is empty or missing (helps debug blank responses)
+        if (
+            "content" in delta
+            and not delta["content"]
+            and getattr(llm.interpreter, "debug_empty_responses", False)
+        ):
+            import sys
+
+            print(
+                f"[EMPTY] LLM returned empty content, delta keys: {list(delta.keys())}",
+                file=sys.stderr,
+            )
+
         if "content" in delta and delta["content"]:
             if function_call_detected:
                 # More content after a code block? This is a code review by a judge layer.

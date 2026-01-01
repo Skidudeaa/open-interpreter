@@ -811,6 +811,20 @@ def terminal_interface(interpreter, message):
                     continue
 
                 if "end" in chunk and active_block:
+                    # Skip rendering empty message blocks (no content received)
+                    if (
+                        hasattr(active_block, "message")
+                        and not active_block.message.strip()
+                    ):
+                        # Show what happened instead of blank box
+                        if getattr(interpreter, "debug_empty_responses", False):
+                            active_block.message = "[Empty response - model returned no visible content. May be thinking internally or preparing code.]"
+                            active_block.end()
+                        else:
+                            active_block.cancel()
+                        active_block = None
+                        continue
+
                     active_block.refresh(cursor=False)
 
                     if chunk["type"] in [

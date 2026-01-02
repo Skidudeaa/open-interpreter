@@ -18,6 +18,28 @@ from .render_message import render_message
 # System message cache to avoid rebuilding every iteration
 _system_message_cache = {}
 
+# Intent refiner instance cache (lazy-loaded)
+_intent_refiner_cache = {}
+
+
+def _get_refined_message(interpreter, content: str) -> str:
+    """
+    Refine user message content using IntentRefiner if enabled.
+    Returns original content if refinement is disabled or fails.
+    """
+    if not getattr(interpreter, "enable_intent_refiner", False):
+        return content
+
+    # Lazy-load refiner (cached per interpreter instance)
+    interpreter_id = id(interpreter)
+    if interpreter_id not in _intent_refiner_cache:
+        from .intent_refiner import IntentRefiner
+
+        _intent_refiner_cache[interpreter_id] = IntentRefiner(interpreter)
+
+    refiner = _intent_refiner_cache[interpreter_id]
+    return refiner.refine(content)
+
 
 def _build_system_message(interpreter):
     """
@@ -140,6 +162,19 @@ def respond(interpreter):
 
         # Create the version of messages that we'll send to the LLM
         messages_for_llm = interpreter.messages.copy()
+
+        # Intent refinement: refine the last user message if enabled
+        # This strips safety-trigger phrasing before the main LLM sees it
+        if getattr(interpreter, "enable_intent_refiner", False):
+            for msg in reversed(messages_for_llm):
+                if msg.get("role") == "user" and msg.get("type") == "message":
+                    original_content = msg.get("content", "")
+                    if original_content:
+                        msg["content"] = _get_refined_message(
+                            interpreter, original_content
+                        )
+                    break  # Only refine the last user message
+
         messages_for_llm = [rendered_system_message] + messages_for_llm
 
         if insert_loop_message:
@@ -169,6 +204,10 @@ def respond(interpreter):
                 ]
                 if user_messages:
                     latest_task = user_messages[-1].get("content", "")
+
+                    # Intent refinement: refine task before passing to agents
+                    if getattr(interpreter, "enable_intent_refiner", False):
+                        latest_task = _get_refined_message(interpreter, latest_task)
 
                     # Let orchestrator determine if this should be handled by agents
                     from .agents.orchestrator import WorkflowType

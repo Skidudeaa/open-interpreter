@@ -16,6 +16,13 @@ _OI_ACTIVATE_ALL = os_module.environ.get("OI_ACTIVATE_ALL", "").lower() in (
     "yes",
 )
 
+# Check for OI_ENABLE_UNSTEER environment variable (intent refinement)
+_OI_ENABLE_UNSTEER = os_module.environ.get("OI_ENABLE_UNSTEER", "").lower() in (
+    "true",
+    "1",
+    "yes",
+)
+
 from ..terminal_interface.local_setup import local_setup
 from ..terminal_interface.terminal_interface import terminal_interface
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
@@ -387,6 +394,16 @@ class OpenInterpreter:
         self.enable_context_compaction = True  # Enabled by default
         self.context_preserve_recent = 8  # Messages to keep verbatim
 
+        # Intent refinement ("Un-Steering" architecture)
+        # Uses Mistral Small Creative to strip safety-trigger phrasing
+        # before sending to main LLM (Gemini/Claude/etc)
+        self.enable_intent_refiner = (
+            _OI_ENABLE_UNSTEER  # Can enable via OI_ENABLE_UNSTEER=true
+        )
+        self.intent_refiner_model = os_module.environ.get(
+            "OI_UNSTEER_MODEL", "openrouter/mistralai/mistral-small-creative"
+        )
+
         # Check for OI_ACTIVATE_ALL environment variable (set at module load)
         if _OI_ACTIVATE_ALL:
             self.enable_semantic_memory = True
@@ -397,6 +414,8 @@ class OpenInterpreter:
             self.enable_trace_feedback = True
             self.enable_plugins = True
             self.auto_commit = True
+            # Note: intent_refiner NOT enabled by OI_ACTIVATE_ALL
+            # Requires OPENROUTER_API_KEY, so explicit opt-in only
 
         # Load persistent settings from ~/.config/open-interpreter/settings.json
         # These override both defaults and OI_ACTIVATE_ALL
@@ -420,6 +439,7 @@ class OpenInterpreter:
             "auto_commit",
             "enable_context_compaction",
             "context_preserve_recent",
+            "enable_intent_refiner",
         ]
 
         for flag in feature_flags:

@@ -202,6 +202,14 @@ def start_terminal_interface(interpreter):
             "attribute": {"object": interpreter, "attr_name": "debug"},
         },
         {
+            "name": "unsteer",
+            "nickname": "u",
+            "help_text": "enable Mistral-powered intent refinement to bypass overly sanitized LLM responses (requires OPENROUTER_API_KEY)",
+            "type": bool,
+            "action": argparse.BooleanOptionalAction,
+            "attribute": {"object": interpreter, "attr_name": "enable_intent_refiner"},
+        },
+        {
             "name": "fast",
             "nickname": "f",
             "help_text": "runs `interpreter --model gpt-4o-mini` and asks OI to be extremely concise (shortcut for `interpreter --profile fast`)",
@@ -238,6 +246,11 @@ def start_terminal_interface(interpreter):
         {
             "name": "groq",
             "help_text": "shortcut for `interpreter --profile groq`",
+            "type": bool,
+        },
+        {
+            "name": "creative",
+            "help_text": "enable intent refinement with Mistral (shortcut for `interpreter --profile creative`)",
             "type": bool,
         },
         {
@@ -482,6 +495,9 @@ Use """ to write multi-line messages.
 
     if args.groq:
         args.profile = "groq.py"
+
+    if args.creative:
+        args.profile = "creative.py"
 
     interpreter = profile(
         interpreter,

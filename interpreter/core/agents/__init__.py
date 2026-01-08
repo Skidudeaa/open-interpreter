@@ -15,18 +15,11 @@ complex coding tasks more effectively than a single agent.
 # Agent implementations
 from .architect_agent import ArchitectAgent
 from .base_agent import BaseAgent
-from .orchestrator import AgentOrchestrator
+from .orchestrator import AgentOrchestrator, WorkflowResult, WorkflowType
 from .research_agent import ResearchAgent, ResearchConfig
 from .scout_agent import ScoutAgent
 from .surgeon_agent import SurgeonAgent
-from .types import (
-    AgentConfig,
-    AgentResult,
-    AgentRole,
-    AgentStatus,
-    WorkflowResult,
-    WorkflowStep,
-)
+from .types import AgentConfig, AgentResult, AgentRole, AgentStatus, WorkflowStep
 from .validator_agent import ValidatorAgent
 
 __all__ = [
@@ -37,6 +30,7 @@ __all__ = [
     "AgentResult",
     "WorkflowStep",
     "WorkflowResult",
+    "WorkflowType",
     "ResearchConfig",
     # Agents
     "BaseAgent",

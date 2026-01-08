@@ -183,35 +183,6 @@ class WorkflowStep:
             self.step_id = str(uuid.uuid4())[:8]
 
 
-@dataclass
-class WorkflowResult:
-    """Result of a multi-agent workflow execution."""
-
-    success: bool
-    steps_completed: int
-    steps_total: int
-    results: dict[str, AgentResult] = field(default_factory=dict)  # step_id -> result
-    errors: list[str] = field(default_factory=list)
-    total_duration_ms: float = 0.0
-    total_tokens: int = 0
-
-    @property
-    def all_files_found(self) -> list[str]:
-        """Aggregate all files found across steps."""
-        files = []
-        for result in self.results.values():
-            files.extend(result.files_found)
-        return list(set(files))
-
-    @property
-    def all_edits_proposed(self) -> list[dict]:
-        """Aggregate all edits proposed across steps."""
-        edits = []
-        for result in self.results.values():
-            edits.extend(result.edits_proposed)
-        return edits
-
-
 def create_result(
     role: AgentRole,
     success: bool = True,

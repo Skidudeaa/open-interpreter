@@ -449,7 +449,7 @@ class AgentOrchestrator:
             "walk through",
         )
         strong_edit = ("fix", "refactor", "rewrite", "implement", "add feature")
-        strong_validate = ("run tests", "test this", "verify")
+        strong_validate = ("run tests", "test this", "verify", "validate", "test ")
 
         # Strong intent words override length heuristics.
         if any(kw in user_intent for kw in strong_explore):
@@ -549,7 +549,7 @@ class AgentOrchestrator:
             "move",
             "rewrite",
         )
-        validate_kw = ("test", "verify", "validate", "run tests", "unittest")
+        validate_kw = ("test", "verify", "validate", "run tests", "unittest", "check")
 
         # Priority 1: user intent.
         if any(kw in user_intent for kw in validate_kw):

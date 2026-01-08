@@ -2,30 +2,27 @@
 AgentOrchestrator - Coordinates multiple specialized agents.
 
 Routes tasks to appropriate agents and manages the workflow:
-1. Scout: Find relevant files and code
-2. Architect: Analyze structure (optional)
-3. Surgeon: Make precise edits
-4. Validator: Test the changes
+1) Scout: find relevant files and code
+2) Architect: analyze structure (optional)
+3) Surgeon: propose precise edits
+4) Validator: test/validate changes
 
-The orchestrator determines which agents to use based on the task.
+The orchestrator selects the smallest workflow that matches user intent and context.
 """
 
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from itertools import count
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from .base_agent import AgentResult, AgentRole, BaseAgent
 
-# Import UI event system for agent visualization
+# Import UI event system for agent visualization (optional).
 HAS_UI_EVENTS = False
-EventBus = None
-EventType = None
-UIEvent = None
-get_event_bus = None
-UIAgentRole = None
-AgentStatus = None
 
 try:
     from ...terminal_interface.components.activity_stream import emit_activity
@@ -39,7 +36,7 @@ try:
 
     HAS_UI_EVENTS = True
 except ImportError:
-    # Fallback if UI components not available
+    # UI is optional. Keep the orchestrator functional without it.
     def emit_activity(*args, **kwargs):
         pass
 
@@ -59,14 +56,14 @@ class WorkflowType(Enum):
     VALIDATE = "validate"  # Validator only
 
 
-@dataclass
+@dataclass(slots=True)
 class WorkflowResult:
     """Result from a complete workflow."""
 
     workflow_type: WorkflowType
-    success: bool
+    success: bool = False
     agent_results: dict[AgentRole, AgentResult] = field(default_factory=dict)
-    total_duration_ms: float = 0
+    total_duration_ms: float = 0.0
     final_context: str = ""
     errors: list[str] = field(default_factory=list)
 
@@ -93,62 +90,109 @@ class WorkflowResult:
         return "\n".join(lines)
 
 
+_PROJECT_MARKERS: tuple[str, ...] = (
+    ".git",
+    "pyproject.toml",
+    "package.json",
+    "Cargo.toml",
+    "go.mod",
+    "Makefile",
+    "setup.py",
+    "requirements.txt",
+    ".project",
+    "pom.xml",
+    "build.gradle",
+)
+
+_CODE_EXT_RE = re.compile(
+    r"(?i)\.(py|js|ts|jsx|tsx|go|rs|rb|java|cpp|c|h|hpp|cs|swift|kt|php|scala|ex|exs|clj|hs|ml)\b"
+)
+_NON_CODE_EXT_RE = re.compile(
+    r"(?i)\.(png|jpe?g|gif|svg|ico|mp3|mp4|wav|pdf|zip|tar)\b"
+)
+
+
 def _detect_project_root(start_path: str) -> str:
     """
-    Detect project root by looking for common project markers.
+    Detect project root by walking upwards for common project markers.
 
-    WHY: When running from home directory, we don't want to traverse
-    the entire home. Instead, find the nearest project root.
+    WHAT: Returns the nearest ancestor directory containing a known marker,
+          else returns the (absolute) starting directory.
 
-    TRADEOFF: May miss files outside project root, but prevents
-    catastrophic performance on large home directories.
+    WHY: Keeps Scout from treating the entire home directory as a codebase
+         when invoked from an arbitrary working directory.
 
     Args:
-        start_path: Starting path to search from
+        start_path: Starting path to search from (file or directory)
 
     Returns:
-        Project root path, or start_path if no markers found
+        Absolute project root path (directory).
     """
-    markers = [
-        ".git",
-        "pyproject.toml",
-        "package.json",
-        "Cargo.toml",
-        "go.mod",
-        "Makefile",
-        "setup.py",
-        "requirements.txt",
-        ".project",
-        "pom.xml",
-        "build.gradle",
-    ]
+    start = Path(start_path).expanduser()
+    try:
+        start = start.resolve()
+    except OSError:
+        # Some environments (containers, permission weirdness) can fail resolve().
+        start = Path(os.path.abspath(str(start)))
 
-    current = os.path.abspath(start_path)
+    if start.is_file():
+        start = start.parent
 
-    # Don't go above home directory
-    home = os.path.expanduser("~")
+    # Only cap traversal at HOME if the start path is actually inside HOME.
+    home = Path.home()
+    try:
+        home = home.resolve()
+    except OSError:
+        home = Path(os.path.abspath(str(home)))
 
-    while current and current != "/" and current >= home:
-        for marker in markers:
-            if os.path.exists(os.path.join(current, marker)):
-                return current
-        parent = os.path.dirname(current)
+    limit_to_home = False
+    try:
+        limit_to_home = start.is_relative_to(home)
+    except AttributeError:
+        # Python < 3.9 fallback.
+        limit_to_home = os.path.commonpath([str(start), str(home)]) == str(home)
+
+    current = start
+    while True:
+        if any((current / m).exists() for m in _PROJECT_MARKERS):
+            return str(current)
+
+        parent = current.parent
         if parent == current:
-            break
+            break  # filesystem root
+
+        if limit_to_home:
+            try:
+                if not parent.is_relative_to(home):
+                    break
+            except AttributeError:
+                if os.path.commonpath([str(parent), str(home)]) != str(home):
+                    break
+
         current = parent
 
-    # No project root found - return start path
-    return start_path
+    return str(start)
 
 
 class AgentOrchestrator:
     """
-    Coordinates specialized agents to handle complex tasks.
+    Coordinates specialized agents for codebase tasks.
 
-    Usage:
-        orchestrator = AgentOrchestrator(interpreter)
-        result = orchestrator.handle_task("fix the login bug")
+    Workflow roles:
+      1) Scout: locate relevant files / code
+      2) Architect: summarize structure (optional)
+      3) Surgeon: propose precise edits
+      4) Validator: run checks/tests
+
+    The orchestrator selects a workflow based on the task and available context.
     """
+
+    _ROLE_ACTIVITY = {
+        AgentRole.SCOUT: ("search", "Searching codebase"),
+        AgentRole.SURGEON: ("edit", "Preparing edits"),
+        AgentRole.ARCHITECT: ("plan", "Analyzing architecture"),
+        AgentRole.VALIDATOR: ("validate", "Running validation"),
+    }
 
     def __init__(
         self,
@@ -167,25 +211,39 @@ class AgentOrchestrator:
             event_bus: Optional EventBus for UI updates
         """
         self.interpreter = interpreter
-        self.memory = memory or interpreter.semantic_graph
+        self.memory = (
+            memory
+            if memory is not None
+            else getattr(interpreter, "semantic_graph", None)
+        )
 
-        # Auto-detect project root if not explicitly provided
+        # Auto-detect project root if not explicitly provided.
         if root_path:
-            self.root_path = root_path
+            self.root_path = os.path.abspath(root_path)
         else:
-            cwd = os.getcwd()
-            self.root_path = _detect_project_root(cwd)
+            self.root_path = _detect_project_root(os.getcwd())
 
-        # Lazy-load agents
+        # Lazy-loaded agents.
         self._agents: dict[AgentRole, BaseAgent] = {}
 
-        # Event bus for UI updates
+        # Event bus for UI updates (optional).
         self.event_bus = event_bus
         if self.event_bus is None and HAS_UI_EVENTS:
             self.event_bus = get_event_bus()
 
-        # Track agent IDs for event emission
-        self._agent_counter = 0
+        # Monotonic id generator for UI linking.
+        self._agent_id_seq = count(1)
+
+    @staticmethod
+    def _preview(text: object, limit: int = 200) -> str:
+        """Return a safe, short preview string for UI display."""
+        try:
+            s = str(text)
+        except Exception:
+            return "<unprintable>"
+        if len(s) <= limit:
+            return s
+        return s[: limit - 3] + "..."
 
     def _emit_agent_event(
         self, event_type: "EventType", agent_id: str, role: AgentRole, **data
@@ -193,35 +251,19 @@ class AgentOrchestrator:
         """
         Emit an agent event to the UI.
 
-        Args:
-            event_type: The event type
-            agent_id: The agent ID
-            role: The agent role
-            **data: Additional event data
+        WHY: UI event emission is optional. When the UI isn't installed, this is a no-op.
         """
         if not HAS_UI_EVENTS or not self.event_bus:
             return
 
-        # Convert core AgentRole to UI AgentRole
         ui_role = UIAgentRole.from_core_role(role)
-
         event_data = {"agent_id": agent_id, "role": ui_role.value, **data}
-
         event = UIEvent(type=event_type, data=event_data, source="orchestrator")
         self.event_bus.emit(event)
 
     def _generate_agent_id(self, role: AgentRole) -> str:
-        """
-        Generate a unique agent ID.
-
-        Args:
-            role: The agent role
-
-        Returns:
-            Unique agent ID
-        """
-        self._agent_counter += 1
-        return f"{role.value}-{self._agent_counter}"
+        """Generate a unique agent ID."""
+        return f"{role.value}-{next(self._agent_id_seq)}"
 
     def _execute_agent_with_events(
         self,
@@ -231,35 +273,25 @@ class AgentOrchestrator:
         parent_id: str | None = None,
     ) -> tuple[str, AgentResult]:
         """
-        Execute an agent with event emission.
-
-        Args:
-            role: Agent role
-            task: Task description
-            context: Optional context from previous agent
-            parent_id: Optional parent agent ID
+        Execute an agent with UI + activity stream hooks.
 
         Returns:
-            Tuple of (agent_id, agent_result)
+            (agent_id, agent_result)
         """
-        # Generate agent ID and emit spawn event
         agent_id = self._generate_agent_id(role)
-        self._emit_agent_event(
-            EventType.AGENT_SPAWN if HAS_UI_EVENTS else None,
-            agent_id,
-            role,
-            task=task,
-            parent_id=parent_id,
-        )
 
-        # Emit activity for agent start
-        role_verbs = {
-            AgentRole.SCOUT: ("search", "Searching codebase"),
-            AgentRole.SURGEON: ("edit", "Preparing edits"),
-            AgentRole.ARCHITECT: ("plan", "Analyzing architecture"),
-            AgentRole.VALIDATOR: ("validate", "Running validation"),
-        }
-        activity_type, activity_msg = role_verbs.get(role, ("think", "Processing"))
+        if HAS_UI_EVENTS and self.event_bus:
+            self._emit_agent_event(
+                EventType.AGENT_SPAWN,
+                agent_id,
+                role,
+                task=task,
+                parent_id=parent_id,
+            )
+
+        activity_type, activity_msg = self._ROLE_ACTIVITY.get(
+            role, ("think", "Processing")
+        )
         emit_activity(
             activity_type,
             activity_msg,
@@ -267,61 +299,52 @@ class AgentOrchestrator:
             agent=role.value,
         )
 
-        # Execute agent
         agent = self.get_agent(role)
         try:
             agent_result = agent.execute(task, context=context)
 
-            # Emit completion or error event
-            if agent_result.success:
-                self._emit_agent_event(
-                    EventType.AGENT_COMPLETE if HAS_UI_EVENTS else None,
-                    agent_id,
-                    role,
-                    result=str(agent_result.content)[:200],
-                )
-            else:
-                self._emit_agent_event(
-                    EventType.AGENT_ERROR if HAS_UI_EVENTS else None,
-                    agent_id,
-                    role,
-                    error=f"{role.value} execution failed",
-                )
+            if HAS_UI_EVENTS and self.event_bus:
+                if agent_result.success:
+                    self._emit_agent_event(
+                        EventType.AGENT_COMPLETE,
+                        agent_id,
+                        role,
+                        result=self._preview(agent_result.content),
+                    )
+                else:
+                    self._emit_agent_event(
+                        EventType.AGENT_ERROR,
+                        agent_id,
+                        role,
+                        error=f"{role.value} execution failed",
+                    )
 
             return agent_id, agent_result
 
         except Exception as e:
-            self._emit_agent_event(
-                EventType.AGENT_ERROR if HAS_UI_EVENTS else None,
-                agent_id,
-                role,
-                error=str(e),
-            )
+            if HAS_UI_EVENTS and self.event_bus:
+                self._emit_agent_event(
+                    EventType.AGENT_ERROR,
+                    agent_id,
+                    role,
+                    error=str(e),
+                )
             raise
 
     def get_agent(self, role: AgentRole) -> BaseAgent:
-        """
-        Get or create an agent by role.
-
-        Args:
-            role: The agent role
-
-        Returns:
-            The agent instance
-        """
-        if role not in self._agents:
-            self._agents[role] = self._create_agent(role)
-        return self._agents[role]
+        """Get or create an agent by role."""
+        agent = self._agents.get(role)
+        if agent is None:
+            agent = self._create_agent(role)
+            self._agents[role] = agent
+        return agent
 
     def _create_agent(self, role: AgentRole) -> BaseAgent:
         """
         Create an agent for the given role.
 
-        ARCHITECTURE: Agents receive orchestrator reference for inter-agent
-        communication via ask_agent().
-
-        WHY: Enables agents to collaborate - Scout can ask Architect about
-        structure, Surgeon can ask Scout for related files.
+        WHY: Agents receive a reference to the orchestrator so they can ask
+             other agents for context without tight coupling.
         """
         from .architect_agent import ArchitectAgent
         from .scout_agent import ScoutAgent
@@ -344,10 +367,7 @@ class AgentOrchestrator:
             memory=self.memory,
             root_path=self.root_path,
         )
-
-        # Wire orchestrator reference for inter-agent communication
-        agent._orchestrator = self
-
+        agent._orchestrator = self  # Inter-agent communication hook.
         return agent
 
     def handle_task(
@@ -357,22 +377,20 @@ class AgentOrchestrator:
         auto_apply: bool = False,
     ) -> WorkflowResult:
         """
-        Handle a task using the appropriate workflow.
+        Handle a task using the selected workflow.
 
         Args:
-            task: The task description
+            task: Task description
             workflow: Workflow type (auto-detected if None)
-            auto_apply: Automatically apply edits if True
+            auto_apply: Apply edits to disk when True
 
         Returns:
-            WorkflowResult with all agent results
+            WorkflowResult
         """
-        start_time = time.time()
+        start = time.perf_counter()
 
-        # Determine workflow type if not specified
         if workflow is None:
             workflow = self._detect_workflow(task)
-            # Emit activity for workflow detection
             if workflow != WorkflowType.NONE:
                 emit_activity(
                     "plan",
@@ -380,74 +398,60 @@ class AgentOrchestrator:
                     task[:50] + "..." if len(task) > 50 else task,
                 )
 
-        result = WorkflowResult(workflow_type=workflow, success=True)
+        result = WorkflowResult(workflow_type=workflow)
 
         try:
-            if workflow == WorkflowType.EXPLORE:
+            if workflow == WorkflowType.NONE:
+                # Intentionally do nothing: caller should use the base LLM path.
+                pass
+            elif workflow == WorkflowType.EXPLORE:
                 self._run_explore_workflow(task, result)
-
             elif workflow == WorkflowType.EDIT:
                 self._run_edit_workflow(task, result, auto_apply)
-
             elif workflow == WorkflowType.FULL:
                 self._run_full_workflow(task, result, auto_apply)
-
             elif workflow == WorkflowType.VALIDATE:
                 self._run_validate_workflow(task, result)
-
             else:
                 result.errors.append(f"Unknown workflow: {workflow}")
-
         except Exception as e:
-            result.success = False
             result.errors.append(str(e))
 
-        result.total_duration_ms = (time.time() - start_time) * 1000
-
-        # Build final context from all results
+        result.total_duration_ms = (time.perf_counter() - start) * 1000.0
         result.final_context = self._build_final_context(result)
-
-        # Determine overall success
-        if not result.errors:
-            result.success = all(r.success for r in result.agent_results.values())
-
+        result.success = (not result.errors) and all(
+            r.success for r in result.agent_results.values()
+        )
         return result
 
     def _detect_workflow(self, task: str) -> WorkflowType:
         """
-        Detect the appropriate workflow from the task.
+        Detect the appropriate workflow from a task.
 
-        WHY: Route tasks to specialized agents for better results.
-        TRADEOFF: Simple keyword matching vs LLM-based classification.
-                  Keywords are fast but can misroute; we prioritize user intent.
+        WHY: Keyword routing is cheap and predictable.
+        TRADEOFF: Misroutes are possible; we bias toward explicit user intent.
         """
         task_lower = task.lower()
 
-        # Skip agent routing for short/simple messages
-        if len(task) < 30:
-            return WorkflowType.NONE
-
-        # Extract user intent BEFORE @file expansion (everything before first @)
-        # This is the user's actual request, not expanded file content
-        if "@" in task:
-            user_intent = task.split("@")[0].strip().lower()
+        # Extract user intent BEFORE @file expansion.
+        if "@" in task_lower:
+            before_at = task_lower.split("@", 1)[0].strip()
+            user_intent = before_at or task_lower[:100]
         else:
-            user_intent = task_lower[:100]  # First 100 chars for long messages
+            user_intent = task_lower[:100]
 
-        # Strong intent words - if user says these, trust them and route to agents
-        # No need for code indicators when intent is explicit
-        strong_explore = {
+        strong_explore = (
             "review",
             "explain",
             "analyze",
             "examine",
             "look at",
-            "check out",
             "walk through",
-        }
-        strong_edit = {"fix", "refactor", "rewrite", "implement", "add feature"}
-        strong_validate = {"run tests", "test this", "verify"}
+        )
+        strong_edit = ("fix", "refactor", "rewrite", "implement", "add feature")
+        strong_validate = ("run tests", "test this", "verify")
 
+        # Strong intent words override length heuristics.
         if any(kw in user_intent for kw in strong_explore):
             return WorkflowType.EXPLORE
         if any(kw in user_intent for kw in strong_validate):
@@ -455,56 +459,14 @@ class AgentOrchestrator:
         if any(kw in user_intent for kw in strong_edit):
             return WorkflowType.EDIT
 
-        # Code file extensions that warrant agent routing
-        code_extensions = {
-            ".py",
-            ".js",
-            ".ts",
-            ".jsx",
-            ".tsx",
-            ".go",
-            ".rs",
-            ".rb",
-            ".java",
-            ".cpp",
-            ".c",
-            ".h",
-            ".hpp",
-            ".cs",
-            ".swift",
-            ".kt",
-            ".php",
-            ".scala",
-            ".ex",
-            ".exs",
-            ".clj",
-            ".hs",
-            ".ml",
-        }
-        # Non-code extensions - skip agent routing
-        non_code_extensions = {
-            ".png",
-            ".jpg",
-            ".jpeg",
-            ".gif",
-            ".svg",
-            ".ico",
-            ".mp3",
-            ".mp4",
-            ".wav",
-            ".pdf",
-            ".zip",
-            ".tar",
-        }
+        # Skip agent routing for genuinely short/simple messages.
+        if len(user_intent) < 30:
+            return WorkflowType.NONE
 
-        # Check if task references code files (not images/media)
-        has_code_file = any(ext in task_lower for ext in code_extensions)
-        has_non_code_only = (
-            any(ext in task_lower for ext in non_code_extensions) and not has_code_file
-        )
+        has_code_file = bool(_CODE_EXT_RE.search(task_lower))
+        has_non_code_file = bool(_NON_CODE_EXT_RE.search(task_lower))
 
-        # Code context keywords (language-agnostic)
-        code_keywords = {
+        code_keywords = (
             "function",
             "class",
             "method",
@@ -522,7 +484,6 @@ class AgentOrchestrator:
             "exception",
             "traceback",
             "stack trace",
-            # Project/codebase references
             "codebase",
             "repository",
             "repo",
@@ -539,24 +500,22 @@ class AgentOrchestrator:
             "model",
             "schema",
             "database",
-        }
+        )
         has_code_context = has_code_file or any(
             kw in task_lower for kw in code_keywords
         )
 
-        # Skip agents for non-code files without code context
-        if has_non_code_only and not has_code_context:
+        # Skip agents for non-code-only tasks without code context.
+        if has_non_code_file and not has_code_file and not has_code_context:
             return WorkflowType.NONE
         if not has_code_context:
             return WorkflowType.NONE
 
-        # Workflow keywords - check user intent first, then full task
-        explore_kw = {
+        explore_kw = (
             "find",
             "search",
             "list",
             "show",
-            "what",
             "where",
             "how",
             "explore",
@@ -570,8 +529,8 @@ class AgentOrchestrator:
             "read",
             "see",
             "check out",
-        }
-        edit_kw = {
+        )
+        edit_kw = (
             "fix",
             "add",
             "change",
@@ -589,19 +548,18 @@ class AgentOrchestrator:
             "insert",
             "move",
             "rewrite",
-        }
-        validate_kw = {"test", "verify", "validate", "run tests", "unittest"}
+        )
+        validate_kw = ("test", "verify", "validate", "run tests", "unittest")
 
-        # Priority 1: User's explicit intent (before @file content)
-        if user_intent:
-            if any(kw in user_intent for kw in explore_kw):
-                return WorkflowType.EXPLORE
-            if any(kw in user_intent for kw in validate_kw):
-                return WorkflowType.VALIDATE
-            if any(kw in user_intent for kw in edit_kw):
-                return WorkflowType.EDIT
+        # Priority 1: user intent.
+        if any(kw in user_intent for kw in validate_kw):
+            return WorkflowType.VALIDATE
+        if any(kw in user_intent for kw in edit_kw):
+            return WorkflowType.EDIT
+        if any(kw in user_intent for kw in explore_kw):
+            return WorkflowType.EXPLORE
 
-        # Priority 2: Full task content (fallback)
+        # Priority 2: full task (fallback).
         if any(kw in task_lower for kw in validate_kw):
             return WorkflowType.VALIDATE
         if any(kw in task_lower for kw in edit_kw):
@@ -611,129 +569,115 @@ class AgentOrchestrator:
 
         return WorkflowType.NONE
 
-    def _run_explore_workflow(
-        self,
-        task: str,
-        result: WorkflowResult,
-    ):
-        """Run exploration-only workflow."""
-        scout_id, scout_result = self._execute_agent_with_events(AgentRole.SCOUT, task)
+    def _apply_pending_edits(self, result: WorkflowResult) -> None:
+        """
+        Apply any pending edits produced by the Surgeon.
+
+        WHY: Centralizes error handling + activity stream emission.
+        """
+        surgeon = self.get_agent(AgentRole.SURGEON)
+        pending_edits = surgeon.get_pending_edits()
+        if not pending_edits:
+            return
+
+        emit_activity("edit", f"Applying {len(pending_edits)} edit(s)", agent="surgeon")
+        for edit in pending_edits:
+            emit_activity("edit", "Writing changes", edit.file_path, agent="surgeon")
+            try:
+                ok = surgeon.apply_edit(edit)
+            except Exception as e:
+                ok = False
+                result.errors.append(
+                    f"Exception applying edit to {edit.file_path}: {e}"
+                )
+            if not ok:
+                result.errors.append(f"Failed to apply edit to {edit.file_path}")
+
+    def _run_explore_workflow(self, task: str, result: WorkflowResult) -> None:
+        """Scout-only workflow."""
+        _scout_id, scout_result = self._execute_agent_with_events(AgentRole.SCOUT, task)
         result.agent_results[AgentRole.SCOUT] = scout_result
+        if not scout_result.success:
+            result.errors.append("Scout phase failed")
 
     def _run_edit_workflow(
-        self,
-        task: str,
-        result: WorkflowResult,
-        auto_apply: bool,
-    ):
-        """Run Scout -> Surgeon workflow."""
-        # Scout phase
+        self, task: str, result: WorkflowResult, auto_apply: bool
+    ) -> None:
+        """Scout -> Surgeon workflow."""
         scout_id, scout_result = self._execute_agent_with_events(AgentRole.SCOUT, task)
         result.agent_results[AgentRole.SCOUT] = scout_result
-
         if not scout_result.success:
             result.errors.append("Scout phase failed")
             return
 
-        # Surgeon phase
-        surgeon_id, surgeon_result = self._execute_agent_with_events(
+        _surgeon_id, surgeon_result = self._execute_agent_with_events(
             AgentRole.SURGEON,
             task,
             context=scout_result.context_for_next,
             parent_id=scout_id,
         )
         result.agent_results[AgentRole.SURGEON] = surgeon_result
-
-        if surgeon_result.success and auto_apply:
-            # Apply the edits
-            surgeon = self.get_agent(AgentRole.SURGEON)
-            pending_edits = surgeon.get_pending_edits()
-            if pending_edits:
-                emit_activity(
-                    "edit", f"Applying {len(pending_edits)} edit(s)", agent="surgeon"
-                )
-            for edit in pending_edits:
-                emit_activity(
-                    "edit", "Writing changes", edit.file_path, agent="surgeon"
-                )
-                if not surgeon.apply_edit(edit):
-                    result.errors.append(f"Failed to apply edit to {edit.file_path}")
-
-    def _run_full_workflow(
-        self,
-        task: str,
-        result: WorkflowResult,
-        auto_apply: bool,
-    ):
-        """Run Scout -> Architect -> Surgeon -> Validator workflow."""
-        # Scout phase
-        scout_id, scout_result = self._execute_agent_with_events(AgentRole.SCOUT, task)
-        result.agent_results[AgentRole.SCOUT] = scout_result
-
-        if not scout_result.success:
-            result.errors.append("Scout phase failed")
-            return
-
-        context = scout_result.context_for_next
-
-        # Architect phase
-        architect_id, architect_result = self._execute_agent_with_events(
-            AgentRole.ARCHITECT, task, context=context, parent_id=scout_id
-        )
-        result.agent_results[AgentRole.ARCHITECT] = architect_result
-
-        if not architect_result.success:
-            result.errors.append("Architect phase failed")
-            return
-
-        context = architect_result.context_for_next or context
-        parent_for_surgeon = architect_id
-
-        # Surgeon phase
-        surgeon_id, surgeon_result = self._execute_agent_with_events(
-            AgentRole.SURGEON, task, context=context, parent_id=parent_for_surgeon
-        )
-        result.agent_results[AgentRole.SURGEON] = surgeon_result
-
         if not surgeon_result.success:
             result.errors.append("Surgeon phase failed")
             return
 
-        # Apply edits if requested
         if auto_apply:
-            surgeon = self.get_agent(AgentRole.SURGEON)
-            pending_edits = surgeon.get_pending_edits()
-            if pending_edits:
-                emit_activity(
-                    "edit", f"Applying {len(pending_edits)} edit(s)", agent="surgeon"
-                )
-            for edit in pending_edits:
-                emit_activity(
-                    "edit", "Writing changes", edit.file_path, agent="surgeon"
-                )
-                if not surgeon.apply_edit(edit):
-                    result.errors.append(f"Failed to apply edit to {edit.file_path}")
+            self._apply_pending_edits(result)
 
-        # Validator phase (run after edits are applied)
+    def _run_full_workflow(
+        self, task: str, result: WorkflowResult, auto_apply: bool
+    ) -> None:
+        """Scout -> Architect -> Surgeon -> (apply) -> Validator workflow."""
+        scout_id, scout_result = self._execute_agent_with_events(AgentRole.SCOUT, task)
+        result.agent_results[AgentRole.SCOUT] = scout_result
+        if not scout_result.success:
+            result.errors.append("Scout phase failed")
+            return
+
+        architect_id, architect_result = self._execute_agent_with_events(
+            AgentRole.ARCHITECT,
+            task,
+            context=scout_result.context_for_next,
+            parent_id=scout_id,
+        )
+        result.agent_results[AgentRole.ARCHITECT] = architect_result
+        if not architect_result.success:
+            result.errors.append("Architect phase failed")
+            return
+
+        context = architect_result.context_for_next or scout_result.context_for_next
+
+        surgeon_id, surgeon_result = self._execute_agent_with_events(
+            AgentRole.SURGEON,
+            task,
+            context=context,
+            parent_id=architect_id,
+        )
+        result.agent_results[AgentRole.SURGEON] = surgeon_result
+        if not surgeon_result.success:
+            result.errors.append("Surgeon phase failed")
+            return
+
         if auto_apply:
-            validator_id, validator_result = self._execute_agent_with_events(
+            self._apply_pending_edits(result)
+            _validator_id, validator_result = self._execute_agent_with_events(
                 AgentRole.VALIDATOR,
                 f"Validate edits for: {task}",
                 context=surgeon_result.context_for_next,
                 parent_id=surgeon_id,
             )
             result.agent_results[AgentRole.VALIDATOR] = validator_result
+            if not validator_result.success:
+                result.errors.append("Validator phase failed")
 
-    def _run_validate_workflow(
-        self,
-        task: str,
-        result: WorkflowResult,
-    ):
-        """Run validation-only workflow."""
-        validator_id, validator_result = self._execute_agent_with_events(
+    def _run_validate_workflow(self, task: str, result: WorkflowResult) -> None:
+        """Validator-only workflow."""
+        _validator_id, validator_result = self._execute_agent_with_events(
             AgentRole.VALIDATOR, task
         )
         result.agent_results[AgentRole.VALIDATOR] = validator_result
+        if not validator_result.success:
+            result.errors.append("Validator phase failed")
 
     def _build_final_context(self, result: WorkflowResult) -> str:
         """Build a combined context from all agent results."""

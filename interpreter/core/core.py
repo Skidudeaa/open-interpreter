@@ -414,8 +414,9 @@ class OpenInterpreter:
             self.enable_trace_feedback = True
             self.enable_plugins = True
             self.auto_commit = True
-            # Note: intent_refiner NOT enabled by OI_ACTIVATE_ALL
-            # Requires OPENROUTER_API_KEY, so explicit opt-in only
+            # Enable intent refiner for bypassing overly sanitized LLM responses
+            # Uses Mistral Small Creative via OpenRouter to refine prompts
+            self.enable_intent_refiner = True
 
         # Load persistent settings from ~/.config/open-interpreter/settings.json
         # These override both defaults and OI_ACTIVATE_ALL

@@ -1,4 +1,4 @@
-def run_text_llm(llm, params):
+def run_text_llm(llm, params, _retry_attempted=False):
     ## Setup
 
     if llm.execution_instructions:
@@ -18,6 +18,7 @@ def run_text_llm(llm, params):
     language = None
     chunk_count = 0
     empty_chunk_count = 0
+    any_content_yielded = False
 
     for chunk in llm.completions(**params):
         if llm.interpreter.verbose:
@@ -77,6 +78,7 @@ def run_text_llm(llm, params):
 
             # If we do have a `language`, send it out
             if language:
+                any_content_yielded = True
                 yield {
                     "type": "code",
                     "format": language,
@@ -85,11 +87,48 @@ def run_text_llm(llm, params):
 
         # If we're not in a code block, send the output as a message
         if not inside_code_block:
+            any_content_yielded = True
             yield {"type": "message", "content": content}
 
-    # If no content was received at all, yield a warning message
-    if chunk_count == 0 and empty_chunk_count > 0:
-        yield {
-            "type": "message",
-            "content": "[LLM returned no content. This may be a connection issue or the model declined to respond. Please try again.]",
-        }
+    # If no content was received at all, try refining and retrying once
+    if not any_content_yielded and not _retry_attempted:
+        if getattr(llm.interpreter, "enable_intent_refiner", False):
+            try:
+                from ..intent_refiner import IntentRefiner
+
+                refiner = IntentRefiner(llm.interpreter)
+                # Find the last user message
+                user_msg = next(
+                    (
+                        m
+                        for m in reversed(params["messages"])
+                        if m.get("role") == "user"
+                    ),
+                    None,
+                )
+                if user_msg and user_msg.get("content"):
+                    original = user_msg["content"]
+                    if isinstance(original, str):
+                        refined = refiner.refine(original)
+                        if refined != original:
+                            user_msg["content"] = refined
+                            yield {
+                                "type": "message",
+                                "content": "[LLM refused - retrying with refined prompt...]\n",
+                            }
+                            # Recursive retry (once)
+                            for chunk in run_text_llm(
+                                llm, params, _retry_attempted=True
+                            ):
+                                yield chunk
+                            return
+            except Exception as e:
+                if llm.interpreter.verbose:
+                    print(f"[Intent refinement retry failed: {e}]")
+
+        # If we still have no content (retry failed or not enabled), show warning
+        if chunk_count == 0 and empty_chunk_count > 0:
+            yield {
+                "type": "message",
+                "content": "[LLM returned no content. This may be a connection issue or the model declined to respond. Please try again.]",
+            }

@@ -93,6 +93,9 @@ class EventType(Enum):
     FILE_CHANGE = auto()  # File modified by code execution
     GIT_COMMIT = auto()  # Auto-commit completed
 
+    # Activity stream events (visibility into what agent is doing)
+    ACTIVITY = auto()  # Current activity update (what/why)
+
 
 @dataclass
 class UIEvent:

@@ -22,6 +22,9 @@ from ..core.utils.scan_code import scan_code
 from ..core.utils.system_debug_info import system_info
 from ..core.utils.truncate_output import truncate_output
 
+# Phase 0 UI Architecture: Event system for future backends
+from .components.activity_stream import ActivityStream
+
 # Phase 2-4: Agent visualization, context panel, mode manager
 from .components.agent_strip import AgentStrip
 from .components.code_block import CodeBlock
@@ -34,8 +37,6 @@ from .components.prompt_block import PromptBlock
 from .components.spinner_block import ThinkingSpinner
 from .components.status_bar import FeaturesBanner, StatusBar
 from .components.toast import ToastLevel, ToastManager
-
-# Phase 0 UI Architecture: Event system for future backends
 from .components.ui_events import EventType, UIEvent, chunk_to_event, get_event_bus
 from .components.ui_mode_manager import UIModeManager
 from .components.ui_state import AgentStatus, UIState
@@ -266,6 +267,14 @@ def terminal_interface(interpreter, message):
     agent_strip = AgentStrip(ui_state)
     code_navigator = CodeNavigator(ui_state)
 
+    # Activity stream for visibility into what the agent is doing
+    # Uses inline_mode=True to print activities as they happen (integrates with existing output)
+    activity_stream = ActivityStream(
+        max_activities=5, show_timestamps=False, inline_mode=True
+    )
+    # Subscribe to events - activities will print inline as they're emitted
+    activity_stream._subscribe()
+
     # Wire toast notifications to mode changes
     mode_manager.set_toast_handler(
         lambda msg: toast_manager.show(msg, level=ToastLevel.MODE)
@@ -480,6 +489,8 @@ def terminal_interface(interpreter, message):
         ui_state.reset_agents()
         # Reset mode manager to prevent mode persistence across cleanups
         mode_manager.reset()
+        # Unsubscribe activity stream
+        activity_stream._unsubscribe()
 
     # Track if this is a fresh conversation for mode reset
     _last_message_count = (

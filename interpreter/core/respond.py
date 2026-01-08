@@ -10,6 +10,7 @@ import litellm
 # Module logger
 logger = logging.getLogger(__name__)
 
+from ..terminal_interface.components.activity_stream import emit_activity
 from ..terminal_interface.components.network_status import get_network_status
 from ..terminal_interface.components.ui_events import EventType, UIEvent, get_event_bus
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
@@ -272,6 +273,18 @@ def respond(interpreter):
         if (
             interpreter.messages[-1]["type"] != "code"
         ):  # If it is, we should run the code (we do below)
+            # Emit activity for LLM thinking
+            user_messages = [m for m in interpreter.messages if m.get("role") == "user"]
+            if user_messages:
+                last_msg = user_messages[-1].get("content", "")[:40]
+                emit_activity(
+                    "think",
+                    "Thinking about response",
+                    last_msg + "..."
+                    if len(user_messages[-1].get("content", "")) > 40
+                    else last_msg,
+                )
+
             # Network status tracking
             network_status = get_network_status()
             network_status.start_request()
@@ -552,6 +565,14 @@ def respond(interpreter):
                     print("Failed to sync iComputer with your Computer. Continuing...")
 
                 ## ↓ CODE IS RUN HERE
+
+                # Emit activity for code execution
+                code_preview = code[:30].replace("\n", " ").strip()
+                emit_activity(
+                    "execute",
+                    f"Running {language} code",
+                    code_preview + "..." if len(code) > 30 else code_preview,
+                )
 
                 # Track feature status for indicator
                 _status = {

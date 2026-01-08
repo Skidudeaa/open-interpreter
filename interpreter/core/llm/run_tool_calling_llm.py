@@ -174,6 +174,7 @@ def run_tool_calling_llm(llm, request_params):
     accumulated_review = ""
     review_category = None
     buffer = ""
+    any_content_yielded = False  # Track if we got any real content
 
     for chunk in llm.completions(**request_params):
         if "choices" not in chunk or len(chunk["choices"]) == 0:
@@ -209,7 +210,11 @@ def run_tool_calling_llm(llm, request_params):
 
             # delta may be dict or Pydantic model
             try:
-                keys = list(delta.keys()) if hasattr(delta, "keys") else list(delta.model_fields.keys())
+                keys = (
+                    list(delta.keys())
+                    if hasattr(delta, "keys")
+                    else list(delta.model_fields.keys())
+                )
             except Exception:
                 keys = ["unknown"]
             print(
@@ -263,6 +268,7 @@ def run_tool_calling_llm(llm, request_params):
                         buffer = ""
 
             else:
+                any_content_yielded = True
                 yield {"type": "message", "content": delta["content"]}
 
         if (
@@ -282,6 +288,7 @@ def run_tool_calling_llm(llm, request_params):
             code = accumulated_deltas["function_call"]["arguments"]
             # Yield the delta
             if code_delta:
+                any_content_yielded = True
                 yield {
                     "type": "code",
                     "format": language,
@@ -314,6 +321,7 @@ def run_tool_calling_llm(llm, request_params):
                         code = arguments["code"]
                         # Yield the delta
                         if code_delta:
+                            any_content_yielded = True
                             yield {
                                 "type": "code",
                                 "format": language,
@@ -331,3 +339,39 @@ def run_tool_calling_llm(llm, request_params):
             # import pdb
             # pdb.set_trace()
             raise Exception("Judge layer required but did not run.")
+
+    # Empty response retry: If LLM returned only thinking/reasoning blocks with no content,
+    # try refining the prompt and retrying once
+    if not any_content_yielded and accumulated_deltas.get("reasoning_content"):
+        if getattr(llm.interpreter, "enable_intent_refiner", False):
+            try:
+                from ..intent_refiner import IntentRefiner
+
+                refiner = IntentRefiner(llm.interpreter)
+                # Find the last user message
+                user_msg = next(
+                    (
+                        m
+                        for m in reversed(request_params["messages"])
+                        if m.get("role") == "user"
+                    ),
+                    None,
+                )
+                if user_msg and user_msg.get("content"):
+                    original = user_msg["content"]
+                    # Handle both string content and list content (vision)
+                    if isinstance(original, str):
+                        refined = refiner.refine(original)
+                        if refined != original:
+                            user_msg["content"] = refined
+                            yield {
+                                "type": "message",
+                                "content": "[LLM refused - retrying with refined prompt...]\n",
+                            }
+                            # Recursive retry (once)
+                            for chunk in run_tool_calling_llm(llm, request_params):
+                                yield chunk
+            except Exception as e:
+                # Non-blocking - if refinement fails, just continue
+                if llm.interpreter.verbose:
+                    print(f"[Intent refinement retry failed: {e}]")

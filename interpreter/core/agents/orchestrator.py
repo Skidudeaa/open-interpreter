@@ -28,6 +28,7 @@ UIAgentRole = None
 AgentStatus = None
 
 try:
+    from ...terminal_interface.components.activity_stream import emit_activity
     from ...terminal_interface.components.ui_events import (
         EventBus,
         EventType,
@@ -38,7 +39,10 @@ try:
 
     HAS_UI_EVENTS = True
 except ImportError:
-    pass
+    # Fallback if UI components not available
+    def emit_activity(*args, **kwargs):
+        pass
+
 
 if TYPE_CHECKING:
     from ..core import OpenInterpreter
@@ -194,6 +198,21 @@ class AgentOrchestrator:
             parent_id=parent_id,
         )
 
+        # Emit activity for agent start
+        role_verbs = {
+            AgentRole.SCOUT: ("search", "Searching codebase"),
+            AgentRole.SURGEON: ("edit", "Preparing edits"),
+            AgentRole.ARCHITECT: ("plan", "Analyzing architecture"),
+            AgentRole.VALIDATOR: ("validate", "Running validation"),
+        }
+        activity_type, activity_msg = role_verbs.get(role, ("think", "Processing"))
+        emit_activity(
+            activity_type,
+            activity_msg,
+            task[:40] + "..." if len(task) > 40 else task,
+            agent=role.value,
+        )
+
         # Execute agent
         agent = self.get_agent(role)
         try:
@@ -299,6 +318,13 @@ class AgentOrchestrator:
         # Determine workflow type if not specified
         if workflow is None:
             workflow = self._detect_workflow(task)
+            # Emit activity for workflow detection
+            if workflow != WorkflowType.NONE:
+                emit_activity(
+                    "plan",
+                    f"Routing to {workflow.value} workflow",
+                    task[:50] + "..." if len(task) > 50 else task,
+                )
 
         result = WorkflowResult(workflow_type=workflow, success=True)
 
@@ -567,7 +593,15 @@ class AgentOrchestrator:
         if surgeon_result.success and auto_apply:
             # Apply the edits
             surgeon = self.get_agent(AgentRole.SURGEON)
-            for edit in surgeon.get_pending_edits():
+            pending_edits = surgeon.get_pending_edits()
+            if pending_edits:
+                emit_activity(
+                    "edit", f"Applying {len(pending_edits)} edit(s)", agent="surgeon"
+                )
+            for edit in pending_edits:
+                emit_activity(
+                    "edit", "Writing changes", edit.file_path, agent="surgeon"
+                )
                 if not surgeon.apply_edit(edit):
                     result.errors.append(f"Failed to apply edit to {edit.file_path}")
 
@@ -614,7 +648,15 @@ class AgentOrchestrator:
         # Apply edits if requested
         if auto_apply:
             surgeon = self.get_agent(AgentRole.SURGEON)
-            for edit in surgeon.get_pending_edits():
+            pending_edits = surgeon.get_pending_edits()
+            if pending_edits:
+                emit_activity(
+                    "edit", f"Applying {len(pending_edits)} edit(s)", agent="surgeon"
+                )
+            for edit in pending_edits:
+                emit_activity(
+                    "edit", "Writing changes", edit.file_path, agent="surgeon"
+                )
                 if not surgeon.apply_edit(edit):
                     result.errors.append(f"Failed to apply edit to {edit.file_path}")
 

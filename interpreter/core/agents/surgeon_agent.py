@@ -24,6 +24,14 @@ from dataclasses import dataclass
 
 from .base_agent import AgentResult, AgentRole, BaseAgent, create_result
 
+# Import activity stream for visibility
+try:
+    from ...terminal_interface.components.activity_stream import emit_activity
+except ImportError:
+
+    def emit_activity(*args, **kwargs):
+        pass
+
 
 @dataclass
 class EditProposal:
@@ -116,15 +124,18 @@ You can propose multiple edits in one response."""
             AgentResult with proposed edits
         """
         self.log(f"Starting surgical edit: {task[:50]}...")
+        emit_activity("plan", "Planning code changes", task[:40], agent="surgeon")
 
         # Check if we need more context
         if self._needs_more_context(task, context):
+            emit_activity("search", "Gathering additional context", agent="surgeon")
             context = self._gather_additional_context(task, context)
 
         # Build messages with context
         messages = self.prepare_messages(task, context)
 
         # Get LLM response with edit proposals
+        emit_activity("think", "Generating edit proposals", agent="surgeon")
         response = self.run_interpreter(messages)
 
         # Parse edit proposals from response
@@ -139,11 +150,21 @@ You can propose multiple edits in one response."""
             )
 
         # Validate edits
+        emit_activity("validate", f"Validating {len(edits)} edit(s)", agent="surgeon")
         valid_edits = []
         for edit in edits:
             if self._validate_edit(edit):
                 valid_edits.append(edit)
                 self._proposed_edits.append(edit)
+
+        if valid_edits:
+            files = [e.file_path for e in valid_edits]
+            emit_activity(
+                "edit",
+                f"Proposed {len(valid_edits)} edit(s)",
+                files[0] if len(files) == 1 else f"{files[0]} +{len(files)-1} more",
+                agent="surgeon",
+            )
 
         # Format edits for result
         edits_proposed = [

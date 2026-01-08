@@ -33,6 +33,14 @@ from .base_agent import AgentResult, AgentRole, BaseAgent, create_result
 
 logger = logging.getLogger(__name__)
 
+# Import activity stream for visibility
+try:
+    from ...terminal_interface.components.activity_stream import emit_activity
+except ImportError:
+
+    def emit_activity(*args, **kwargs):
+        pass
+
 
 @dataclass
 class SearchQuery:
@@ -177,6 +185,7 @@ You can collaborate with other agents if needed:
             AgentResult with found files, symbols, and synthesized findings
         """
         self.log(f"Starting scout task: {task[:50]}...")
+        emit_activity("think", "Analyzing search task", task[:40], agent="scout")
 
         files_found = []
         symbols_found = []
@@ -186,9 +195,19 @@ You can collaborate with other agents if needed:
         try:
             # Phase 1: LLM analyzes the task
             if self.use_llm_analysis:
+                emit_activity(
+                    "think", "Understanding what to search for", agent="scout"
+                )
                 analysis = self._analyze_task(task, context)
                 self.log(f"LLM understanding: {analysis.understanding[:60]}...")
                 content.append(f"## Understanding\n{analysis.understanding}\n")
+                # Show what we're looking for
+                if analysis.keywords:
+                    emit_activity(
+                        "search",
+                        f"Looking for: {', '.join(analysis.keywords[:3])}",
+                        agent="scout",
+                    )
             else:
                 # Fallback to old keyword-based analysis
                 analysis = self._fallback_analyze_task(task)
@@ -222,6 +241,17 @@ You can collaborate with other agents if needed:
 
             # Deduplicate
             files_found = list(dict.fromkeys(files_found))  # Preserve order
+
+            # Report what we found
+            if files_found:
+                emit_activity(
+                    "read",
+                    f"Found {len(files_found)} relevant file(s)",
+                    files_found[0]
+                    if len(files_found) == 1
+                    else f"{files_found[0]} +{len(files_found)-1} more",
+                    agent="scout",
+                )
 
             # Phase 3: LLM synthesizes findings
             if self.use_llm_analysis and (files_found or all_search_results):

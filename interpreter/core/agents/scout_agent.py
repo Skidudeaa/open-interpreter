@@ -140,6 +140,10 @@ class ScoutAgent(BaseAgent):
         # Enable/disable LLM-powered analysis (can be disabled for speed)
         self.use_llm_analysis = True
 
+        # Traversal limits to prevent hanging on large directories
+        self.max_walk_depth = 5  # Don't traverse deeper than 5 levels
+        self.max_files_scanned = 10000  # Stop after scanning 10k files
+
     def get_system_message(self) -> str:
         return """You are a Scout Agent specialized in exploring codebases.
 
@@ -557,12 +561,24 @@ Be specific - reference actual file paths and line numbers."""
             List of file paths
         """
         matches = []
+        files_scanned = 0
 
         for root, dirs, files in os.walk(self.root_path):
+            # Check depth limit
+            depth = root[len(self.root_path) :].count(os.sep)
+            if depth >= self.max_walk_depth:
+                dirs[:] = []  # Don't descend further
+                continue
+
             # Filter out ignored directories
             dirs[:] = [d for d in dirs if not self._should_ignore(d)]
 
             for filename in files:
+                files_scanned += 1
+                if files_scanned >= self.max_files_scanned:
+                    self.log(f"Hit max files scanned limit ({self.max_files_scanned})")
+                    return matches
+
                 if self._should_ignore(filename):
                     continue
 
@@ -596,6 +612,7 @@ Be specific - reference actual file paths and line numbers."""
             List of SearchResult objects
         """
         results = []
+        files_scanned = 0
 
         # Build regex pattern based on symbol type
         if symbol_type == "function":
@@ -608,9 +625,20 @@ Be specific - reference actual file paths and line numbers."""
         regex = re.compile(pattern)
 
         for root, dirs, files in os.walk(self.root_path):
+            # Check depth limit
+            depth = root[len(self.root_path) :].count(os.sep)
+            if depth >= self.max_walk_depth:
+                dirs[:] = []
+                continue
+
             dirs[:] = [d for d in dirs if not self._should_ignore(d)]
 
             for filename in files:
+                files_scanned += 1
+                if files_scanned >= self.max_files_scanned:
+                    self.log(f"Hit max files scanned limit ({self.max_files_scanned})")
+                    return results
+
                 if not any(filename.endswith(ext) for ext in self.code_extensions):
                     continue
 
@@ -652,6 +680,7 @@ Be specific - reference actual file paths and line numbers."""
             List of SearchResult objects
         """
         results = []
+        files_scanned = 0
 
         try:
             regex = re.compile(pattern, re.IGNORECASE)
@@ -660,9 +689,20 @@ Be specific - reference actual file paths and line numbers."""
             regex = re.compile(re.escape(pattern), re.IGNORECASE)
 
         for root, dirs, files in os.walk(self.root_path):
+            # Check depth limit
+            depth = root[len(self.root_path) :].count(os.sep)
+            if depth >= self.max_walk_depth:
+                dirs[:] = []
+                continue
+
             dirs[:] = [d for d in dirs if not self._should_ignore(d)]
 
             for filename in files:
+                files_scanned += 1
+                if files_scanned >= self.max_files_scanned:
+                    self.log(f"Hit max files scanned limit ({self.max_files_scanned})")
+                    return results
+
                 if not fnmatch.fnmatch(filename, file_pattern):
                     continue
 

@@ -93,6 +93,54 @@ class WorkflowResult:
         return "\n".join(lines)
 
 
+def _detect_project_root(start_path: str) -> str:
+    """
+    Detect project root by looking for common project markers.
+
+    WHY: When running from home directory, we don't want to traverse
+    the entire home. Instead, find the nearest project root.
+
+    TRADEOFF: May miss files outside project root, but prevents
+    catastrophic performance on large home directories.
+
+    Args:
+        start_path: Starting path to search from
+
+    Returns:
+        Project root path, or start_path if no markers found
+    """
+    markers = [
+        ".git",
+        "pyproject.toml",
+        "package.json",
+        "Cargo.toml",
+        "go.mod",
+        "Makefile",
+        "setup.py",
+        "requirements.txt",
+        ".project",
+        "pom.xml",
+        "build.gradle",
+    ]
+
+    current = os.path.abspath(start_path)
+
+    # Don't go above home directory
+    home = os.path.expanduser("~")
+
+    while current and current != "/" and current >= home:
+        for marker in markers:
+            if os.path.exists(os.path.join(current, marker)):
+                return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+
+    # No project root found - return start path
+    return start_path
+
+
 class AgentOrchestrator:
     """
     Coordinates specialized agents to handle complex tasks.
@@ -115,12 +163,18 @@ class AgentOrchestrator:
         Args:
             interpreter: The OpenInterpreter instance
             memory: Optional shared semantic memory
-            root_path: Root path for file operations
+            root_path: Root path for file operations (auto-detected if not provided)
             event_bus: Optional EventBus for UI updates
         """
         self.interpreter = interpreter
         self.memory = memory or interpreter.semantic_graph
-        self.root_path = root_path or os.getcwd()
+
+        # Auto-detect project root if not explicitly provided
+        if root_path:
+            self.root_path = root_path
+        else:
+            cwd = os.getcwd()
+            self.root_path = _detect_project_root(cwd)
 
         # Lazy-load agents
         self._agents: dict[AgentRole, BaseAgent] = {}

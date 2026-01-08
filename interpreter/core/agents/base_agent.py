@@ -418,9 +418,10 @@ class BaseAgent(ABC):
         Returns:
             The assistant's response content
         """
-        # Prevent nested LLM calls - can cause hangs
-        global _INTERPRETER_ACTIVE
-        if self._in_llm_call or _INTERPRETER_ACTIVE:
+        # Prevent nested LLM calls within same agent - can cause hangs
+        # NOTE: We only check per-agent flag, not global _INTERPRETER_ACTIVE.
+        # Agents need LLM access even when called from respond.py's agent routing.
+        if self._in_llm_call:
             self.log("Skipping LLM call to prevent nested interpreter hang")
             return ""
 

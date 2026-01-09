@@ -12,7 +12,12 @@ Agents can be used standalone or orchestrated together.
 """
 
 import asyncio
+import inspect
+import threading
+import time
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import TYPE_CHECKING, Any, Optional
 
 # Import unified types (single source of truth)
@@ -29,9 +34,18 @@ if TYPE_CHECKING:
 # Lazy-loaded plugin registry to avoid circular imports
 _PluginRegistry = None
 
-# Global flag to prevent nested interpreter.chat() calls
-# When True, agents will skip LLM calls and use fallbacks
+# Global flag (legacy). Kept for compatibility in case other modules import it.
+# Do NOT gate agent LLM calls on this: agent routing may happen while interpreter is already "active".
 _INTERPRETER_ACTIVE = False
+
+# Serialize interpreter.chat usage across agents/threads.
+# WHY: OpenInterpreter is typically not thread-safe; concurrent calls corrupt shared state.
+# Also prevents nested agent->agent LLM calls in the same thread.
+_LLM_CALL_LOCK = threading.Lock()
+_LLM_THREAD_STATE = threading.local()
+
+# Reuse a single executor for running async plugin hooks from sync contexts when an event loop is running.
+_HOOK_EXECUTOR: ThreadPoolExecutor | None = None
 
 
 def _get_plugin_registry_class():
@@ -42,6 +56,17 @@ def _get_plugin_registry_class():
 
         _PluginRegistry = PluginRegistry
     return _PluginRegistry
+
+
+def _get_hook_executor() -> ThreadPoolExecutor:
+    """Create/reuse a thread pool for plugin hook execution."""
+    global _HOOK_EXECUTOR
+    if _HOOK_EXECUTOR is None:
+        _HOOK_EXECUTOR = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="agent-hooks",
+        )
+    return _HOOK_EXECUTOR
 
 
 class BaseAgent(ABC):
@@ -61,6 +86,12 @@ class BaseAgent(ABC):
 
     # Class-level role definition
     role: AgentRole = AgentRole.SCOUT
+
+    # Prevent infinite agent loops in ask_agent()
+    MAX_AGENT_CALL_DEPTH = 3
+
+    # Default timeout for plugin hook execution
+    PLUGIN_HOOK_TIMEOUT_S = 30.0
 
     def __init__(
         self,
@@ -88,22 +119,36 @@ class BaseAgent(ABC):
         # Agent state
         self._active = False
         self._last_result: AgentResult | None = None
-        self._current_context: str | None = None  # Track context for inter-agent calls
-        self._call_depth: int = 0  # Prevent infinite agent loops
-        self._in_llm_call: bool = False  # Prevent nested LLM calls
+        self._current_context: str | None = None  # for inter-agent calls
+        self._call_depth: int = 0  # prevent infinite agent loops
+        self._in_llm_call: bool = False  # prevent nested LLM calls per-agent
 
         # Initialize plugin registry
-        self._plugin_registry: PluginRegistry | None = None
+        self._plugin_registry: Optional[PluginRegistry] = None
         if plugins:
             PluginRegistryClass = _get_plugin_registry_class()
             self._plugin_registry = PluginRegistryClass()
             for plugin in plugins:
                 self._plugin_registry.register(plugin)
 
+    # =========================================================================
+    # Introspection / lifecycle
+    # =========================================================================
+
     @property
     def name(self) -> str:
         """Agent name for logging and plugin context."""
         return self._name or self.role.value
+
+    @property
+    def active(self) -> bool:
+        """Whether this agent is currently executing."""
+        return self._active
+
+    @property
+    def last_result(self) -> AgentResult | None:
+        """Last AgentResult produced by this agent (if any)."""
+        return self._last_result
 
     @property
     def plugins(self) -> Optional["PluginRegistry"]:
@@ -122,11 +167,40 @@ class BaseAgent(ABC):
             self._plugin_registry = PluginRegistryClass()
         self._plugin_registry.register(plugin)
 
+    @property
+    def memory(self) -> Optional["SemanticEditGraph"]:
+        """
+        Get the semantic memory.
+
+        WHY: Most agents expect shared memory even if not explicitly passed in.
+        """
+        if self._memory is not None:
+            return self._memory
+        return getattr(self.interpreter, "semantic_graph", None)
+
     # =========================================================================
     # Inter-Agent Communication
     # =========================================================================
 
-    MAX_AGENT_CALL_DEPTH = 3  # Prevent infinite agent loops
+    def can_collaborate(self) -> bool:
+        """Check if this agent can collaborate with others."""
+        return self._orchestrator is not None
+
+    def get_sibling_agent(self, role: AgentRole) -> "BaseAgent":
+        """
+        Get another agent from the orchestrator.
+
+        Args:
+            role: The AgentRole to get
+
+        Returns:
+            The agent instance
+        """
+        if self._orchestrator is None:
+            raise RuntimeError(
+                f"{self.name} cannot get sibling agent: no orchestrator set."
+            )
+        return self._orchestrator.get_agent(role)
 
     def ask_agent(
         self,
@@ -137,14 +211,8 @@ class BaseAgent(ABC):
         """
         Ask another agent a question and get a response.
 
-        ARCHITECTURE: Enables agent collaboration by allowing any agent to
-        query siblings for specialized knowledge.
-
-        WHY: Scout can ask Architect about structure, Surgeon can ask Scout
-        to find related files - agents can leverage each other's expertise.
-
-        TRADEOFF: Adds latency (nested agent calls) but enables smarter behavior.
-        Max depth prevents infinite loops.
+        WHY: Enables agent collaboration (Scout <-> Architect <-> Surgeon, etc.).
+        SAFETY: Bounded depth prevents accidental recursion loops.
 
         Args:
             role: The AgentRole to query
@@ -153,9 +221,6 @@ class BaseAgent(ABC):
 
         Returns:
             AgentResult from the queried agent
-
-        Raises:
-            RuntimeError: If orchestrator not set or max depth exceeded
         """
         if self._orchestrator is None:
             raise RuntimeError(
@@ -167,121 +232,157 @@ class BaseAgent(ABC):
             return AgentResult(
                 role=role,
                 success=False,
-                error=f"Max agent call depth ({self.MAX_AGENT_CALL_DEPTH}) exceeded. "
-                f"Preventing potential infinite loop.",
+                error=(
+                    f"Max agent call depth ({self.MAX_AGENT_CALL_DEPTH}) exceeded. "
+                    "Preventing potential infinite loop."
+                ),
             )
 
-        # Get the sibling agent
         sibling = self.get_sibling_agent(role)
 
-        # Inherit call depth to prevent deep recursion
-        sibling._call_depth = self._call_depth + 1
-
-        # Combine contexts
+        # Combine contexts (caller context first, then provided context)
         combined_context = context
         if self._current_context:
-            if combined_context:
-                combined_context = f"{self._current_context}\n\n{combined_context}"
-            else:
-                combined_context = self._current_context
+            combined_context = (
+                f"{self._current_context}\n\n{combined_context}"
+                if combined_context
+                else self._current_context
+            )
 
-        self.log(f"Asking {role.value}: {question[:50]}...")
+        # Preserve sibling state (avoid stomping when reused)
+        prev_depth = sibling._call_depth
+        prev_context = sibling._current_context
+
+        sibling._call_depth = self._call_depth + 1
+        sibling._current_context = combined_context
+
+        self.log(
+            f"Asking {role.value}: {question[:50]}{'...' if len(question) > 50 else ''}"
+        )
 
         try:
-            result = sibling.execute(question, context=combined_context)
-            return result
+            return sibling.execute(question, context=combined_context)
         finally:
-            # Reset sibling's call depth
-            sibling._call_depth = 0
+            sibling._call_depth = prev_depth
+            sibling._current_context = prev_context
 
-    def get_sibling_agent(self, role: AgentRole) -> "BaseAgent":
+    # =========================================================================
+    # Plugin hooks
+    # =========================================================================
+
+    def _resolve_hook(self, hook_name: str):
         """
-        Get another agent from the orchestrator.
+        Resolve a hook name into the HookPoint enum (if available).
 
-        Args:
-            role: The AgentRole to get
-
-        Returns:
-            The agent instance
-
-        Raises:
-            RuntimeError: If orchestrator not set
+        WHY: Different versions may name hooks differently; we try a few variants.
         """
-        if self._orchestrator is None:
-            raise RuntimeError(
-                f"{self.name} cannot get sibling agent: no orchestrator set."
-            )
-        return self._orchestrator.get_agent(role)
+        from ...sdk.plugins import HookPoint
 
-    def can_collaborate(self) -> bool:
-        """Check if this agent can collaborate with others."""
-        return self._orchestrator is not None
+        # Common cases: exact value, enum name, upper variants.
+        for candidate in (hook_name, hook_name.lower(), hook_name.upper()):
+            try:
+                return HookPoint(candidate)
+            except Exception:
+                pass
 
-    def _run_hook_sync(self, hook_name: str, value: Any, **kwargs) -> Any:
+        # Try enum-name style lookup (e.g., BEFORE_EXECUTE).
+        for candidate in (hook_name, hook_name.upper()):
+            try:
+                return HookPoint[candidate]
+            except Exception:
+                pass
+
+        # Unknown hook: let caller treat as "no plugins".
+        raise ValueError(f"Unknown HookPoint: {hook_name}")
+
+    async def _run_hook_async(self, hook_name: str, value: Any, **kwargs) -> Any:
         """
-        Run a plugin hook synchronously.
-
-        Wraps the async plugin hook in an event loop for synchronous agents.
+        Run a plugin hook in async context.
 
         Args:
             hook_name: Name of the hook (e.g., 'before_execute')
             value: Value to transform
-            **kwargs: Additional arguments
+            **kwargs: Additional arguments passed to plugins
 
         Returns:
-            Transformed value after all plugins
+            Transformed value after all plugins.
         """
         if self._plugin_registry is None:
             return value
 
         try:
-            from ...sdk.plugins import HookPoint
+            hook = self._resolve_hook(hook_name)
+        except Exception:
+            # If hook can't be resolved, act like no plugins apply.
+            return value
 
-            hook = HookPoint(hook_name)
-            plugins = self._plugin_registry.get_plugins_for_hook(hook)
+        plugins = self._plugin_registry.get_plugins_for_hook(hook)
+        if not plugins:
+            return value
 
-            if not plugins:
+        result = value
+        for plugin in plugins:
+            method = getattr(plugin, f"on_{hook_name}", None)
+            if not method:
+                continue
+            try:
+                maybe = method(self, result, **kwargs)
+                hook_result = await maybe if inspect.isawaitable(maybe) else maybe
+                if hook_result is not None:
+                    result = hook_result
+            except Exception as e:
+                if getattr(self.interpreter, "verbose", False):
+                    print(
+                        f"[{self.name}] Plugin {getattr(plugin, 'name', plugin)} error: {e}"
+                    )
+        return result
+
+    def _run_hook_sync(self, hook_name: str, value: Any, **kwargs) -> Any:
+        """
+        Run a plugin hook synchronously.
+
+        Wraps async plugin hooks safely:
+          - If no event loop is running: asyncio.run()
+          - If an event loop is running (e.g., notebooks): run in a dedicated thread
+
+        WHY: Agents are mostly synchronous; plugin authors still want async hooks.
+        """
+        if self._plugin_registry is None:
+            return value
+
+        async def runner():
+            return await self._run_hook_async(hook_name, value, **kwargs)
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop in this thread.
+            try:
+                return asyncio.run(runner())
+            except Exception as e:
+                if getattr(self.interpreter, "verbose", False):
+                    print(f"[{self.name}] Hook {hook_name} error: {e}")
                 return value
 
-            # Run async hooks in sync context
-            async def run_hooks():
-                result = value
-                for plugin in plugins:
-                    method = getattr(plugin, f"on_{hook_name}", None)
-                    if method:
-                        try:
-                            hook_result = await method(self, result, **kwargs)
-                            if hook_result is not None:
-                                result = hook_result
-                        except Exception as e:
-                            if self.interpreter.verbose:
-                                print(f"[{self.name}] Plugin {plugin.name} error: {e}")
-                return result
-
-            # Use existing event loop or create new one
-            try:
-                asyncio.get_running_loop()
-                # Already in async context - create task
-                import concurrent.futures
-
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, run_hooks())
-                    return future.result(timeout=30)
-            except RuntimeError:
-                # No running loop - safe to use asyncio.run
-                return asyncio.run(run_hooks())
-
+        # Running loop exists: offload to a thread to avoid "asyncio.run() cannot be called..."
+        executor = _get_hook_executor()
+        try:
+            fut = executor.submit(lambda: asyncio.run(runner()))
+            return fut.result(timeout=self.PLUGIN_HOOK_TIMEOUT_S)
+        except FuturesTimeoutError:
+            if getattr(self.interpreter, "verbose", False):
+                print(
+                    f"[{self.name}] Hook {hook_name} timed out after {self.PLUGIN_HOOK_TIMEOUT_S}s"
+                )
+            return value
         except Exception as e:
-            if self.interpreter.verbose:
+            if getattr(self.interpreter, "verbose", False):
                 print(f"[{self.name}] Hook {hook_name} error: {e}")
             return value
 
-    @property
-    def memory(self) -> Optional["SemanticEditGraph"]:
-        """Get the semantic memory (from interpreter if not set)."""
-        if self._memory is not None:
-            return self._memory
-        return self.interpreter.semantic_graph
+    # =========================================================================
+    # Core execution
+    # =========================================================================
 
     @abstractmethod
     def execute(self, task: str, context: str | None = None) -> AgentResult:
@@ -295,14 +396,13 @@ class BaseAgent(ABC):
         Returns:
             AgentResult with the execution results
         """
-        pass
+        raise NotImplementedError
 
     def run(self, task: str, context: str | None = None) -> AgentResult:
         """
         Run the agent with plugin hooks.
 
-        This is the preferred entry point - wraps execute() with
-        BEFORE_EXECUTE and AFTER_EXECUTE hooks.
+        Preferred entry point: wraps execute() with BEFORE_EXECUTE and AFTER_EXECUTE hooks.
 
         Args:
             task: The task description
@@ -311,45 +411,69 @@ class BaseAgent(ABC):
         Returns:
             AgentResult with the execution results
         """
-        import time
-
-        start_time = time.time()
-
-        # Store context for inter-agent calls
+        start = time.perf_counter()
         self._current_context = context
 
-        # Run BEFORE_EXECUTE hook
-        task = self._run_hook_sync("before_execute", task)
+        # BEFORE_EXECUTE hook
+        task = self._run_hook_sync("before_execute", task, context=context)
 
         try:
             self._active = True
             result = self.execute(task, context)
 
-            # Run AFTER_EXECUTE hook
-            result = self._run_hook_sync("after_execute", result)
+            # AFTER_EXECUTE hook
+            result = self._run_hook_sync(
+                "after_execute", result, task=task, context=context
+            )
+
+            # Attach execution time if the field exists and isn't already populated.
+            elapsed = time.perf_counter() - start
+            if hasattr(result, "execution_time"):
+                try:
+                    current = getattr(result, "execution_time", None)
+                    if current is None:
+                        result.execution_time = elapsed
+                except Exception:
+                    pass
 
             self._last_result = result
             return result
 
         except Exception as e:
-            # Run ON_ERROR hook
-            error_result = self._run_hook_sync("error", e)
+            elapsed = time.perf_counter() - start
 
-            # If hook returns a string, it's a recovery message
-            if isinstance(error_result, str):
-                return AgentResult(
-                    success=False,
-                    role=self.role,
-                    error=error_result,
-                    execution_time=time.time() - start_time,
-                )
+            # ON_ERROR hook
+            recovery = self._run_hook_sync("error", e, task=task, context=context)
 
-            # Re-raise if not handled
+            if isinstance(recovery, AgentResult):
+                # Plugin fully handled the error.
+                if (
+                    hasattr(recovery, "execution_time")
+                    and getattr(recovery, "execution_time", None) is None
+                ):
+                    try:
+                        recovery.execution_time = elapsed
+                    except Exception:
+                        pass
+                self._last_result = recovery
+                return recovery
+
+            if isinstance(recovery, str):
+                # Plugin provided an error message.
+                err = AgentResult(success=False, role=self.role, error=recovery)
+                if hasattr(err, "execution_time"):
+                    try:
+                        err.execution_time = elapsed
+                    except Exception:
+                        pass
+                self._last_result = err
+                return err
+
             raise
 
         finally:
             self._active = False
-            self._current_context = None  # Clear context after execution
+            self._current_context = None
 
     @abstractmethod
     def get_system_message(self) -> str:
@@ -359,7 +483,11 @@ class BaseAgent(ABC):
         Returns:
             System message string for this agent role
         """
-        pass
+        raise NotImplementedError
+
+    # =========================================================================
+    # LLM plumbing
+    # =========================================================================
 
     def prepare_messages(
         self,
@@ -378,10 +506,7 @@ class BaseAgent(ABC):
         Returns:
             List of message dictionaries
         """
-        messages = []
-
-        # Add context if provided
-        user_content_parts = []
+        user_content_parts: list[str] = []
 
         if context:
             user_content_parts.append(f"## Previous Context\n{context}\n")
@@ -391,15 +516,13 @@ class BaseAgent(ABC):
 
         user_content_parts.append(f"## Task\n{task}")
 
-        messages.append(
+        return [
             {
                 "role": "user",
                 "type": "message",
                 "content": "\n".join(user_content_parts),
             }
-        )
-
-        return messages
+        ]
 
     def run_interpreter(
         self,
@@ -416,57 +539,152 @@ class BaseAgent(ABC):
             timeout: Timeout in seconds (default 30s)
 
         Returns:
-            The assistant's response content
+            The assistant's response content.
+
+        Notes:
+            - Uses a cross-agent lock to avoid concurrent interpreter.chat calls.
+            - Skips nested calls within the same thread to avoid re-entrancy hangs.
         """
-        # Prevent nested LLM calls within same agent - can cause hangs
-        # NOTE: We only check per-agent flag, not global _INTERPRETER_ACTIVE.
-        # Agents need LLM access even when called from respond.py's agent routing.
+        # Per-agent recursion guard
         if self._in_llm_call:
-            self.log("Skipping LLM call to prevent nested interpreter hang")
+            self.log("Skipping LLM call to prevent per-agent nested interpreter hang")
             return ""
 
-        # Store original settings
-        original_system = self.interpreter.system_message
-        original_auto_run = self.interpreter.auto_run
-        original_loop = self.interpreter.loop
+        # Cross-agent/thread re-entrancy guard
+        if getattr(_LLM_THREAD_STATE, "active", False):
+            self.log(
+                "Skipping LLM call to prevent nested interpreter.chat in this thread"
+            )
+            return ""
 
         self._in_llm_call = True
         try:
-            # Apply agent settings
-            if system_message:
-                self.interpreter.system_message = system_message
-            else:
-                self.interpreter.system_message = self.get_system_message()
+            # BEFORE_LLM hook can transform messages and/or system message.
+            # Keep these outside the interpreter lock to avoid deadlocks if hooks call back into LLM.
+            effective_system = system_message or self.get_system_message()
+            messages = self._run_hook_sync(
+                "before_llm",
+                messages,
+                system_message=effective_system,
+                timeout=timeout,
+            )
+            if not isinstance(messages, list):
+                # Defensive: plugins should return a messages list.
+                messages = list(messages) if messages is not None else []
 
-            # Agents typically run without user confirmation
-            self.interpreter.auto_run = True
-            self.interpreter.loop = False
+            response_text = ""
 
-            # Set messages and run
-            self.interpreter.messages = messages.copy()
+            # Snapshot interpreter state.
+            original_system = getattr(self.interpreter, "system_message", None)
+            original_auto_run = getattr(self.interpreter, "auto_run", None)
+            original_loop = getattr(self.interpreter, "loop", None)
+            original_messages = getattr(self.interpreter, "messages", None)
 
-            # Collect response with timeout protection
-            import time
+            acquired = _LLM_CALL_LOCK.acquire(timeout=max(1.0, timeout))
+            if not acquired:
+                self.log("LLM call skipped: could not acquire interpreter lock")
+                return ""
 
-            response_parts = []
-            start_time = time.time()
+            _LLM_THREAD_STATE.active = True
+            try:
+                # Apply agent settings (under lock).
+                try:
+                    self.interpreter.system_message = effective_system
+                except Exception:
+                    pass
 
-            # Pass empty message to trigger response to pre-populated messages
-            for chunk in self.interpreter.chat(message="", display=False, stream=True):
-                if time.time() - start_time > timeout:
-                    self.log(f"LLM call timed out after {timeout}s")
-                    break
-                if chunk.get("type") == "message" and chunk.get("role") == "assistant":
-                    response_parts.append(chunk.get("content", ""))
+                try:
+                    self.interpreter.auto_run = True
+                except Exception:
+                    pass
 
-            return "".join(response_parts)
+                try:
+                    self.interpreter.loop = False
+                except Exception:
+                    pass
+
+                try:
+                    # Use a shallow copy so agent code won't mutate caller list.
+                    self.interpreter.messages = [m.copy() for m in messages]
+                except Exception:
+                    pass
+
+                # Stream response with timeout protection.
+                start = time.perf_counter()
+                response_parts: list[str] = []
+                gen = None
+
+                try:
+                    gen = self.interpreter.chat(message="", display=False, stream=True)
+                    for chunk in gen:
+                        if (time.perf_counter() - start) > timeout:
+                            self.log(f"LLM call timed out after {timeout}s")
+                            break
+                        if not isinstance(chunk, dict):
+                            continue
+                        if (
+                            chunk.get("type") == "message"
+                            and chunk.get("role") == "assistant"
+                        ):
+                            piece = chunk.get("content", "")
+                            if piece:
+                                response_parts.append(piece)
+                finally:
+                    # Best effort cleanup of generator.
+                    try:
+                        if gen is not None:
+                            gen.close()
+                    except Exception:
+                        pass
+
+                response_text = "".join(response_parts)
+
+            finally:
+                # Restore interpreter state (still under lock).
+                try:
+                    if original_system is not None:
+                        self.interpreter.system_message = original_system
+                except Exception:
+                    pass
+                try:
+                    if original_auto_run is not None:
+                        self.interpreter.auto_run = original_auto_run
+                except Exception:
+                    pass
+                try:
+                    if original_loop is not None:
+                        self.interpreter.loop = original_loop
+                except Exception:
+                    pass
+                try:
+                    if original_messages is not None:
+                        self.interpreter.messages = original_messages
+                except Exception:
+                    pass
+
+                _LLM_THREAD_STATE.active = False
+                try:
+                    _LLM_CALL_LOCK.release()
+                except Exception:
+                    pass
+
+            # AFTER_LLM hook can post-process response. Also outside lock (same deadlock rationale).
+            response_text = self._run_hook_sync(
+                "after_llm",
+                response_text,
+                messages=messages,
+                system_message=effective_system,
+            )
+            return (
+                response_text if isinstance(response_text, str) else str(response_text)
+            )
 
         finally:
             self._in_llm_call = False
-            # Restore original settings
-            self.interpreter.system_message = original_system
-            self.interpreter.auto_run = original_auto_run
-            self.interpreter.loop = original_loop
+
+    # =========================================================================
+    # Memory + logging
+    # =========================================================================
 
     def get_memory_context(self, file_path: str | None = None) -> str:
         """
@@ -478,17 +696,21 @@ class BaseAgent(ABC):
         Returns:
             Memory context string
         """
-        if not self.memory:
+        mem = self.memory
+        if not mem:
             return ""
 
         if file_path:
-            return self.memory.get_institutional_knowledge(file_path)
+            try:
+                return mem.get_institutional_knowledge(file_path)
+            except Exception:
+                return ""
 
         return ""
 
-    def log(self, message: str):
+    def log(self, message: str) -> None:
         """Log a message (for debugging)."""
-        if self.interpreter.verbose:
+        if getattr(self.interpreter, "verbose", False):
             print(f"[{self.role.value}] {message}")
 
 

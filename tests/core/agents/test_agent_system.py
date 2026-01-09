@@ -618,7 +618,7 @@ class TestErrorHandling:
             "_create_agent",
         ) as mock_create:
             mock_agent = MagicMock()
-            mock_agent.execute.side_effect = RuntimeError("Test error")
+            mock_agent.run.side_effect = RuntimeError("Test error")
             mock_create.return_value = mock_agent
 
             # Clear cached agents to force recreation

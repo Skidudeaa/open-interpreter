@@ -301,7 +301,7 @@ class AgentOrchestrator:
 
         agent = self.get_agent(role)
         try:
-            agent_result = agent.execute(task, context=context)
+            agent_result = agent.run(task, context=context)
 
             if HAS_UI_EVENTS and self.event_bus:
                 if agent_result.success:

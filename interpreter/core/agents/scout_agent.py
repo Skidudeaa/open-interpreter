@@ -173,6 +173,7 @@ class ScoutAgent(BaseAgent):
             "Thumbs.db",
             "*.min.js.map",
             "*.map",
+            ".env*",  # Prevent indexing secrets
         }
 
         # Extensions we treat as "code" for symbol search.
@@ -215,7 +216,6 @@ class ScoutAgent(BaseAgent):
             ".proto",
             ".graphql",
             ".gql",
-            ".env",
             ".example",
         }
 
@@ -626,96 +626,6 @@ Return ONLY valid JSON. No markdown. No commentary."""
             self._dedupe_strings(keywords)[:10],
             self._dedupe_strings(grep_patterns)[:5],
         )
-
-    # =========================================================================
-    # Synthesis
-    # =========================================================================
-
-    def _synthesize_findings(
-        self,
-        task: str,
-        analysis: SearchAnalysis,
-        files_found: list[str],
-        search_results: list[SearchResult],
-    ) -> str:
-        """Ask the LLM to summarize the findings."""
-        files_summary = "\n".join(f"  - {f}" for f in files_found[:30])
-        results_text = self._format_results_for_llm(
-            search_results, max_files=12, max_lines_per_file=4
-        )
-
-        prompt = f"""Synthesize these search findings to answer the user's question.
-
-Original Task: {task}
-
-Understanding: {analysis.understanding}
-
-Files Found ({len(files_found)}):
-{files_summary}
-
-Code Matches ({len(search_results)}):
-{results_text}
-
-Provide a concise summary that:
-1) Answers the user's question directly
-2) Highlights the most important files/code
-3) Explains how pieces fit together
-4) Notes gaps / next places to look
-
-Be specific: reference file paths and line numbers."""
-
-        messages = [{"role": "user", "type": "message", "content": prompt}]
-
-        try:
-            return self.run_interpreter(messages, self.get_system_message())
-        except Exception as e:
-            self.log(f"Synthesis failed: {e}")
-            return self._format_raw_findings(files_found, search_results)
-
-    def _format_results_for_llm(
-        self,
-        results: list[SearchResult],
-        max_files: int = 10,
-        max_lines_per_file: int = 3,
-    ) -> str:
-        """Group results by file to keep the prompt readable."""
-        by_file: dict[str, list[SearchResult]] = {}
-        for r in results:
-            by_file.setdefault(r.file_path, []).append(r)
-
-        # Stable ordering: files by first appearance.
-        ordered_files = list(by_file.keys())[:max_files]
-        lines: list[str] = []
-        for fp in ordered_files:
-            lines.append(f"- {fp}")
-            for r in by_file[fp][:max_lines_per_file]:
-                snippet = (r.content or "").strip().replace("\t", " ")
-                if len(snippet) > 140:
-                    snippet = snippet[:137] + "..."
-                lines.append(f"    {r.line_number}: {snippet}")
-        return "\n".join(lines)
-
-    def _format_raw_findings(
-        self, files_found: list[str], search_results: list[SearchResult]
-    ) -> str:
-        """Deterministic fallback formatting when LLM synthesis is disabled."""
-        parts: list[str] = []
-        if files_found:
-            parts.append(f"## Files Found ({len(files_found)})")
-            for f in files_found[:30]:
-                parts.append(f"  - {f}")
-            if len(files_found) > 30:
-                parts.append(f"  - ... and {len(files_found) - 30} more")
-
-        if search_results:
-            parts.append(f"\n## Code Matches ({len(search_results)})")
-            for r in search_results[:40]:
-                snippet = (r.content or "").strip()
-                if len(snippet) > 120:
-                    snippet = snippet[:117] + "..."
-                parts.append(f"  {r.file_path}:{r.line_number} - {snippet}")
-
-        return "\n".join(parts) if parts else "No results found"
 
     # =========================================================================
     # File index + traversal

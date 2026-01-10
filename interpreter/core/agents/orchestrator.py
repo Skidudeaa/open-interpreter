@@ -148,12 +148,7 @@ def _detect_project_root(start_path: str) -> str:
     except OSError:
         home = Path(os.path.abspath(str(home)))
 
-    limit_to_home = False
-    try:
-        limit_to_home = start.is_relative_to(home)
-    except AttributeError:
-        # Python < 3.9 fallback.
-        limit_to_home = os.path.commonpath([str(start), str(home)]) == str(home)
+    limit_to_home = start.is_relative_to(home)
 
     current = start
     while True:
@@ -164,13 +159,8 @@ def _detect_project_root(start_path: str) -> str:
         if parent == current:
             break  # filesystem root
 
-        if limit_to_home:
-            try:
-                if not parent.is_relative_to(home):
-                    break
-            except AttributeError:
-                if os.path.commonpath([str(parent), str(home)]) != str(home):
-                    break
+        if limit_to_home and not parent.is_relative_to(home):
+            break
 
         current = parent
 

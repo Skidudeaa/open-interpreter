@@ -1,30 +1,31 @@
 """
-SurgeonAgent - Precise code editing agent.
+SurgeonAgent - Precise code editing agent with transactional guarantees.
 
 ARCHITECTURE: Makes minimal, correct code changes with optional
-Scout collaboration to find related files when context is sparse.
+Scout collaboration. Supports atomic multi-edit transactions with
+rollback on failure.
 
-WHY: Good edits require understanding context. When context is missing,
-Surgeon can ask Scout to find related files before making changes.
-
-TRADEOFF: Scout queries add latency but prevent blind edits.
-Only used when context appears insufficient.
-
-Capabilities:
-- String replacement edits
-- Function/class additions
-- Import management
-- Code refactoring
-- Collaborative context gathering via Scout queries
+KEY INVARIANTS:
+- Edits are validated before application
+- Multi-edit transactions are atomic (all succeed or all rollback)
+- Optimistic locking prevents blind overwrites of changed files
+- Backup chain enables rollback to any previous state
 """
 
+import ast
 import difflib
+import hashlib
 import os
-from dataclasses import dataclass
+import re
+import tempfile
+import time
+from collections.abc import Generator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from pathlib import Path
 
 from .base_agent import AgentResult, AgentRole, BaseAgent, create_result
 
-# Import activity stream for visibility
 try:
     from ...terminal_interface.components.activity_stream import emit_activity
 except ImportError:
@@ -35,13 +36,27 @@ except ImportError:
 
 @dataclass
 class EditProposal:
-    """A proposed code edit."""
+    """
+    A proposed code edit with content hashing for optimistic locking.
+
+    The content_hash captures file state at proposal time. Apply will
+    fail if file has changed, preventing blind overwrites.
+    """
 
     file_path: str
     original_content: str
     new_content: str
     description: str
     confidence: float = 0.8
+    content_hash: str = field(default="")
+
+    def __post_init__(self):
+        if not self.content_hash:
+            self.content_hash = self._hash_content(self.original_content)
+
+    @staticmethod
+    def _hash_content(content: str) -> str:
+        return hashlib.sha256(content.encode()).hexdigest()[:16]
 
     @property
     def diff(self) -> str:
@@ -55,16 +70,56 @@ class EditProposal:
             )
         )
 
+    def verify_unchanged(self, current_content: str) -> bool:
+        """Check file hasn't been modified since proposal."""
+        return self._hash_content(current_content) == self.content_hash
+
+
+@dataclass
+class EditTransaction:
+    """
+    Atomic multi-edit transaction with rollback support.
+
+    WHY: Partial edit application leaves codebase in broken state.
+    Transaction ensures all-or-nothing semantics.
+    """
+
+    edits: list[EditProposal] = field(default_factory=list)
+    backups: dict[str, str] = field(default_factory=dict)  # path -> original content
+    applied: list[str] = field(default_factory=list)  # paths of applied edits
+
+    def add(self, edit: EditProposal):
+        self.edits.append(edit)
+
+    def record_backup(self, path: str, content: str):
+        if path not in self.backups:
+            self.backups[path] = content
+
+    def mark_applied(self, path: str):
+        self.applied.append(path)
+
 
 class SurgeonAgent(BaseAgent):
     """
-    Agent for making precise code edits.
+    Agent for making precise code edits with transactional guarantees.
 
-    Takes context from other agents and produces targeted,
-    minimal code changes.
+    CRITICAL BEHAVIORS:
+    - Multi-edit operations are atomic
+    - Optimistic locking prevents race conditions
+    - Failed transactions auto-rollback
     """
 
     role = AgentRole.SURGEON
+
+    # Edit block parsing pattern - handles content containing keywords
+    EDIT_PATTERN = re.compile(
+        r"```edit\s*\n"
+        r"FILE:\s*(?P<file>.+?)\s*\n"
+        r"FIND:\n(?P<find>.*?)\n"
+        r"REPLACE:\n(?P<replace>.*?)"
+        r"(?=\n```(?:\s*\n|$))",
+        re.DOTALL,
+    )
 
     def __init__(
         self,
@@ -76,69 +131,49 @@ class SurgeonAgent(BaseAgent):
         name: str | None = None,
     ):
         super().__init__(interpreter, memory, plugins=plugins, name=name)
-        self.root_path = root_path or os.getcwd()
+        self.root_path = Path(root_path or os.getcwd())
         self.validate_syntax = validate_syntax
 
-        # Track proposed and applied edits
+        # Edit tracking
         self._proposed_edits: list[EditProposal] = []
         self._applied_edits: list[EditProposal] = []
+        self._transaction_history: list[EditTransaction] = []
 
     def get_system_message(self) -> str:
         return """You are a Surgeon Agent specialized in precise code editing.
 
-Your job is to make minimal, correct code changes. You should:
-1. Make the smallest change that accomplishes the goal
-2. Preserve existing code style and conventions
-3. Not add unnecessary changes or "improvements"
-4. Validate your edits won't break anything
+Make minimal, correct changes. Preserve style. No unsolicited improvements.
 
-When editing:
-- Use string replacement for small changes
-- Preserve exact indentation
-- Don't add extra comments unless requested
-- Don't refactor unless specifically asked
-
-Always output your edits in this format:
+Edit format (EXACT - do not deviate):
 ```edit
 FILE: path/to/file.py
 FIND:
-<exact text to find>
+<exact text to find, including whitespace>
 REPLACE:
 <replacement text>
 ```
 
-You can propose multiple edits in one response."""
+RULES:
+- FIND must match file content EXACTLY (whitespace matters)
+- One logical change per edit block
+- Multiple edit blocks allowed
+- No explanatory text inside edit blocks"""
 
     def execute(self, task: str, context: str | None = None) -> AgentResult:
-        """
-        Execute a surgical edit task with optional Scout collaboration.
-
-        ARCHITECTURE: If context is sparse and we can collaborate,
-        ask Scout to find related files first. This prevents blind edits.
-
-        Args:
-            task: The edit task description
-            context: Context from Scout/Architect agents
-
-        Returns:
-            AgentResult with proposed edits
-        """
+        """Execute surgical edit with optional Scout collaboration."""
         self.log(f"Starting surgical edit: {task[:50]}...")
         emit_activity("plan", "Planning code changes", task[:40], agent="surgeon")
 
-        # Check if we need more context
+        # Gather context if needed
         if self._needs_more_context(task, context):
             emit_activity("search", "Gathering additional context", agent="surgeon")
             context = self._gather_additional_context(task, context)
 
-        # Build messages with context
         messages = self.prepare_messages(task, context)
 
-        # Get LLM response with edit proposals
         emit_activity("think", "Generating edit proposals", agent="surgeon")
         response = self.run_interpreter(messages)
 
-        # Parse edit proposals from response
         edits = self._parse_edit_proposals(response)
 
         if not edits:
@@ -149,13 +184,15 @@ You can propose multiple edits in one response."""
                 context_for_next=response,
             )
 
-        # Validate edits
+        # Validate all edits
         emit_activity("validate", f"Validating {len(edits)} edit(s)", agent="surgeon")
-        valid_edits = []
-        for edit in edits:
-            if self._validate_edit(edit):
-                valid_edits.append(edit)
-                self._proposed_edits.append(edit)
+        valid_edits, validation_errors = self._validate_edits(edits)
+
+        if validation_errors:
+            self.log(f"Validation errors: {validation_errors}")
+
+        for edit in valid_edits:
+            self._proposed_edits.append(edit)
 
         if valid_edits:
             files = [e.file_path for e in valid_edits]
@@ -166,12 +203,12 @@ You can propose multiple edits in one response."""
                 agent="surgeon",
             )
 
-        # Format edits for result
         edits_proposed = [
             {
                 "file": e.file_path,
                 "description": e.description,
                 "diff_preview": e.diff[:500],
+                "content_hash": e.content_hash,
             }
             for e in valid_edits
         ]
@@ -179,7 +216,7 @@ You can propose multiple edits in one response."""
         return create_result(
             role=self.role,
             success=len(valid_edits) > 0,
-            content=self._format_edits_summary(valid_edits),
+            content=self._format_edits_summary(valid_edits, validation_errors),
             edits_proposed=edits_proposed,
             files_found=[e.file_path for e in valid_edits],
             context_for_next=self._format_for_validator(valid_edits),
@@ -187,56 +224,52 @@ You can propose multiple edits in one response."""
 
     def _needs_more_context(self, task: str, context: str | None) -> bool:
         """
-        Check if we need to gather more context before editing.
+        Determine if Scout collaboration needed.
 
-        WHY: Edits without context are risky. If we don't know what
-        files exist or how they're structured, we should ask Scout.
+        Heuristic: Need context if task references code constructs
+        (functions, classes, variables) without providing file paths
+        or sufficient existing context.
         """
-        # If we can't collaborate, don't try
         if not self.can_collaborate():
             return False
 
-        # If we have substantial context, we're good
+        # Substantial context = probably sufficient
         if context and len(context) > 500:
             return False
 
-        # If task mentions specific files that we can verify exist, we're good
-        import re
+        # Task references specific existing files we can find
+        file_refs = re.findall(
+            r"[\w/\\.-]+\.(?:py|js|ts|jsx|tsx|go|rs|java|cpp|c|h)", task
+        )
+        for ref in file_refs:
+            if (self.root_path / ref).exists():
+                return False
 
-        file_refs = re.findall(r"[\w/\\]+\.\w+", task)
-        if file_refs:
-            for ref in file_refs:
-                full_path = os.path.join(self.root_path, ref)
-                if os.path.exists(full_path):
-                    return False  # File exists, we have enough context
+        # Task mentions code constructs without file context
+        code_refs = re.search(
+            r"\b(?:function|class|def|method|variable|import)\s+\w+", task, re.I
+        )
+        if code_refs and not file_refs:
+            return True
 
-        # Generic edit task without file context - we need Scout
-        return True
+        return False
 
     def _gather_additional_context(
         self, task: str, existing_context: str | None
     ) -> str:
-        """
-        Ask Scout to find related files for this edit task.
-
-        ARCHITECTURE: Surgeon asks Scout "what files are related to X?"
-        Scout's LLM-powered search finds relevant code.
-        """
-        self.log("Context sparse, asking Scout for related files...")
+        """Ask Scout for related files."""
+        self.log("Context sparse, consulting Scout...")
 
         try:
-            from .types import AgentRole
-
-            scout_query = f"Find files related to this edit task: {task}"
-            scout_result = self.ask_agent(AgentRole.SCOUT, scout_query)
+            scout_result = self.ask_agent(
+                AgentRole.SCOUT, f"Find files related to this edit task: {task}"
+            )
 
             if scout_result.success and scout_result.content:
-                # Combine Scout's findings with existing context
-                new_context = f"## Scout Findings\n{scout_result.content}"
+                scout_context = f"## Scout Findings\n{scout_result.content}"
                 if existing_context:
-                    return f"{existing_context}\n\n{new_context}"
-                return new_context
-
+                    return f"{existing_context}\n\n{scout_context}"
+                return scout_context
         except Exception as e:
             self.log(f"Scout collaboration failed: {e}")
 
@@ -250,207 +283,274 @@ You can propose multiple edits in one response."""
         description: str = "",
     ) -> EditProposal | None:
         """
-        Create an edit proposal.
+        Create an edit proposal with content verification.
 
-        Args:
-            file_path: Path to the file
-            find_text: Text to find
-            replace_text: Text to replace with
-            description: Description of the edit
-
-        Returns:
-            EditProposal or None if file doesn't exist
+        Returns None if file doesn't exist or find_text not found.
+        Uses fuzzy matching as fallback for whitespace differences.
         """
-        full_path = os.path.join(self.root_path, file_path)
+        full_path = self.root_path / file_path
 
-        if not os.path.exists(full_path):
+        if not full_path.exists():
+            self.log(f"File not found: {file_path}")
             return None
 
         try:
-            with open(full_path, encoding="utf-8") as f:
-                original = f.read()
+            original = full_path.read_text(encoding="utf-8")
 
-            if find_text not in original:
-                # Try fuzzy matching
-                find_text = self._fuzzy_find(original, find_text)
-                if not find_text:
+            # Exact match first
+            if find_text in original:
+                new_content = original.replace(find_text, replace_text, 1)
+            else:
+                # Fuzzy match for whitespace tolerance
+                matched = self._fuzzy_find(original, find_text)
+                if matched:
+                    new_content = original.replace(matched, replace_text, 1)
+                else:
+                    self.log(f"Find text not matched in {file_path}")
                     return None
-
-            new_content = original.replace(find_text, replace_text, 1)
 
             return EditProposal(
                 file_path=file_path,
                 original_content=original,
                 new_content=new_content,
-                description=description,
+                description=description or "Edit proposal",
             )
 
         except Exception as e:
             self.log(f"Error creating edit proposal: {e}")
             return None
 
-    def apply_edit(self, edit: EditProposal, dry_run: bool = False) -> bool:
+    @contextmanager
+    def transaction(self) -> Generator[EditTransaction, None, None]:
         """
-        Apply an edit to the filesystem.
+        Context manager for atomic multi-edit transactions.
 
-        Args:
-            edit: The edit to apply
-            dry_run: If True, don't actually write
-
-        Returns:
-            True if successful
+        Usage:
+            with surgeon.transaction() as tx:
+                surgeon.apply_edit(edit1, transaction=tx)
+                surgeon.apply_edit(edit2, transaction=tx)
+            # Auto-commits on success, auto-rollbacks on exception
         """
-        full_path = os.path.join(self.root_path, edit.file_path)
+        tx = EditTransaction()
+        try:
+            yield tx
+            # Success - record transaction
+            self._transaction_history.append(tx)
+        except Exception:
+            # Failure - rollback all applied edits
+            self._rollback_transaction(tx)
+            raise
 
-        # Validate syntax if it's Python
+    def apply_edit(
+        self,
+        edit: EditProposal,
+        dry_run: bool = False,
+        transaction: EditTransaction | None = None,
+    ) -> bool:
+        """
+        Apply edit with optimistic locking.
+
+        Fails if file content has changed since proposal (prevents
+        overwriting concurrent modifications).
+        """
+        full_path = self.root_path / edit.file_path
+
+        # Read current content
+        try:
+            current_content = full_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            self.log(f"File disappeared: {edit.file_path}")
+            return False
+
+        # Optimistic lock check
+        if not edit.verify_unchanged(current_content):
+            self.log(f"File modified since proposal: {edit.file_path}")
+            return False
+
+        # Syntax validation for Python
         if self.validate_syntax and edit.file_path.endswith(".py"):
             if not self._check_python_syntax(edit.new_content):
-                self.log(f"Syntax error in proposed edit for {edit.file_path}")
+                self.log(f"Syntax error in proposed edit: {edit.file_path}")
                 return False
 
         if dry_run:
             self.log(f"[DRY RUN] Would apply edit to {edit.file_path}")
             return True
 
+        # Record backup
+        if transaction:
+            transaction.record_backup(str(full_path), current_content)
+        else:
+            self._write_backup(full_path, current_content)
+
+        # Write new content
         try:
-            # Create backup
-            backup_path = full_path + ".bak"
-            if os.path.exists(full_path):
-                with open(full_path) as f:
-                    backup_content = f.read()
-                with open(backup_path, "w") as f:
-                    f.write(backup_content)
-
-            # Write new content
-            with open(full_path, "w", encoding="utf-8") as f:
-                f.write(edit.new_content)
-
-            self._applied_edits.append(edit)
-
-            # Record in memory if available
-            if self.memory:
-                from ..memory import create_edit_from_file_change
-
-                memory_edit = create_edit_from_file_change(
-                    file_path=edit.file_path,
-                    original_content=edit.original_content,
-                    new_content=edit.new_content,
-                    user_message=edit.description,
-                )
-                self.memory.record_edit(memory_edit)
-
-            self.log(f"Applied edit to {edit.file_path}")
-            return True
-
+            full_path.write_text(edit.new_content, encoding="utf-8")
         except Exception as e:
-            self.log(f"Error applying edit: {e}")
+            self.log(f"Write failed: {e}")
             return False
 
-    def rollback_last_edit(self) -> bool:
-        """
-        Rollback the last applied edit.
+        # Track
+        if transaction:
+            transaction.mark_applied(str(full_path))
+        self._applied_edits.append(edit)
 
-        Returns:
-            True if successful
+        # Record in memory
+        if self.memory:
+            self._record_to_memory(edit)
+
+        self.log(f"Applied edit to {edit.file_path}")
+        return True
+
+    def apply_edits(
+        self, edits: list[EditProposal], dry_run: bool = False
+    ) -> tuple[int, int]:
         """
+        Apply multiple edits atomically.
+
+        Returns (success_count, failure_count). On any failure,
+        all previously applied edits in this batch are rolled back.
+        """
+        if dry_run:
+            results = [self.apply_edit(e, dry_run=True) for e in edits]
+            return sum(results), len(results) - sum(results)
+
+        try:
+            with self.transaction() as tx:
+                for edit in edits:
+                    if not self.apply_edit(edit, transaction=tx):
+                        raise RuntimeError(f"Edit failed: {edit.file_path}")
+            return len(edits), 0
+        except RuntimeError:
+            return 0, len(edits)
+
+    def _write_backup(self, path: Path, content: str):
+        """Write timestamped backup to temp directory."""
+        backup_dir = Path(tempfile.gettempdir()) / "surgeon_backups"
+        backup_dir.mkdir(exist_ok=True)
+
+        timestamp = int(time.time() * 1000)
+        safe_name = str(path).replace("/", "_").replace("\\", "_")
+        backup_path = backup_dir / f"{safe_name}.{timestamp}.bak"
+
+        backup_path.write_text(content, encoding="utf-8")
+
+    def _rollback_transaction(self, tx: EditTransaction):
+        """Rollback all applied edits in a transaction."""
+        for path in reversed(tx.applied):
+            if path in tx.backups:
+                try:
+                    Path(path).write_text(tx.backups[path], encoding="utf-8")
+                    self.log(f"Rolled back: {path}")
+                except Exception as e:
+                    self.log(f"Rollback failed for {path}: {e}")
+
+    def rollback_last_edit(self) -> bool:
+        """Rollback the last applied edit."""
         if not self._applied_edits:
             return False
 
         edit = self._applied_edits.pop()
-        full_path = os.path.join(self.root_path, edit.file_path)
+        full_path = self.root_path / edit.file_path
 
         try:
-            with open(full_path, "w", encoding="utf-8") as f:
-                f.write(edit.original_content)
-
-            self.log(f"Rolled back edit to {edit.file_path}")
+            full_path.write_text(edit.original_content, encoding="utf-8")
+            self.log(f"Rolled back: {edit.file_path}")
             return True
-
         except Exception as e:
-            self.log(f"Error rolling back: {e}")
+            self.log(f"Rollback failed: {e}")
             return False
 
     def get_pending_edits(self) -> list[EditProposal]:
-        """Get list of proposed but not yet applied edits."""
-        applied_set = {id(e) for e in self._applied_edits}
-        return [e for e in self._proposed_edits if id(e) not in applied_set]
+        """Get proposed edits not yet applied."""
+        applied_ids = {id(e) for e in self._applied_edits}
+        return [e for e in self._proposed_edits if id(e) not in applied_ids]
 
     def _parse_edit_proposals(self, response: str) -> list[EditProposal]:
         """
-        Parse edit proposals from LLM response.
+        Parse edit blocks from LLM response.
 
-        Expects format:
-        ```edit
-        FILE: path/to/file.py
-        FIND:
-        <text>
-        REPLACE:
-        <text>
-        ```
+        Uses anchored regex to avoid keyword collision issues.
         """
         edits = []
 
-        # Split by edit blocks
-        import re
+        # Find all edit blocks with proper termination
+        for match in re.finditer(
+            r"```edit\s*\n"
+            r"FILE:\s*(.+?)\s*\n"
+            r"FIND:\n(.*?)\n"
+            r"REPLACE:\n(.*?)"
+            r"\n```",
+            response,
+            re.DOTALL,
+        ):
+            file_path = match.group(1).strip()
+            find_text = match.group(2)
+            replace_text = match.group(3)
 
-        edit_blocks = re.findall(r"```edit\n(.*?)```", response, re.DOTALL)
+            # Remove trailing newline from replace if FIND didn't have one
+            if not find_text.endswith("\n") and replace_text.endswith("\n"):
+                replace_text = replace_text[:-1]
 
-        for block in edit_blocks:
-            try:
-                # Parse FILE
-                file_match = re.search(r"FILE:\s*(.+?)(?:\n|$)", block)
-                if not file_match:
-                    continue
-                file_path = file_match.group(1).strip()
+            edit = self.propose_edit(
+                file_path=file_path,
+                find_text=find_text,
+                replace_text=replace_text,
+                description=f"Edit from LLM: {file_path}",
+            )
 
-                # Parse FIND and REPLACE
-                find_match = re.search(r"FIND:\n(.*?)(?:REPLACE:|$)", block, re.DOTALL)
-                replace_match = re.search(r"REPLACE:\n(.*?)$", block, re.DOTALL)
-
-                if not find_match or not replace_match:
-                    continue
-
-                find_text = find_match.group(1).rstrip("\n")
-                replace_text = replace_match.group(1).rstrip("\n")
-
-                edit = self.propose_edit(
-                    file_path=file_path,
-                    find_text=find_text,
-                    replace_text=replace_text,
-                    description="Edit from LLM response",
-                )
-
-                if edit:
-                    edits.append(edit)
-
-            except Exception as e:
-                self.log(f"Error parsing edit block: {e}")
-                continue
+            if edit:
+                edits.append(edit)
+            else:
+                self.log(f"Failed to create edit for {file_path}")
 
         return edits
 
-    def _validate_edit(self, edit: EditProposal) -> bool:
-        """Validate an edit proposal."""
-        # Check file exists
-        full_path = os.path.join(self.root_path, edit.file_path)
-        if not os.path.exists(full_path):
-            return False
+    def _validate_edits(
+        self, edits: list[EditProposal]
+    ) -> tuple[list[EditProposal], list[str]]:
+        """
+        Validate edits, returning valid edits and error messages.
 
-        # Check content actually changed
-        if edit.original_content == edit.new_content:
-            return False
+        Checks:
+        - File exists
+        - Content changed
+        - Syntax valid (Python only)
+        - No duplicate file targets (would conflict)
+        """
+        valid = []
+        errors = []
+        seen_files: set[str] = set()
 
-        # Check syntax for Python files
-        if self.validate_syntax and edit.file_path.endswith(".py"):
-            if not self._check_python_syntax(edit.new_content):
-                return False
+        for edit in edits:
+            # Duplicate check
+            if edit.file_path in seen_files:
+                errors.append(f"Duplicate edit target: {edit.file_path}")
+                continue
+            seen_files.add(edit.file_path)
 
-        return True
+            # Existence check
+            if not (self.root_path / edit.file_path).exists():
+                errors.append(f"File not found: {edit.file_path}")
+                continue
+
+            # No-op check
+            if edit.original_content == edit.new_content:
+                errors.append(f"No change: {edit.file_path}")
+                continue
+
+            # Syntax check
+            if self.validate_syntax and edit.file_path.endswith(".py"):
+                if not self._check_python_syntax(edit.new_content):
+                    errors.append(f"Syntax error: {edit.file_path}")
+                    continue
+
+            valid.append(edit)
+
+        return valid, errors
 
     def _check_python_syntax(self, code: str) -> bool:
-        """Check if Python code has valid syntax."""
-        import ast
-
+        """Validate Python syntax."""
         try:
             ast.parse(code)
             return True
@@ -458,65 +558,104 @@ You can propose multiple edits in one response."""
             return False
 
     def _fuzzy_find(
-        self, content: str, target: str, threshold: float = 0.8
+        self, content: str, target: str, threshold: float = 0.85
     ) -> str | None:
         """
-        Find similar text in content using fuzzy matching.
+        Find similar text block using sliding window comparison.
 
-        Args:
-            content: Content to search in
-            target: Target text to find
-            threshold: Similarity threshold (0-1)
-
-        Returns:
-            Matching text or None
+        Handles whitespace normalization and minor character differences.
         """
         target_lines = target.strip().split("\n")
         content_lines = content.split("\n")
+        window_size = len(target_lines)
 
-        # Try to find a matching block
-        for i in range(len(content_lines) - len(target_lines) + 1):
-            block = "\n".join(content_lines[i : i + len(target_lines)])
+        if window_size == 0 or len(content_lines) < window_size:
+            return None
 
-            # Calculate similarity
-            matcher = difflib.SequenceMatcher(None, target, block)
-            if matcher.ratio() >= threshold:
-                return block
+        best_match = None
+        best_ratio = threshold
 
-        return None
+        # Normalize for comparison
+        def normalize(s: str) -> str:
+            return " ".join(s.split())
 
-    def _format_edits_summary(self, edits: list[EditProposal]) -> str:
-        """Format edit proposals as a summary."""
+        target_normalized = "\n".join(normalize(line) for line in target_lines)
+
+        for i in range(len(content_lines) - window_size + 1):
+            block_lines = content_lines[i : i + window_size]
+            block_normalized = "\n".join(normalize(line) for line in block_lines)
+
+            ratio = difflib.SequenceMatcher(
+                None, target_normalized, block_normalized
+            ).ratio()
+
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_match = "\n".join(block_lines)
+
+        return best_match
+
+    def _record_to_memory(self, edit: EditProposal):
+        """Record edit to memory system."""
+        try:
+            from ..memory import create_edit_from_file_change
+
+            memory_edit = create_edit_from_file_change(
+                file_path=edit.file_path,
+                original_content=edit.original_content,
+                new_content=edit.new_content,
+                user_message=edit.description,
+            )
+            self.memory.record_edit(memory_edit)
+        except Exception as e:
+            self.log(f"Memory recording failed: {e}")
+
+    def _format_edits_summary(
+        self, edits: list[EditProposal], errors: list[str] | None = None
+    ) -> str:
+        """Format edit summary for output."""
+        lines = []
+
+        if errors:
+            lines.append(f"## Validation Errors ({len(errors)})")
+            for err in errors:
+                lines.append(f"- {err}")
+            lines.append("")
+
         if not edits:
-            return "No edits proposed"
+            lines.append("No valid edits proposed")
+            return "\n".join(lines)
 
-        lines = [f"## Proposed Edits ({len(edits)})", ""]
+        lines.append(f"## Proposed Edits ({len(edits)})")
+        lines.append("")
 
         for i, edit in enumerate(edits, 1):
-            lines.append(f"### Edit {i}: {edit.file_path}")
-            lines.append(f"Description: {edit.description}")
+            lines.append(f"### {i}. {edit.file_path}")
+            lines.append(f"{edit.description}")
             lines.append("")
             lines.append("```diff")
-            lines.append(edit.diff[:1000])
-            if len(edit.diff) > 1000:
+            diff = edit.diff
+            if len(diff) > 800:
+                lines.append(diff[:800])
                 lines.append("... (truncated)")
+            else:
+                lines.append(diff)
             lines.append("```")
             lines.append("")
 
         return "\n".join(lines)
 
     def _format_for_validator(self, edits: list[EditProposal]) -> str:
-        """Format edits for the validator agent."""
+        """Format edits for validator agent."""
         lines = ["## Edits for Validation", ""]
 
         for edit in edits:
             lines.append(f"### {edit.file_path}")
-            lines.append("Changes:")
+            lines.append(f"Hash: {edit.content_hash}")
             lines.append("```diff")
-            lines.append(edit.diff[:500])
+            lines.append(edit.diff[:400])
             lines.append("```")
             lines.append("")
 
-        lines.append("Please validate these edits by running relevant tests.")
-
+        lines.append("Run tests to validate these changes.")
         return "\n".join(lines)

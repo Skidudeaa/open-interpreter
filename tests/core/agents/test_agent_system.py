@@ -392,6 +392,100 @@ This changes the greeting."""
         valid = surgeon._check_python_syntax("def foo( return 42")
         assert not valid
 
+    def test_content_hash_optimistic_lock(self, orchestrator, temp_project):
+        """Edits fail if file changed since proposal (optimistic locking)."""
+        from interpreter.core.agents.base_agent import AgentRole
+
+        surgeon = orchestrator.get_agent(AgentRole.SURGEON)
+
+        # Create initial file
+        test_file = Path(temp_project) / "lock_test.py"
+        test_file.write_text("original = 1\n")
+
+        # Create edit proposal
+        edit = surgeon.propose_edit("lock_test.py", "original = 1", "original = 2")
+        assert edit is not None
+        assert edit.content_hash  # Hash should be set
+
+        # Modify file externally (simulates concurrent edit)
+        test_file.write_text("changed = 3\n")
+
+        # Apply should fail due to content mismatch
+        result = surgeon.apply_edit(edit)
+        assert result is False
+
+    def test_transaction_rollback_on_failure(self, orchestrator, temp_project):
+        """Transaction rolls back all edits on failure."""
+        from interpreter.core.agents.base_agent import AgentRole
+
+        surgeon = orchestrator.get_agent(AgentRole.SURGEON)
+
+        # Create test files
+        file1 = Path(temp_project) / "tx_test1.py"
+        file2 = Path(temp_project) / "tx_test2.py"
+        file1.write_text("value1 = 1\n")
+        file2.write_text("value2 = 2\n")
+
+        original1 = file1.read_text()
+
+        edit1 = surgeon.propose_edit("tx_test1.py", "value1 = 1", "value1 = 10")
+        assert edit1 is not None
+
+        # Transaction with simulated failure
+        try:
+            with surgeon.transaction() as tx:
+                surgeon.apply_edit(edit1, transaction=tx)
+                # Simulate failure before second edit
+                raise RuntimeError("Simulated failure")
+        except RuntimeError:
+            pass
+
+        # File should be rolled back to original
+        assert file1.read_text() == original1
+
+    def test_batch_apply_edits(self, orchestrator, temp_project):
+        """apply_edits applies multiple edits atomically."""
+        from interpreter.core.agents.base_agent import AgentRole
+
+        surgeon = orchestrator.get_agent(AgentRole.SURGEON)
+
+        # Create test files
+        file1 = Path(temp_project) / "batch1.py"
+        file2 = Path(temp_project) / "batch2.py"
+        file1.write_text("x = 1\n")
+        file2.write_text("y = 2\n")
+
+        edit1 = surgeon.propose_edit("batch1.py", "x = 1", "x = 10")
+        edit2 = surgeon.propose_edit("batch2.py", "y = 2", "y = 20")
+
+        success, failed = surgeon.apply_edits([edit1, edit2])
+        assert success == 2
+        assert failed == 0
+
+        # Both files should be updated
+        assert "x = 10" in file1.read_text()
+        assert "y = 20" in file2.read_text()
+
+    def test_fuzzy_match_whitespace_tolerance(self, orchestrator, temp_project):
+        """Fuzzy matching handles whitespace differences."""
+        from interpreter.core.agents.base_agent import AgentRole
+
+        surgeon = orchestrator.get_agent(AgentRole.SURGEON)
+
+        # Create file with specific whitespace
+        test_file = Path(temp_project) / "fuzzy_test.py"
+        test_file.write_text("def foo():\n    return   42\n")
+
+        # Try to match with different whitespace (extra space)
+        edit = surgeon.propose_edit(
+            "fuzzy_test.py",
+            "def foo():\n    return  42",  # Two spaces instead of three
+            "def foo():\n    return 100",
+        )
+
+        # Should find match via fuzzy matching
+        assert edit is not None
+
 
 # ==============================================================================
 # ARCHITECT AGENT TESTS

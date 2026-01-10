@@ -200,27 +200,9 @@ def run_tool_calling_llm(llm, request_params):
         # Accumulate deltas
         accumulated_deltas = merge_deltas(accumulated_deltas, delta)
 
-        # Log when content is empty or missing (helps debug blank responses)
-        if (
-            "content" in delta
-            and not delta["content"]
-            and getattr(llm.interpreter, "debug_empty_responses", False)
-        ):
-            import sys
-
-            # delta may be dict or Pydantic model
-            try:
-                keys = (
-                    list(delta.keys())
-                    if hasattr(delta, "keys")
-                    else list(delta.model_fields.keys())
-                )
-            except Exception:
-                keys = ["unknown"]
-            print(
-                f"[EMPTY] LLM returned empty content, delta keys: {keys}",
-                file=sys.stderr,
-            )
+        # Track empty content deltas for end-of-stream debug logging
+        # WHY: Moved from per-chunk to end-of-stream to reduce log spam
+        # TRADEOFF: Less granular debugging vs cleaner output
 
         if "content" in delta and delta["content"]:
             if function_call_detected:
@@ -340,9 +322,39 @@ def run_tool_calling_llm(llm, request_params):
             # pdb.set_trace()
             raise Exception("Judge layer required but did not run.")
 
+    # Debug logging: Log once at end-of-stream if no content was yielded
+    # WHY: Moved from per-chunk to reduce log spam while still supporting debugging
+    if not any_content_yielded and getattr(
+        llm.interpreter, "debug_empty_responses", False
+    ):
+        import sys
+
+        try:
+            keys = (
+                list(accumulated_deltas.keys())
+                if hasattr(accumulated_deltas, "keys")
+                else ["unknown"]
+            )
+        except Exception:
+            keys = ["unknown"]
+        print(
+            f"[EMPTY] LLM returned empty content, accumulated delta keys: {keys}",
+            file=sys.stderr,
+        )
+
     # Empty response retry: If LLM returned only thinking/reasoning blocks with no content,
     # try refining the prompt and retrying once
-    if not any_content_yielded and accumulated_deltas.get("reasoning_content"):
+    # WHY: Gemini 3+ and other thinking models return thinking_blocks or reasoning_content
+    # but may not produce visible content. Check all known thinking field locations.
+    has_thinking_only = not any_content_yielded and (
+        accumulated_deltas.get("reasoning_content")
+        or accumulated_deltas.get("thinking_blocks")
+        or (accumulated_deltas.get("provider_specific_fields") or {}).get(
+            "thinking_blocks"
+        )
+    )
+    retry_succeeded = False
+    if has_thinking_only:
         if getattr(llm.interpreter, "enable_intent_refiner", False):
             try:
                 from ..intent_refiner import IntentRefiner
@@ -371,7 +383,43 @@ def run_tool_calling_llm(llm, request_params):
                             # Recursive retry (once)
                             for chunk in run_tool_calling_llm(llm, request_params):
                                 yield chunk
+                            retry_succeeded = (
+                                True  # Retry yielded (may or may not have content)
+                            )
             except Exception as e:
                 # Non-blocking - if refinement fails, just continue
                 if llm.interpreter.verbose:
                     print(f"[Intent refinement retry failed: {e}]")
+
+    # Final fallback: Extract thinking content or inform the user
+    # WHY: Gemini 3+ thinking models often put the answer in thinking_blocks but leave content empty
+    # TRADEOFF: Showing reasoning may be verbose, but better than "try rephrasing"
+    if has_thinking_only and not retry_succeeded:
+        # Extract reasoning from thinking blocks
+        thinking_content = (
+            accumulated_deltas.get("reasoning_content")
+            or accumulated_deltas.get("thinking_blocks")
+            or (accumulated_deltas.get("provider_specific_fields") or {}).get(
+                "thinking_blocks"
+            )
+        )
+
+        if thinking_content:
+            # Convert list to string if needed (Gemini returns list of dicts)
+            if isinstance(thinking_content, list):
+                thinking_content = "\n".join(
+                    str(t.get("thinking", t) if isinstance(t, dict) else t)
+                    for t in thinking_content
+                )
+            thinking_str = str(thinking_content).strip()
+
+            # Yield thinking content as the response if substantive
+            if thinking_str and len(thinking_str) > 20:
+                yield {"type": "message", "content": thinking_str}
+                return
+
+        # Only show fallback if no usable thinking content
+        yield {
+            "type": "message",
+            "content": "[Model returned empty response. Try rephrasing your request.]\n",
+        }

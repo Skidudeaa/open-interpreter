@@ -10,6 +10,7 @@ Routes tasks to appropriate agents and manages the workflow:
 The orchestrator selects the smallest workflow that matches user intent and context.
 """
 
+import logging
 import os
 import re
 import time
@@ -20,6 +21,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from .base_agent import AgentResult, AgentRole, BaseAgent
+
+logger = logging.getLogger(__name__)
 
 # Import UI event system for agent visualization (optional).
 HAS_UI_EVENTS = False
@@ -593,12 +596,105 @@ class AgentOrchestrator:
             if not ok:
                 result.errors.append(f"Failed to apply edit to {edit.file_path}")
 
+    def _synthesize_for_user(self, task: str, scout_result: AgentResult) -> str:
+        """
+        Synthesize Scout's findings into a human-readable response.
+
+        WHY: Scout returns structured data; synthesis happens here only when
+        the user is the audience (EXPLORE workflow). EDIT/FULL workflows pass
+        raw context to downstream agents without this overhead.
+
+        TRADEOFF: One LLM call for EXPLORE; but EDIT/FULL are faster.
+        """
+        if not scout_result.success:
+            return f"Scout exploration failed: {scout_result.error or 'Unknown error'}"
+
+        # Build context from Scout's structured findings
+        files_found = scout_result.files_found or []
+        symbols_found = scout_result.symbols_found or []
+        metadata = scout_result.metadata or {}
+        search_results = metadata.get("search_results", [])
+        memory_context = metadata.get("memory_context", [])
+        elapsed_ms = metadata.get("elapsed_ms", 0)
+
+        # If no findings, return early
+        if not files_found and not search_results:
+            return f"No relevant files or code found for: {task}\n\n(Scout runtime: {elapsed_ms:.0f}ms)"
+
+        # Build synthesis prompt
+        context_parts = []
+
+        if files_found:
+            context_parts.append(f"**Files found ({len(files_found)}):**")
+            for f in files_found[:20]:  # Cap display
+                context_parts.append(f"  - {f}")
+            if len(files_found) > 20:
+                context_parts.append(f"  ... and {len(files_found) - 20} more")
+
+        if symbols_found:
+            context_parts.append(f"\n**Symbols found ({len(symbols_found)}):**")
+            for s in symbols_found[:15]:
+                context_parts.append(f"  - {s}")
+
+        if search_results:
+            context_parts.append(f"\n**Code snippets ({len(search_results)}):**")
+            for r in search_results[:10]:
+                context_parts.append(f"  {r['file']}:{r['line']}")
+                content_preview = r.get("content", "")[:100].replace("\n", " ")
+                if content_preview:
+                    context_parts.append(f"    → {content_preview}")
+
+        if memory_context:
+            context_parts.append("\n**Historical context:**")
+            for line in memory_context[:5]:
+                context_parts.append(f"  {line}")
+
+        findings_context = "\n".join(context_parts)
+
+        # Use LLM to synthesize
+        prompt = f"""Based on the codebase exploration below, provide a clear, helpful answer to the user's question.
+
+**User's question:** {task}
+
+**Exploration findings:**
+{findings_context}
+
+Provide a concise explanation that:
+1. Directly answers the user's question
+2. References specific files and code when relevant
+3. Explains how the pieces fit together
+
+Be helpful and specific. If the findings don't fully answer the question, say what was found and what might be missing."""
+
+        try:
+            # Use interpreter's LLM directly (bypass agent machinery)
+            if self.interpreter and hasattr(self.interpreter, "llm"):
+                messages = [{"role": "user", "type": "message", "content": prompt}]
+                response_chunks = []
+                for chunk in self.interpreter.llm.run(messages):
+                    if chunk.get("type") == "message" and chunk.get("content"):
+                        response_chunks.append(chunk["content"])
+                synthesis = "".join(response_chunks).strip()
+                if synthesis:
+                    return f"{synthesis}\n\n---\n_Scout found {len(files_found)} file(s), {len(symbols_found)} symbol(s) in {elapsed_ms:.0f}ms_"
+        except Exception as e:
+            logger.debug(f"LLM synthesis failed: {e}")
+
+        # Fallback: return structured findings without LLM synthesis
+        return f"## Exploration Results\n\n{findings_context}\n\n---\n_Scout runtime: {elapsed_ms:.0f}ms_"
+
     def _run_explore_workflow(self, task: str, result: WorkflowResult) -> None:
-        """Scout-only workflow."""
+        """Scout-only workflow. Synthesizes findings for user."""
         _scout_id, scout_result = self._execute_agent_with_events(AgentRole.SCOUT, task)
         result.agent_results[AgentRole.SCOUT] = scout_result
         if not scout_result.success:
             result.errors.append("Scout phase failed")
+            return
+
+        # Synthesize for user (EXPLORE is user-facing)
+        synthesis = self._synthesize_for_user(task, scout_result)
+        # Store synthesis in scout_result.content so respond.py can access it
+        scout_result.content = synthesis
 
     def _run_edit_workflow(
         self, task: str, result: WorkflowResult, auto_apply: bool

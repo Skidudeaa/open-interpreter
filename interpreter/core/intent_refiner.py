@@ -187,22 +187,46 @@ Output ONLY the reformulated request. No commentary.
             return user_request
 
     def _call_mistral(self, message: str) -> str:
-        """Make LLM call to Mistral via LiteLLM."""
+        """Make LLM call via LiteLLM with automatic fallback."""
+        # WHY: Determine model and API key based on available credentials
+        # TRADEOFF: Adds complexity but prevents 401 errors when keys are missing
+        model = self.model
+        api_key = None
+
+        if model.startswith("openrouter/"):
+            api_key = os.getenv("OPENROUTER_API_KEY")
+            if not api_key:
+                # Fall back to gpt-4o-mini if OpenRouter key not set
+                logger.debug(
+                    f"No OPENROUTER_API_KEY, falling back to {self.FALLBACK_MODEL}"
+                )
+                model = self.FALLBACK_MODEL
+                api_key = os.getenv("OPENAI_API_KEY")
+        elif model.startswith("gpt-") or model.startswith("openai/"):
+            api_key = os.getenv("OPENAI_API_KEY")
+        elif model.startswith("claude-") or model.startswith("anthropic/"):
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+        elif model.startswith("gemini/"):
+            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+        # If no API key available for any model, skip refinement
+        if not api_key and model.startswith(("openrouter/", "gpt-", "claude-")):
+            logger.debug("No API key available for refinement, skipping")
+            return message
+
         messages = [
             {"role": "system", "content": self.SYSTEM_PROMPT},
             {"role": "user", "content": message},
         ]
 
         params = {
-            "model": self.model,
+            "model": model,
             "messages": messages,
             "temperature": 0.3,  # Low temp for consistent refinement
             "max_tokens": 500,  # Refined output shouldn't be longer than input
             "timeout": 10,  # Fast timeout - don't block main flow
         }
 
-        # Use OpenRouter API key if available
-        api_key = os.getenv("OPENROUTER_API_KEY")
         if api_key:
             params["api_key"] = api_key
 

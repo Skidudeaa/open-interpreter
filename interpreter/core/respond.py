@@ -3,12 +3,12 @@ import logging
 import os
 import re
 import traceback
+import weakref
+from dataclasses import dataclass
+from typing import Any
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 import litellm
-
-# Module logger
-logger = logging.getLogger(__name__)
 
 from ..terminal_interface.components.activity_stream import emit_activity
 from ..terminal_interface.components.network_status import get_network_status
@@ -16,11 +16,54 @@ from ..terminal_interface.components.ui_events import EventType, UIEvent, get_ev
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
 from .render_message import render_message
 
+# Module logger
+logger = logging.getLogger(__name__)
+
+
 # System message cache to avoid rebuilding every iteration
-_system_message_cache = {}
+@dataclass(slots=True)
+class _SysMsgCacheEntry:
+    key: tuple[Any, ...]
+    value: str
+    interp_ref: weakref.ref | None = None
+
+
+_system_message_cache: dict[int, _SysMsgCacheEntry] = {}
+
 
 # Intent refiner instance cache (lazy-loaded)
-_intent_refiner_cache = {}
+@dataclass(slots=True)
+class _IntentRefinerCacheEntry:
+    refiner: Any
+    interp_ref: weakref.ref | None = None
+
+
+_intent_refiner_cache: dict[int, _IntentRefinerCacheEntry] = {}
+
+# Headless detection is stable per-process. Don't redo expensive/fragile checks every cache miss.
+_IS_HEADLESS: bool | None = None
+
+
+def _detect_headless() -> bool:
+    global _IS_HEADLESS
+    if _IS_HEADLESS is not None:
+        return _IS_HEADLESS
+    try:
+        import pyautogui
+
+        pyautogui.size()  # fails in headless
+        _IS_HEADLESS = False
+    except Exception:
+        _IS_HEADLESS = True
+    return _IS_HEADLESS
+
+
+def _weakref_or_none(obj: Any) -> weakref.ref | None:
+    """Best-effort weakref to protect against id() reuse after GC."""
+    try:
+        return weakref.ref(obj)
+    except TypeError:
+        return None
 
 
 def _get_refined_message(interpreter, content: str) -> str:
@@ -33,13 +76,32 @@ def _get_refined_message(interpreter, content: str) -> str:
 
     # Lazy-load refiner (cached per interpreter instance)
     interpreter_id = id(interpreter)
-    if interpreter_id not in _intent_refiner_cache:
+    entry = _intent_refiner_cache.get(interpreter_id)
+    if entry is not None:
+        if entry.interp_ref is None or entry.interp_ref() is interpreter:
+            try:
+                return entry.refiner.refine(content) or content
+            except Exception as e:
+                logger.debug(f"IntentRefiner failed (non-blocking): {e}")
+                return content
+        # id() reused after GC, discard stale entry
+        _intent_refiner_cache.pop(interpreter_id, None)
+
+    try:
         from .intent_refiner import IntentRefiner
 
-        _intent_refiner_cache[interpreter_id] = IntentRefiner(interpreter)
-
-    refiner = _intent_refiner_cache[interpreter_id]
-    return refiner.refine(content)
+        refiner = IntentRefiner(interpreter)
+        _intent_refiner_cache[interpreter_id] = _IntentRefinerCacheEntry(
+            refiner=refiner,
+            interp_ref=_weakref_or_none(interpreter),
+        )
+        # Hard cap to avoid unbounded growth on long-lived processes
+        if len(_intent_refiner_cache) > 64:
+            _intent_refiner_cache.clear()
+        return refiner.refine(content) or content
+    except Exception as e:
+        logger.debug(f"IntentRefiner init/refine failed (non-blocking): {e}")
+        return content
 
 
 def _build_system_message(interpreter):
@@ -47,14 +109,13 @@ def _build_system_message(interpreter):
     Build the system message with caching based on dependencies.
     Returns cached version if dependencies haven't changed.
     """
-    # Build cache key from dependencies
+    # Build cache key from dependencies (exclude id; we store per-interpreter id already)
     lang_messages = tuple(
         getattr(lang, "system_message", "")
         for lang in interpreter.computer.terminal.languages
         if hasattr(lang, "system_message")
     )
     cache_key = (
-        id(interpreter),
         interpreter.system_message,
         lang_messages,
         interpreter.custom_instructions,
@@ -62,34 +123,51 @@ def _build_system_message(interpreter):
         interpreter.computer.system_message
         if interpreter.computer.import_computer_api
         else "",
+        _detect_headless(),
     )
 
-    if cache_key in _system_message_cache:
-        return _system_message_cache[cache_key]
+    interpreter_id = id(interpreter)
+    entry = _system_message_cache.get(interpreter_id)
+    if entry is not None and entry.key == cache_key:
+        if entry.interp_ref is None or entry.interp_ref() is interpreter:
+            return entry.value
+        # id() reused after GC
+        _system_message_cache.pop(interpreter_id, None)
 
-    # Build system message
-    system_message = interpreter.system_message
+    # Build system message using parts (faster, avoids quadratic string appends)
+    parts: list[str] = []
+    base = getattr(interpreter, "system_message", "") or ""
+    parts.append(base)
 
-    # Add language-specific system messages
     for lang_msg in lang_messages:
         if lang_msg:
-            system_message += "\n\n" + lang_msg
+            parts.append(lang_msg)
 
-    # Add custom instructions
     if interpreter.custom_instructions:
-        system_message += "\n\n" + interpreter.custom_instructions
+        parts.append(interpreter.custom_instructions)
 
-    # Add computer API system message
-    if interpreter.computer.import_computer_api:
-        if interpreter.computer.system_message not in system_message:
-            system_message = (
-                system_message + "\n\n" + interpreter.computer.system_message
-            )
+    if interpreter.computer.import_computer_api and interpreter.computer.system_message:
+        # Avoid duplicates by equality, not substring containment.
+        if interpreter.computer.system_message not in parts:
+            parts.append(interpreter.computer.system_message)
 
-    # Cache and return (limit cache size to prevent memory issues)
-    if len(_system_message_cache) > 100:
+    if _detect_headless():
+        parts.append(
+            "IMPORTANT: This is a HEADLESS environment (no X11/display). "
+            "Do NOT call computer.display.view(), computer.screenshot(), "
+            "computer.mouse, computer.keyboard, or any GUI functions - they will fail."
+        )
+
+    system_message = "\n\n".join(p for p in parts if p)
+
+    # Cache (bounded)
+    _system_message_cache[interpreter_id] = _SysMsgCacheEntry(
+        key=cache_key,
+        value=system_message,
+        interp_ref=_weakref_or_none(interpreter),
+    )
+    if len(_system_message_cache) > 128:
         _system_message_cache.clear()
-    _system_message_cache[cache_key] = system_message
 
     return system_message
 
@@ -141,15 +219,83 @@ def respond(interpreter):
     loop_message = ""  # Initialized here, assigned in loop body
 
     while True:
-        ## RENDER SYSTEM MESSAGE (cached for performance) ##
-        system_message = _build_system_message(interpreter)
+        # ========= AGENT ORCHESTRATION (guarded) =========
+        # Only route to agents on a *fresh user message*.
+        # Otherwise loop-mode and post-code messages will keep re-triggering agents.
+        if (
+            interpreter.enable_agents
+            and hasattr(interpreter, "agent_orchestrator")
+            and interpreter.agent_orchestrator is not None
+            and interpreter.messages
+            and interpreter.messages[-1].get("role") == "user"
+            and interpreter.messages[-1].get("type") == "message"
+        ):
+            try:
+                latest_task = interpreter.messages[-1].get("content", "") or ""
+                if latest_task:
+                    if getattr(interpreter, "enable_intent_refiner", False):
+                        latest_task = _get_refined_message(interpreter, latest_task)
 
-        # Storing the messages so they're accessible in the interpreter's computer
-        # no... this is a huge time sink.....
-        # if interpreter.sync_computer:
-        #     output = interpreter.computer.run(
-        #         "python", f"messages={interpreter.messages}"
-        #     )
+                    from .agents.orchestrator import AgentRole, WorkflowType
+
+                    workflow = interpreter.agent_orchestrator._detect_workflow(
+                        latest_task
+                    )
+                    if workflow in (
+                        WorkflowType.EXPLORE,
+                        WorkflowType.EDIT,
+                        WorkflowType.VALIDATE,
+                    ):
+                        logger.debug(
+                            f"Routing to agent orchestrator: workflow={workflow.value}"
+                        )
+
+                        from .agents import base_agent
+                        from .agents.live_status import run_with_live_status
+
+                        prev_active = getattr(base_agent, "_INTERPRETER_ACTIVE", False)
+                        base_agent._INTERPRETER_ACTIVE = True
+                        try:
+                            result = run_with_live_status(
+                                interpreter.agent_orchestrator,
+                                latest_task,
+                                workflow=workflow,
+                                auto_apply=interpreter.auto_run,
+                                plain_text=getattr(
+                                    interpreter, "plain_text_display", False
+                                ),
+                            )
+                        finally:
+                            base_agent._INTERPRETER_ACTIVE = prev_active
+
+                        if result.success:
+                            # For EXPLORE workflow, Scout's synthesized content IS the answer
+                            if workflow == WorkflowType.EXPLORE:
+                                scout_result = result.agent_results.get(AgentRole.SCOUT)
+                                if scout_result and scout_result.content:
+                                    yield {
+                                        "role": "assistant",
+                                        "type": "message",
+                                        "content": scout_result.content,
+                                    }
+                                    return
+
+                            # For other workflows (EDIT, VALIDATE), use summary + context
+                            yield {
+                                "role": "assistant",
+                                "type": "message",
+                                "content": result.get_summary()
+                                + "\n\n"
+                                + result.final_context,
+                            }
+                            return
+                        logger.warning(f"Agent workflow failed: {result.errors}")
+            except Exception as e:
+                logger.warning(f"Agent orchestration failed, falling back to LLM: {e}")
+                # Fall through
+
+        # ========= BUILD LLM MESSAGES =========
+        system_message = _build_system_message(interpreter)
 
         ## Rendering ↓
         rendered_system_message = render_message(interpreter, system_message)
@@ -161,8 +307,8 @@ def respond(interpreter):
             "content": rendered_system_message,
         }
 
-        # Create the version of messages that we'll send to the LLM
-        messages_for_llm = interpreter.messages.copy()
+        # IMPORTANT: copy dicts too. Shallow list copy mutates interpreter.messages (gross).
+        messages_for_llm = [m.copy() for m in interpreter.messages]
 
         # Intent refinement: refine the last user message if enabled
         # This strips safety-trigger phrasing before the main LLM sees it
@@ -190,85 +336,13 @@ def respond(interpreter):
             yield {"role": "assistant", "type": "message", "content": "\n\n"}
             insert_loop_message = False
 
-        ### AGENT ORCHESTRATION (if enabled) ###
-
-        # Route to agent orchestrator if enabled and appropriate
-        if (
-            interpreter.enable_agents
-            and hasattr(interpreter, "agent_orchestrator")
-            and interpreter.agent_orchestrator is not None
-        ):
-            try:
-                # Get the user's latest message for task detection
-                user_messages = [
-                    m for m in interpreter.messages if m.get("role") == "user"
-                ]
-                if user_messages:
-                    latest_task = user_messages[-1].get("content", "")
-
-                    # Intent refinement: refine task before passing to agents
-                    if getattr(interpreter, "enable_intent_refiner", False):
-                        latest_task = _get_refined_message(interpreter, latest_task)
-
-                    # Let orchestrator determine if this should be handled by agents
-                    from .agents.orchestrator import WorkflowType
-
-                    workflow = interpreter.agent_orchestrator._detect_workflow(
-                        latest_task
-                    )
-
-                    # Route EXPLORE, EDIT, and VALIDATE workflows to agents
-                    if workflow in (
-                        WorkflowType.EXPLORE,
-                        WorkflowType.EDIT,
-                        WorkflowType.VALIDATE,
-                    ):
-                        logger.debug(
-                            f"Routing to agent orchestrator: workflow={workflow.value}"
-                        )
-
-                        # Run with live status panel if not in plain text mode
-                        from .agents import base_agent
-                        from .agents.live_status import run_with_live_status
-
-                        # Set flag to prevent nested interpreter.chat() calls
-                        base_agent._INTERPRETER_ACTIVE = True
-                        try:
-                            result = run_with_live_status(
-                                interpreter.agent_orchestrator,
-                                latest_task,
-                                workflow=workflow,
-                                auto_apply=interpreter.auto_run,
-                                plain_text=getattr(
-                                    interpreter, "plain_text_display", False
-                                ),
-                            )
-                        finally:
-                            base_agent._INTERPRETER_ACTIVE = False
-
-                        # Yield the orchestrator's result as assistant message
-                        if result.success:
-                            yield {
-                                "role": "assistant",
-                                "type": "message",
-                                "content": result.get_summary()
-                                + "\n\n"
-                                + result.final_context,
-                            }
-                            # Don't continue with normal LLM flow if agents handled it
-                            return
-                        else:
-                            # Agent workflow failed, fall through to normal LLM
-                            logger.warning(f"Agent workflow failed: {result.errors}")
-            except Exception as e:
-                logger.warning(f"Agent orchestration failed, falling back to LLM: {e}")
-                # Fall through to normal LLM flow
+        # (agent orchestration moved earlier + guarded)
 
         ### RUN THE LLM ###
 
-        assert (
-            len(interpreter.messages) > 0
-        ), "User message was not passed in. You need to pass in at least one message."
+        assert len(interpreter.messages) > 0, (
+            "User message was not passed in. You need to pass in at least one message."
+        )
 
         if (
             interpreter.messages[-1]["type"] != "code"
@@ -285,16 +359,16 @@ def respond(interpreter):
                     else last_msg,
                 )
 
-            # Network status tracking
+            # Network status tracking (ensure we always end_request)
             network_status = get_network_status()
             network_status.start_request()
+            _req_ok = False
 
             try:
                 for chunk in interpreter.llm.run(messages_for_llm):
                     yield {"role": "assistant", **chunk}
 
-                # Mark request as successful after receiving all chunks
-                network_status.end_request(success=True)
+                _req_ok = True
 
             except litellm.exceptions.BudgetExceededError:
                 network_status.set_error("Budget exceeded")
@@ -321,7 +395,7 @@ def respond(interpreter):
                     output = traceback.format_exc()
                     raise Exception(
                         f"{output}\n\nThere might be an issue with your API key(s).\n\nTo reset your API key (we'll use OPENAI_API_KEY for this example, but you may need to reset your ANTHROPIC_API_KEY, HUGGINGFACE_API_KEY, etc):\n        Mac/Linux: 'export OPENAI_API_KEY=your-key-here'. Update your ~/.zshrc on MacOS or ~/.bashrc on Linux with the new key if it has already been persisted there.,\n        Windows: 'setx OPENAI_API_KEY your-key-here' then restart terminal.\n\n"
-                    )
+                    ) from e
                 elif isinstance(e, litellm.exceptions.RateLimitError) and (
                     "exceeded" in str(e).lower()
                     or "insufficient_quota" in str(e).lower()
@@ -365,6 +439,8 @@ def respond(interpreter):
                     raise
                 else:
                     raise
+            finally:
+                network_status.end_request(success=_req_ok)
 
         ### RUN CODE (if it's there) ###
 
@@ -390,12 +466,12 @@ def respond(interpreter):
                         code_dict = json.loads(edited_code)
                         language = code_dict.get("language", language)
                         code = code_dict.get("code", code)
-                        interpreter.messages[-1][
-                            "content"
-                        ] = code  # So the LLM can see it.
-                        interpreter.messages[-1][
-                            "format"
-                        ] = language  # So the LLM can see it.
+                        interpreter.messages[-1]["content"] = (
+                            code  # So the LLM can see it.
+                        )
+                        interpreter.messages[-1]["format"] = (
+                            language  # So the LLM can see it.
+                        )
                     except Exception:
                         pass
 
@@ -406,9 +482,9 @@ def respond(interpreter):
                 if code.strip().endswith("executeexecute"):
                     code = code.replace("executeexecute", "")
                     try:
-                        interpreter.messages[-1][
-                            "content"
-                        ] = code  # So the LLM can see it.
+                        interpreter.messages[-1]["content"] = (
+                            code  # So the LLM can see it.
+                        )
                     except Exception:
                         pass
 
@@ -418,12 +494,12 @@ def respond(interpreter):
                         if set(code_dict.keys()) == {"language", "code"}:
                             language = code_dict["language"]
                             code = code_dict["code"]
-                            interpreter.messages[-1][
-                                "content"
-                            ] = code  # So the LLM can see it.
-                            interpreter.messages[-1][
-                                "format"
-                            ] = language  # So the LLM can see it.
+                            interpreter.messages[-1]["content"] = (
+                                code  # So the LLM can see it.
+                            )
+                            interpreter.messages[-1]["format"] = (
+                                language  # So the LLM can see it.
+                            )
                     except Exception:
                         pass
 
@@ -436,12 +512,12 @@ def respond(interpreter):
                         if set(code_dict.keys()) == {"language", "code"}:
                             language = code_dict["language"]
                             code = code_dict["code"]
-                            interpreter.messages[-1][
-                                "content"
-                            ] = code  # So the LLM can see it.
-                            interpreter.messages[-1][
-                                "format"
-                            ] = language  # So the LLM can see it.
+                            interpreter.messages[-1]["content"] = (
+                                code  # So the LLM can see it.
+                            )
+                            interpreter.messages[-1]["format"] = (
+                                language  # So the LLM can see it.
+                            )
                     except Exception:
                         pass
 
@@ -580,6 +656,7 @@ def respond(interpreter):
                     "traced": False,
                     "recorded": False,
                     "tested": False,
+                    "committed": False,
                 }
 
                 # === FILE CHANGE DETECTION: BEFORE ===
@@ -776,6 +853,7 @@ def respond(interpreter):
                         if _changed_files and getattr(
                             interpreter, "show_file_diffs", False
                         ):
+                            event_bus = get_event_bus()
                             for file_path, (
                                 old_content,
                                 new_content,
@@ -983,6 +1061,8 @@ def respond(interpreter):
                         status_parts.append("\u2713 recorded")
                     if _status["tested"]:
                         status_parts.append("\u2713 tested")
+                    if _status["committed"]:
+                        status_parts.append("\u2713 committed")
                     yield {
                         "role": "computer",
                         "type": "status",

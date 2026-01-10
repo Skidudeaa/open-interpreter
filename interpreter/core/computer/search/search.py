@@ -132,7 +132,12 @@ class Search:
                 - site_search: Restrict to site (Google)
 
         Returns:
-            List of SearchResult objects
+            List of SearchResult objects with these attributes:
+                - title: str (page title)
+                - url: str (page URL)
+                - snippet: str (text preview - use this for content, NOT 'description')
+                - source: str (provider name)
+                - score: float | None (relevance score)
 
         Raises:
             ProviderNotAvailableError: If no provider is available

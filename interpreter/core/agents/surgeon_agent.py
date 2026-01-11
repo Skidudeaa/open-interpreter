@@ -139,6 +139,34 @@ class SurgeonAgent(BaseAgent):
         self._applied_edits: list[EditProposal] = []
         self._transaction_history: list[EditTransaction] = []
 
+    def _validate_path(self, file_path: str) -> Path | None:
+        """
+        Validate that file_path stays within root_path.
+
+        Prevents path traversal attacks (e.g., '../../../etc/passwd').
+
+        Args:
+            file_path: Relative path from root_path
+
+        Returns:
+            Resolved Path if valid, None if path escapes root_path
+        """
+        try:
+            # Construct and resolve to handle '../' sequences
+            full_path = (self.root_path / file_path).resolve()
+            root_resolved = self.root_path.resolve()
+
+            # Verify path is still within root
+            full_path.relative_to(root_resolved)
+            return full_path
+        except ValueError:
+            # relative_to() raises ValueError if path is not relative to root
+            self.log(f"Path traversal blocked: {file_path}")
+            return None
+        except Exception as e:
+            self.log(f"Path validation error: {e}")
+            return None
+
     def get_system_message(self) -> str:
         return """You are a Surgeon Agent specialized in precise code editing.
 
@@ -288,7 +316,10 @@ RULES:
         Returns None if file doesn't exist or find_text not found.
         Uses fuzzy matching as fallback for whitespace differences.
         """
-        full_path = self.root_path / file_path
+        # Validate path stays within root (prevents traversal attacks)
+        full_path = self._validate_path(file_path)
+        if full_path is None:
+            return None
 
         if not full_path.exists():
             self.log(f"File not found: {file_path}")
@@ -353,7 +384,10 @@ RULES:
         Fails if file content has changed since proposal (prevents
         overwriting concurrent modifications).
         """
-        full_path = self.root_path / edit.file_path
+        # Validate path (defense in depth - proposal should already be validated)
+        full_path = self._validate_path(edit.file_path)
+        if full_path is None:
+            return False
 
         # Read current content
         try:
@@ -451,7 +485,10 @@ RULES:
             return False
 
         edit = self._applied_edits.pop()
-        full_path = self.root_path / edit.file_path
+        full_path = self._validate_path(edit.file_path)
+        if full_path is None:
+            self.log(f"Cannot rollback - path validation failed: {edit.file_path}")
+            return False
 
         try:
             full_path.write_text(edit.original_content, encoding="utf-8")
@@ -529,8 +566,12 @@ RULES:
                 continue
             seen_files.add(edit.file_path)
 
-            # Existence check
-            if not (self.root_path / edit.file_path).exists():
+            # Path validation (prevents traversal) and existence check
+            validated_path = self._validate_path(edit.file_path)
+            if validated_path is None:
+                errors.append(f"Invalid path (traversal blocked): {edit.file_path}")
+                continue
+            if not validated_path.exists():
                 errors.append(f"File not found: {edit.file_path}")
                 continue
 

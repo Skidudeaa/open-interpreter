@@ -58,6 +58,7 @@ from interpreter.terminal_interface.components.ui_state import (
 # UIState Tests
 # ============================================================================
 
+
 class TestUIState:
     """Tests for UIState dataclass and methods"""
 
@@ -274,6 +275,7 @@ class TestAgentState:
 # UIEvents Tests
 # ============================================================================
 
+
 class TestUIEvent:
     """Tests for UIEvent dataclass"""
 
@@ -297,7 +299,8 @@ class TestEventBus:
     def setup_method(self):
         """Reset event bus before each test"""
         reset_event_bus()
-        self.bus = EventBus()
+        # Use immediate_dispatch=False for queue-based tests
+        self.bus = EventBus(immediate_dispatch=False)
 
     def test_initialization(self):
         """Test EventBus initializes correctly"""
@@ -604,6 +607,7 @@ class TestEventBusSingleton:
 # Sanitizer Tests
 # ============================================================================
 
+
 class TestSanitizer:
     """Tests for output sanitization"""
 
@@ -746,6 +750,7 @@ class TestSanitizer:
 # UIBackend Tests
 # ============================================================================
 
+
 class TestBackendDetection:
     """Tests for backend detection and creation"""
 
@@ -755,8 +760,8 @@ class TestBackendDetection:
         result = is_tty()
         assert isinstance(result, bool)
 
-    @patch('interpreter.terminal_interface.components.ui_backend.sys.stdin')
-    @patch('interpreter.terminal_interface.components.ui_backend.sys.stdout')
+    @patch("interpreter.terminal_interface.components.ui_backend.sys.stdin")
+    @patch("interpreter.terminal_interface.components.ui_backend.sys.stdout")
     def test_is_tty_mock(self, mock_stdout, mock_stdin):
         """Test TTY detection with mocks"""
         # Both are TTY
@@ -774,7 +779,7 @@ class TestBackendDetection:
         assert isinstance(result, bool)
         # Should be True in test environment
 
-    @patch.dict(os.environ, {'NO_TUI': '1'})
+    @patch.dict(os.environ, {"NO_TUI": "1"})
     def test_create_backend_no_tui_env(self):
         """Test create_backend respects NO_TUI env var"""
         mock_interpreter = Mock()
@@ -784,7 +789,7 @@ class TestBackendDetection:
         assert backend.backend_type == BackendType.RICH_STREAM
 
     @patch.dict(os.environ, {}, clear=True)
-    @patch('interpreter.terminal_interface.components.ui_backend.is_tty')
+    @patch("interpreter.terminal_interface.components.ui_backend.is_tty")
     def test_create_backend_not_tty(self, mock_is_tty):
         """Test create_backend uses Rich when not TTY"""
         mock_is_tty.return_value = False
@@ -799,22 +804,20 @@ class TestBackendDetection:
         mock_interpreter = Mock()
 
         # Force Rich
-        backend = create_backend(
-            mock_interpreter,
-            force_type=BackendType.RICH_STREAM
-        )
+        backend = create_backend(mock_interpreter, force_type=BackendType.RICH_STREAM)
         assert isinstance(backend, RichStreamBackend)
 
         # Force PromptToolkit
         backend = create_backend(
-            mock_interpreter,
-            force_type=BackendType.PROMPT_TOOLKIT
+            mock_interpreter, force_type=BackendType.PROMPT_TOOLKIT
         )
         assert isinstance(backend, PromptToolkitBackend)
 
     @patch.dict(os.environ, {}, clear=True)
-    @patch('interpreter.terminal_interface.components.ui_backend.is_tty')
-    @patch('interpreter.terminal_interface.components.ui_backend.prompt_toolkit_available')
+    @patch("interpreter.terminal_interface.components.ui_backend.is_tty")
+    @patch(
+        "interpreter.terminal_interface.components.ui_backend.prompt_toolkit_available"
+    )
     def test_create_backend_prompt_toolkit_preferred(self, mock_pt_avail, mock_is_tty):
         """Test create_backend prefers prompt_toolkit when available"""
         mock_is_tty.return_value = True
@@ -858,8 +861,7 @@ class TestRichStreamBackend:
 
         # Agent spawn
         event = UIEvent(
-            type=EventType.AGENT_SPAWN,
-            data={"agent_id": "test-agent", "role": "scout"}
+            type=EventType.AGENT_SPAWN, data={"agent_id": "test-agent", "role": "scout"}
         )
         self.backend.emit(event)
 
@@ -874,10 +876,7 @@ class TestRichStreamBackend:
         agent = self.state.add_agent("test", AgentRole.SCOUT)
 
         # Complete it
-        event = UIEvent(
-            type=EventType.AGENT_COMPLETE,
-            data={"agent_id": "test"}
-        )
+        event = UIEvent(type=EventType.AGENT_COMPLETE, data={"agent_id": "test"})
         self.backend.emit(event)
 
         assert agent.status == AgentStatus.COMPLETE
@@ -886,10 +885,7 @@ class TestRichStreamBackend:
         """Test state update for token counts"""
         self.backend.start()
 
-        event = UIEvent(
-            type=EventType.SYSTEM_TOKEN_UPDATE,
-            data={"tokens": 5000}
-        )
+        event = UIEvent(type=EventType.SYSTEM_TOKEN_UPDATE, data={"tokens": 5000})
         self.backend.emit(event)
 
         assert self.state.context_tokens == 5000
@@ -910,7 +906,7 @@ class TestPromptToolkitBackend:
         assert self.backend.backend_type == BackendType.PROMPT_TOOLKIT
         assert self.backend.supports_interactive is True
 
-    @patch('interpreter.terminal_interface.components.input_handler.InputHandler')
+    @patch("interpreter.terminal_interface.components.input_handler.InputHandler")
     def test_start(self, mock_input_handler_class):
         """Test backend start initializes components"""
         # Mock the InputHandler class
@@ -926,10 +922,7 @@ class TestPromptToolkitBackend:
         """Test emit buffers message chunks"""
         self.backend.start()
 
-        event = UIEvent(
-            type=EventType.MESSAGE_CHUNK,
-            data={"content": "Hello"}
-        )
+        event = UIEvent(type=EventType.MESSAGE_CHUNK, data={"content": "Hello"})
         self.backend.emit(event)
 
         assert len(self.backend._output_buffer) == 1
@@ -958,6 +951,7 @@ class TestPromptToolkitBackend:
 # InputHandler Tests (Mock-based)
 # ============================================================================
 
+
 class TestInputHandlerMocked:
     """Tests for InputHandler using mocks (no real terminal interaction)"""
 
@@ -967,22 +961,20 @@ class TestInputHandlerMocked:
         self.mock_interpreter = Mock()
         self.state = UIState()
 
-    @patch('interpreter.terminal_interface.components.input_handler.FileHistory')
+    @patch("interpreter.terminal_interface.components.input_handler.FileHistory")
     def test_initialization(self, mock_file_history):
         """Test InputHandler initialization"""
         from interpreter.terminal_interface.components.input_handler import InputHandler
 
         handler = InputHandler(
-            self.mock_interpreter,
-            self.state,
-            history_file="/tmp/test_history"
+            self.mock_interpreter, self.state, history_file="/tmp/test_history"
         )
 
         assert handler.interpreter is self.mock_interpreter
         assert handler.state is self.state
         mock_file_history.assert_called_once_with("/tmp/test_history")
 
-    @patch('interpreter.terminal_interface.components.input_handler.InMemoryHistory')
+    @patch("interpreter.terminal_interface.components.input_handler.InMemoryHistory")
     def test_initialization_no_history_file(self, mock_memory_history):
         """Test InputHandler with no history file"""
         from interpreter.terminal_interface.components.input_handler import InputHandler
@@ -1000,6 +992,7 @@ class TestInputHandlerMocked:
 
         # Check that it returns KeyBindings object
         from prompt_toolkit.key_binding import KeyBindings
+
         assert isinstance(kb, KeyBindings)
 
     def test_mode_cycling(self):
@@ -1060,6 +1053,7 @@ class TestInputHandlerMocked:
 # ============================================================================
 # Completers Tests
 # ============================================================================
+
 
 class TestMagicCommandCompleter:
     """Tests for MagicCommandCompleter"""
@@ -1267,7 +1261,7 @@ class TestCreateCompleter:
             include_paths=True,
             include_magic=True,
             include_history=True,
-            fuzzy=True
+            fuzzy=True,
         )
 
         assert completer is not None
@@ -1282,10 +1276,7 @@ class TestCreateCompleter:
         mock_interpreter = Mock()
         mock_interpreter.messages = []
 
-        completer = create_completer(
-            mock_interpreter,
-            fuzzy=False
-        )
+        completer = create_completer(mock_interpreter, fuzzy=False)
 
         assert isinstance(completer, CombinedCompleter)
 
@@ -1293,6 +1284,7 @@ class TestCreateCompleter:
 # ============================================================================
 # Integration Tests
 # ============================================================================
+
 
 class TestIntegration:
     """Integration tests across multiple components"""
@@ -1320,10 +1312,11 @@ class TestIntegration:
         bus.subscribe(EventType.AGENT_SPAWN, update_state)
 
         # Emit event
-        bus.emit(UIEvent(
-            type=EventType.AGENT_SPAWN,
-            data={"agent_id": "test", "role": "scout"}
-        ))
+        bus.emit(
+            UIEvent(
+                type=EventType.AGENT_SPAWN, data={"agent_id": "test", "role": "scout"}
+            )
+        )
 
         # Process
         bus.process_pending()
@@ -1366,10 +1359,12 @@ class TestIntegration:
         backend.start()
 
         # Emit agent spawn
-        backend.emit(UIEvent(
-            type=EventType.AGENT_SPAWN,
-            data={"agent_id": "integration-test", "role": "surgeon"}
-        ))
+        backend.emit(
+            UIEvent(
+                type=EventType.AGENT_SPAWN,
+                data={"agent_id": "integration-test", "role": "surgeon"},
+            )
+        )
 
         # Check state updated
         assert "integration-test" in state.active_agents
@@ -1383,7 +1378,7 @@ class TestIntegration:
         dangerous_chunk = {
             "type": "message",
             "role": "assistant",
-            "content": "\x1b[31mRed text\x1b[0m \x1b]52;c;evil\x07"
+            "content": "\x1b[31mRed text\x1b[0m \x1b]52;c;evil\x07",
         }
 
         event = chunk_to_event(dangerous_chunk)

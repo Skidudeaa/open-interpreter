@@ -1195,6 +1195,8 @@ def respond(interpreter):
                     if message.get("content", "") != loop_message
                 ]
                 # Combine adjacent assistant messages, so hopefully it learns to just keep going!
+                # WHY: Collect parts and join() to avoid O(n²) string concatenation
+                # TRADEOFF: Slightly more complex logic vs quadratic perf on long conversations
                 combined_messages = []
                 for message in interpreter.messages:
                     if (
@@ -1204,9 +1206,17 @@ def respond(interpreter):
                         and message["type"] == "message"
                         and combined_messages[-1]["type"] == "message"
                     ):
-                        combined_messages[-1]["content"] += "\n" + message["content"]
+                        # Track parts list instead of repeated += concat
+                        prev = combined_messages[-1]
+                        if "_parts" not in prev:
+                            prev["_parts"] = [prev["content"]]
+                        prev["_parts"].append(message["content"])
                     else:
                         combined_messages.append(message)
+                # Final join pass: collapse _parts into content
+                for msg in combined_messages:
+                    if "_parts" in msg:
+                        msg["content"] = "\n".join(msg.pop("_parts"))
                 interpreter.messages = combined_messages
 
                 # Send model the loop_message:

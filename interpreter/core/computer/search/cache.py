@@ -7,6 +7,7 @@ Reduces API calls by caching recent search results.
 import hashlib
 import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -29,6 +30,8 @@ class SearchCache:
 
     Thread-safe caching with configurable TTL and max entries.
     Automatically evicts expired and oldest entries.
+
+    Uses OrderedDict for O(1) FIFO eviction instead of O(n) min() search.
     """
 
     def __init__(self, ttl_seconds: int = 3600, max_entries: int = 1000):
@@ -41,7 +44,9 @@ class SearchCache:
         """
         self.ttl = ttl_seconds
         self.max_entries = max_entries
-        self._cache: dict[str, CacheEntry] = {}
+        # WHY: OrderedDict for O(1) FIFO eviction via popitem(last=False)
+        # TRADEOFF: Slightly more memory overhead vs O(n) min() on every eviction
+        self._cache: OrderedDict[str, CacheEntry] = OrderedDict()
         self._lock = threading.Lock()
 
     def _make_key(self, query: str, provider: str, **kwargs) -> str:
@@ -61,9 +66,7 @@ class SearchCache:
         key_data = f"{provider}:{query}:{sorted_kwargs}"
         return hashlib.sha256(key_data.encode()).hexdigest()[:32]
 
-    def get(
-        self, query: str, provider: str, **kwargs
-    ) -> list["SearchResult"] | None:
+    def get(self, query: str, provider: str, **kwargs) -> list["SearchResult"] | None:
         """
         Get cached results if available and not expired.
 
@@ -115,11 +118,11 @@ class SearchCache:
             )
 
     def _evict_oldest(self) -> None:
-        """Remove the oldest cache entry."""
+        """Remove the oldest cache entry (O(1) via OrderedDict FIFO)."""
         if not self._cache:
             return
-        oldest_key = min(self._cache, key=lambda k: self._cache[k].timestamp)
-        del self._cache[oldest_key]
+        # WHY: popitem(last=False) is O(1) vs O(n) min() search
+        self._cache.popitem(last=False)
 
     def clear(self) -> None:
         """Clear all cached entries."""

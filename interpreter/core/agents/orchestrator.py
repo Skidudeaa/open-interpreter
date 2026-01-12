@@ -107,12 +107,6 @@ _PROJECT_MARKERS: tuple[str, ...] = (
     "build.gradle",
 )
 
-_CODE_EXT_RE = re.compile(
-    r"(?i)\.(py|js|ts|jsx|tsx|go|rs|rb|java|cpp|c|h|hpp|cs|swift|kt|php|scala|ex|exs|clj|hs|ml)\b"
-)
-_NON_CODE_EXT_RE = re.compile(
-    r"(?i)\.(png|jpe?g|gif|svg|ico|mp3|mp4|wav|pdf|zip|tar)\b"
-)
 
 
 def _detect_project_root(start_path: str) -> str:
@@ -419,147 +413,58 @@ class AgentOrchestrator:
 
     def _detect_workflow(self, task: str) -> WorkflowType:
         """
-        Detect the appropriate workflow from a task.
+        Use LLM to intelligently detect the appropriate workflow.
 
-        WHY: Keyword routing is cheap and predictable.
-        TRADEOFF: Misroutes are possible; we bias toward explicit user intent.
+        WHY: Keyword matching was dumb and caused misroutes. The LLM understands
+        intent far better than pattern matching on "fix", "codebase", etc.
+
+        TRADEOFF: One fast LLM call vs brittle keyword heuristics.
         """
-        task_lower = task.lower()
-
-        # Extract user intent BEFORE @file expansion.
-        if "@" in task_lower:
-            before_at = task_lower.split("@", 1)[0].strip()
-            user_intent = before_at or task_lower[:100]
-        else:
-            user_intent = task_lower[:100]
-
-        strong_explore = (
-            "review",
-            "explain",
-            "analyze",
-            "examine",
-            "look at",
-            "walk through",
-        )
-        strong_edit = ("fix", "refactor", "rewrite", "implement", "add feature")
-        strong_validate = ("run tests", "test this", "verify", "validate", "test ")
-
-        # Strong intent words override length heuristics.
-        if any(kw in user_intent for kw in strong_explore):
-            return WorkflowType.EXPLORE
-        if any(kw in user_intent for kw in strong_validate):
-            return WorkflowType.VALIDATE
-        if any(kw in user_intent for kw in strong_edit):
-            return WorkflowType.EDIT
-
-        # Skip agent routing for genuinely short/simple messages.
-        if len(user_intent) < 30:
+        # Very short messages don't need agent routing
+        if len(task.strip()) < 15:
             return WorkflowType.NONE
 
-        has_code_file = bool(_CODE_EXT_RE.search(task_lower))
-        has_non_code_file = bool(_NON_CODE_EXT_RE.search(task_lower))
+        prompt = f"""Classify this user request into exactly ONE workflow type.
 
-        code_keywords = (
-            "function",
-            "class",
-            "method",
-            "module",
-            "package",
-            "import",
-            "def ",
-            "const ",
-            "let ",
-            "var ",
-            "async ",
-            "await ",
-            "error",
-            "bug",
-            "exception",
-            "traceback",
-            "stack trace",
-            "codebase",
-            "repository",
-            "repo",
-            "project",
-            "source",
-            "pipeline",
-            "service",
-            "handler",
-            "controller",
-            "middleware",
-            "api",
-            "endpoint",
-            "route",
-            "model",
-            "schema",
-            "database",
-        )
-        has_code_context = has_code_file or any(
-            kw in task_lower for kw in code_keywords
-        )
+User request: {task[:500]}
 
-        # Skip agents for non-code-only tasks without code context.
-        if has_non_code_file and not has_code_file and not has_code_context:
-            return WorkflowType.NONE
-        if not has_code_context:
-            return WorkflowType.NONE
+Workflow types:
+- NONE: Simple request the LLM can handle directly (chat, questions, file operations, non-code tasks)
+- EXPLORE: User wants to understand/find/review code (no modifications)
+- EDIT: User wants to modify/fix/add/change code
+- VALIDATE: User wants to run tests or verify something works
+- FULL: Complex multi-step task requiring exploration, architecture review, editing, AND validation
 
-        explore_kw = (
-            "find",
-            "search",
-            "list",
-            "show",
-            "where",
-            "how",
-            "explore",
-            "review",
-            "look",
-            "examine",
-            "analyze",
-            "explain",
-            "understand",
-            "describe",
-            "read",
-            "see",
-            "check out",
-        )
-        edit_kw = (
-            "fix",
-            "add",
-            "change",
-            "update",
-            "modify",
-            "edit",
-            "implement",
-            "refactor",
-            "rename",
-            "remove",
-            "delete",
-            "create",
-            "write",
-            "replace",
-            "insert",
-            "move",
-            "rewrite",
-        )
-        validate_kw = ("test", "verify", "validate", "run tests", "unittest", "check")
+Rules:
+- Default to NONE unless the task clearly requires code exploration or modification
+- EXPLORE is for read-only understanding (explain, find, search, review, analyze)
+- EDIT is for any code changes (fix, add, refactor, implement, update, create)
+- VALIDATE is specifically for running tests
+- FULL is rare - only for large features requiring all steps
 
-        # Priority 1: user intent.
-        if any(kw in user_intent for kw in validate_kw):
-            return WorkflowType.VALIDATE
-        if any(kw in user_intent for kw in edit_kw):
-            return WorkflowType.EDIT
-        if any(kw in user_intent for kw in explore_kw):
-            return WorkflowType.EXPLORE
+Respond with exactly one word: NONE, EXPLORE, EDIT, VALIDATE, or FULL"""
 
-        # Priority 2: full task (fallback).
-        if any(kw in task_lower for kw in validate_kw):
-            return WorkflowType.VALIDATE
-        if any(kw in task_lower for kw in edit_kw):
-            return WorkflowType.EDIT
-        if any(kw in task_lower for kw in explore_kw):
-            return WorkflowType.EXPLORE
+        try:
+            if self.interpreter and hasattr(self.interpreter, "llm"):
+                messages = [{"role": "user", "type": "message", "content": prompt}]
+                response_text = ""
+                for chunk in self.interpreter.llm.run(messages):
+                    if chunk.get("type") == "message" and chunk.get("content"):
+                        response_text += chunk["content"]
+                    # Stop early once we have enough
+                    if len(response_text) > 20:
+                        break
 
+                # Parse response
+                response_upper = response_text.strip().upper()
+                for wf in WorkflowType:
+                    if wf.name in response_upper:
+                        return wf
+
+        except Exception as e:
+            logger.debug(f"LLM workflow detection failed: {e}")
+
+        # Fallback: let the LLM handle it directly
         return WorkflowType.NONE
 
     def _apply_pending_edits(self, result: WorkflowResult) -> None:

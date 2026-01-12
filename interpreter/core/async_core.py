@@ -121,8 +121,8 @@ class AsyncInterpreter(OpenInterpreter):
                     run_code = self.auto_run
 
                 sent_chunks = False
-                last_chunk_time = time.time()
-                response_timeout = 60  # seconds - timeout if no chunks for this long
+                _last_chunk_time = time.time()
+                _response_timeout = 60  # seconds - timeout if no chunks for this long
 
                 for chunk_og in self._respond_and_store():
                     chunk = (
@@ -130,7 +130,7 @@ class AsyncInterpreter(OpenInterpreter):
                     )  # This fixes weird double token chunks. Probably a deeper problem?
 
                     # Reset timeout timer on each chunk
-                    last_chunk_time = time.time()
+                    _last_chunk_time = time.time()
 
                     if chunk["type"] == "confirmation":
                         if run_code:
@@ -260,10 +260,10 @@ class AsyncInterpreter(OpenInterpreter):
         """
         Accumulates LMC chunks onto interpreter.messages.
         """
-        if type(chunk) == str:
+        if isinstance(chunk, str):
             chunk = json.loads(chunk)
 
-        if type(chunk) == dict:
+        if isinstance(chunk, dict):
             if chunk.get("format") == "active_line":
                 # We don't do anything with these.
                 pass
@@ -320,7 +320,7 @@ class AsyncInterpreter(OpenInterpreter):
                     chunk_copy["content"] = ""
                 self.messages.append(chunk_copy)
 
-        elif type(chunk) == bytes:
+        elif isinstance(chunk, bytes):
             if self.messages[-1]["content"] == "":  # We initialize as an empty string ^
                 self.messages[-1]["content"] = b""  # But it actually should be bytes
             self.messages[-1]["content"] += chunk
@@ -680,6 +680,150 @@ def create_router(async_interpreter):
             print(error)
             print("\n\n--- (ERROR ABOVE WILL BE SENT WHEN POSSIBLE) ---\n\n")
 
+    # Session-aware WebSocket endpoint for multi-client support
+    @router.websocket("/sessions/{session_id}")
+    async def session_websocket_endpoint(websocket: WebSocket, session_id: str):
+        """
+        WebSocket endpoint for session-specific connections.
+
+        Each session has its own isolated interpreter instance.
+        """
+        # Lazy import to avoid circular dependency
+        from .api.sessions import session_manager
+
+        # Get or validate the session
+        interpreter = session_manager.get(session_id)
+        if not interpreter:
+            await websocket.close(code=4004, reason=f"Session {session_id} not found")
+            return
+
+        await websocket.accept()
+
+        try:
+
+            async def receive_input():
+                authenticated = False
+                while True:
+                    try:
+                        if websocket.client_state != WebSocketState.CONNECTED:
+                            return
+                        data = await websocket.receive()
+
+                        # Handle authentication
+                        if (
+                            not authenticated
+                            and os.getenv("INTERPRETER_REQUIRE_AUTH") != "False"
+                        ):
+                            if "text" in data:
+                                data = json.loads(data["text"])
+                                if "auth" in data:
+                                    if async_interpreter.server.authenticate(
+                                        data["auth"]
+                                    ):
+                                        authenticated = True
+                                        await websocket.send_text(
+                                            json.dumps({"auth": True})
+                                        )
+                            if not authenticated:
+                                await websocket.send_text(json.dumps({"auth": False}))
+                            continue
+
+                        if data.get("type") == "websocket.receive":
+                            if "text" in data:
+                                data = json.loads(data["text"])
+                                if interpreter.require_acknowledge and "ack" in data:
+                                    interpreter.acknowledged_outputs.append(data["ack"])
+                                    continue
+                            elif "bytes" in data:
+                                data = data["bytes"]
+                            await interpreter.input(data)
+                        elif data.get("type") == "websocket.disconnect":
+                            return
+                        else:
+                            continue
+
+                    except Exception as e:
+                        error = traceback.format_exc() + "\n" + str(e)
+                        error_message = {
+                            "role": "server",
+                            "type": "error",
+                            "content": error,
+                        }
+                        if websocket.client_state == WebSocketState.CONNECTED:
+                            await websocket.send_text(json.dumps(error_message))
+                            await websocket.send_text(json.dumps(complete_message))
+
+            async def send_output():
+                while True:
+                    if websocket.client_state != WebSocketState.CONNECTED:
+                        return
+                    try:
+                        while interpreter.unsent_messages:
+                            output = interpreter.unsent_messages[0]
+                            success = await send_message(output)
+                            if success:
+                                interpreter.unsent_messages.popleft()
+
+                        if not interpreter.unsent_messages:
+                            output = await interpreter.output()
+                            success = await send_message(output)
+                            if not success:
+                                interpreter.unsent_messages.append(output)
+
+                    except Exception as e:
+                        error = traceback.format_exc() + "\n" + str(e)
+                        error_message = {
+                            "role": "server",
+                            "type": "error",
+                            "content": error,
+                        }
+                        interpreter.unsent_messages.append(error_message)
+                        interpreter.unsent_messages.append(complete_message)
+
+            async def send_message(output):
+                if isinstance(output, dict) and "id" in output:
+                    msg_id = output["id"]
+                else:
+                    msg_id = shortuuid.uuid()
+                    if isinstance(output, dict) and interpreter.require_acknowledge:
+                        output["id"] = msg_id
+
+                for _attempt in range(20):
+                    if websocket.client_state != WebSocketState.CONNECTED:
+                        return False
+
+                    try:
+                        if isinstance(output, bytes):
+                            await websocket.send_bytes(output)
+                            return True
+                        else:
+                            if interpreter.require_acknowledge:
+                                output["id"] = msg_id
+                            await websocket.send_text(json.dumps(output))
+
+                        if interpreter.require_acknowledge:
+                            for _ in range(100):
+                                if msg_id in interpreter.acknowledged_outputs:
+                                    interpreter.acknowledged_outputs.remove(msg_id)
+                                    return True
+                                await asyncio.sleep(0.0001)
+                            return False
+                        else:
+                            return True
+
+                    except Exception:
+                        await asyncio.sleep(0.01)
+
+                return False
+
+            await asyncio.gather(receive_input(), send_output())
+
+        except Exception as e:
+            error = traceback.format_exc() + "\n" + str(e)
+            error_message = {"role": "server", "type": "error", "content": error}
+            interpreter.unsent_messages.append(error_message)
+            interpreter.unsent_messages.append(complete_message)
+
     @router.post("/")
     async def post_input(payload: dict[str, Any]):
         try:
@@ -907,7 +1051,7 @@ def create_router(async_interpreter):
             and last_message.content.lower().strip(".!?").strip() == "yes"
         ):
             run_code = True
-        elif type(last_message.content) == str:
+        elif isinstance(last_message.content, str):
             async_interpreter.messages.append(
                 {
                     "role": "user",
@@ -916,7 +1060,7 @@ def create_router(async_interpreter):
                 }
             )
             print(">", last_message.content)
-        elif type(last_message.content) == list:
+        elif isinstance(last_message.content, list):
             for content in last_message.content:
                 if content["type"] == "text":
                     async_interpreter.messages.append(
@@ -1001,12 +1145,37 @@ def create_router(async_interpreter):
 
 class Server:
     DEFAULT_HOST = "127.0.0.1"
-    DEFAULT_PORT = 8000
+    DEFAULT_PORT = 8080  # Changed from 8000 for compatibility
 
     def __init__(self, async_interpreter, host=None, port=None):
         self.app = FastAPI()
         router = create_router(async_interpreter)
         self.authenticate = authenticate_function
+
+        # Add CORS middleware for iOS/SwiftUI app support
+        try:
+            from fastapi.middleware.cors import CORSMiddleware
+
+            cors_origins = os.getenv("INTERPRETER_CORS_ORIGINS", "*")
+            origins = cors_origins.split(",") if cors_origins != "*" else ["*"]
+            self.app.add_middleware(
+                CORSMiddleware,
+                allow_origins=origins,
+                allow_credentials=True,
+                allow_methods=["*"],
+                allow_headers=["*"],
+            )
+        except ImportError:
+            pass  # CORS middleware not available
+
+        # Add API routers for session management, agents, memory, computer control
+        try:
+            from .api import create_api_routers
+
+            for api_router in create_api_routers():
+                self.app.include_router(api_router)
+        except ImportError:
+            pass  # API module not available
 
         # Add authentication middleware
         @self.app.middleware("http")

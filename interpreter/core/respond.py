@@ -389,7 +389,7 @@ def respond(interpreter):
         ), "User message was not passed in. You need to pass in at least one message."
 
         if (
-            interpreter.messages[-1]["type"] != "code"
+            interpreter.messages[-1].get("type") != "code"
         ):  # If it is, we should run the code (we do below)
             # Emit activity for LLM thinking
             user_messages = [m for m in interpreter.messages if m.get("role") == "user"]
@@ -1242,9 +1242,11 @@ def respond(interpreter):
                     }
 
                     # Add tool response to messages for LLM context
+                    # NOTE: "type": "function" required by respond() loop check
                     interpreter.messages.append(
                         {
                             "role": "function",
+                            "type": "function",
                             "name": tool_name,
                             "content": tool_output,
                         }

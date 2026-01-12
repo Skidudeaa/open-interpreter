@@ -12,7 +12,6 @@ The orchestrator selects the smallest workflow that matches user intent and cont
 
 import logging
 import os
-import re
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -106,7 +105,6 @@ _PROJECT_MARKERS: tuple[str, ...] = (
     "pom.xml",
     "build.gradle",
 )
-
 
 
 def _detect_project_root(start_path: str) -> str:
@@ -429,18 +427,26 @@ class AgentOrchestrator:
 User request: {task[:500]}
 
 Workflow types:
-- NONE: Simple request the LLM can handle directly (chat, questions, file operations, non-code tasks)
-- EXPLORE: User wants to understand/find/review code (no modifications)
-- EDIT: User wants to modify/fix/add/change code
-- VALIDATE: User wants to run tests or verify something works
-- FULL: Complex multi-step task requiring exploration, architecture review, editing, AND validation
+- NONE: Pure conversation, general questions, math, or non-code requests
+- EXPLORE: Finding, searching, listing, locating, or understanding files/code (read-only)
+- EDIT: Modifying, fixing, adding, or changing code
+- VALIDATE: Running tests or verifying something works
+- FULL: Complex multi-step task requiring exploration, editing, AND validation
 
 Rules:
-- Default to NONE unless the task clearly requires code exploration or modification
-- EXPLORE is for read-only understanding (explain, find, search, review, analyze)
-- EDIT is for any code changes (fix, add, refactor, implement, update, create)
-- VALIDATE is specifically for running tests
-- FULL is rare - only for large features requiring all steps
+- EXPLORE for ANY file/code search: "find files", "search for", "where is", "list all", "grep", "locate"
+- EDIT for code changes: fix, add, refactor, implement, update, create, remove
+- VALIDATE for testing: run tests, verify, check if works
+- FULL only for large features needing all steps
+- NONE only for chat/questions that don't involve finding or modifying files
+
+Examples:
+- "find all JavaScript files" → EXPLORE
+- "where is auth handled" → EXPLORE
+- "search for ProseMirror" → EXPLORE
+- "what files use X" → EXPLORE
+- "fix the bug in login" → EDIT
+- "hello, how are you?" → NONE
 
 Respond with exactly one word: NONE, EXPLORE, EDIT, VALIDATE, or FULL"""
 

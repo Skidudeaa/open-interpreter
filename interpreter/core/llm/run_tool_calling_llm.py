@@ -105,7 +105,27 @@ def run_tool_calling_llm(llm, request_params):
     tool_schema["function"]["parameters"]["properties"]["language"]["enum"] = [
         i.name.lower() for i in llm.interpreter.computer.terminal.languages
     ]
-    request_params["tools"] = [tool_schema]
+    tools = [tool_schema]
+
+    # Add MCP tools if bridge is connected
+    # WHY: Enables external tool integration via Model Context Protocol
+    # TRADEOFF: Slight startup overhead vs access to external tool ecosystem
+    mcp_bridge = getattr(llm.interpreter, "_mcp_bridge", None)
+    if mcp_bridge and mcp_bridge.get_connected_servers():
+        try:
+            mcp_tools = mcp_bridge.get_tool_definitions()
+            for mcp_tool in mcp_tools:
+                # Wrap in OpenAI function format
+                tools.append(
+                    {
+                        "type": "function",
+                        "function": mcp_tool,
+                    }
+                )
+        except Exception:
+            pass  # Non-blocking: continue without MCP tools
+
+    request_params["tools"] = tools
 
     request_params["messages"] = process_messages(request_params["messages"])
 
@@ -175,6 +195,7 @@ def run_tool_calling_llm(llm, request_params):
     review_category = None
     buffer = ""
     any_content_yielded = False  # Track if we got any real content
+    mcp_tool_call = None  # Track MCP tool calls (non-execute functions)
 
     for chunk in llm.completions(**request_params):
         if "choices" not in chunk or len(chunk["choices"]) == 0:
@@ -312,6 +333,37 @@ def run_tool_calling_llm(llm, request_params):
                 else:
                     if llm.interpreter.verbose:
                         print("Arguments not a dict.")
+
+        # MCP tool call detection: function_call with name NOT execute/python/functions
+        # WHY: Route non-code tools to MCP bridge for execution
+        if (
+            accumulated_deltas.get("function_call")
+            and "name" in accumulated_deltas["function_call"]
+            and accumulated_deltas["function_call"]["name"]
+            not in ("execute", "python", "functions")
+        ):
+            func_name = accumulated_deltas["function_call"]["name"]
+            func_args = accumulated_deltas["function_call"].get("arguments", "")
+            # Only capture when we have complete arguments (valid JSON)
+            try:
+                parsed_args = parse_partial_json(func_args)
+                if parsed_args and isinstance(parsed_args, dict):
+                    mcp_tool_call = {
+                        "name": func_name,
+                        "arguments": parsed_args,
+                    }
+            except Exception:
+                pass  # Not yet complete, keep accumulating
+
+    # Yield MCP tool call if detected
+    # WHY: Allow respond.py to execute MCP tools and feed results back to LLM
+    if mcp_tool_call:
+        any_content_yielded = True
+        yield {
+            "type": "mcp_tool",
+            "format": "call",
+            "content": mcp_tool_call,
+        }
 
     if os.getenv("INTERPRETER_REQUIRE_AUTHENTICATION", "False").lower() == "true":
         print("function_call_detected", function_call_detected)

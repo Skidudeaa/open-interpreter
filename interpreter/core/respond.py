@@ -218,6 +218,50 @@ def respond(interpreter):
     insert_loop_message = False
     loop_message = ""  # Initialized here, assigned in loop body
 
+    # ========= MCP SERVER CONNECTION (lazy, once per session) =========
+    # WHY: Connect to configured MCP servers to enable external tool use
+    # TRADEOFF: Async complexity vs access to MCP tool ecosystem
+    _mcp_connected = getattr(interpreter, "_mcp_servers_connected", False)
+    if not _mcp_connected and getattr(interpreter, "mcp_servers", None):
+        try:
+            import asyncio
+
+            from ..sdk.mcp_bridge import MCPServer
+
+            bridge = interpreter.mcp_bridge
+            if bridge:
+
+                async def _connect_mcp_servers():
+                    for server_config in interpreter.mcp_servers:
+                        if isinstance(server_config, dict):
+                            server = MCPServer(**server_config)
+                        else:
+                            server = server_config
+                        try:
+                            await bridge.connect_server(server)
+                            emit_activity("mcp", "Connected to MCP server", server.name)
+                        except Exception as e:
+                            logger.debug(
+                                f"MCP server connection failed: {server.name}: {e}"
+                            )
+
+                # Run async connection
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+
+                if loop.is_running():
+                    # If already in async context, schedule it
+                    asyncio.ensure_future(_connect_mcp_servers())
+                else:
+                    loop.run_until_complete(_connect_mcp_servers())
+
+                interpreter._mcp_servers_connected = True
+        except Exception as e:
+            logger.debug(f"MCP initialization failed (non-blocking): {e}")
+
     while True:
         # ========= AGENT ORCHESTRATION (guarded) =========
         # Only route to agents on a *fresh user message*.
@@ -340,9 +384,9 @@ def respond(interpreter):
 
         ### RUN THE LLM ###
 
-        assert len(interpreter.messages) > 0, (
-            "User message was not passed in. You need to pass in at least one message."
-        )
+        assert (
+            len(interpreter.messages) > 0
+        ), "User message was not passed in. You need to pass in at least one message."
 
         if (
             interpreter.messages[-1]["type"] != "code"
@@ -466,12 +510,12 @@ def respond(interpreter):
                         code_dict = json.loads(edited_code)
                         language = code_dict.get("language", language)
                         code = code_dict.get("code", code)
-                        interpreter.messages[-1]["content"] = (
-                            code  # So the LLM can see it.
-                        )
-                        interpreter.messages[-1]["format"] = (
-                            language  # So the LLM can see it.
-                        )
+                        interpreter.messages[-1][
+                            "content"
+                        ] = code  # So the LLM can see it.
+                        interpreter.messages[-1][
+                            "format"
+                        ] = language  # So the LLM can see it.
                     except Exception:
                         pass
 
@@ -482,9 +526,9 @@ def respond(interpreter):
                 if code.strip().endswith("executeexecute"):
                     code = code.replace("executeexecute", "")
                     try:
-                        interpreter.messages[-1]["content"] = (
-                            code  # So the LLM can see it.
-                        )
+                        interpreter.messages[-1][
+                            "content"
+                        ] = code  # So the LLM can see it.
                     except Exception:
                         pass
 
@@ -494,12 +538,12 @@ def respond(interpreter):
                         if set(code_dict.keys()) == {"language", "code"}:
                             language = code_dict["language"]
                             code = code_dict["code"]
-                            interpreter.messages[-1]["content"] = (
-                                code  # So the LLM can see it.
-                            )
-                            interpreter.messages[-1]["format"] = (
-                                language  # So the LLM can see it.
-                            )
+                            interpreter.messages[-1][
+                                "content"
+                            ] = code  # So the LLM can see it.
+                            interpreter.messages[-1][
+                                "format"
+                            ] = language  # So the LLM can see it.
                     except Exception:
                         pass
 
@@ -512,12 +556,12 @@ def respond(interpreter):
                         if set(code_dict.keys()) == {"language", "code"}:
                             language = code_dict["language"]
                             code = code_dict["code"]
-                            interpreter.messages[-1]["content"] = (
-                                code  # So the LLM can see it.
-                            )
-                            interpreter.messages[-1]["format"] = (
-                                language  # So the LLM can see it.
-                            )
+                            interpreter.messages[-1][
+                                "content"
+                            ] = code  # So the LLM can see it.
+                            interpreter.messages[-1][
+                                "format"
+                            ] = language  # So the LLM can see it.
                     except Exception:
                         pass
 
@@ -1142,6 +1186,88 @@ def respond(interpreter):
                     except Exception as e:
                         logger.debug(f"Trace feedback failed (non-blocking): {e}")
                         pass  # Non-blocking
+
+        ### RUN MCP TOOL (if it's there) ###
+        # WHY: Execute external tools via Model Context Protocol
+        # TRADEOFF: Async execution overhead vs access to external tool ecosystem
+        elif interpreter.messages[-1].get("type") == "mcp_tool":
+            mcp_call = interpreter.messages[-1].get("content", {})
+            tool_name = mcp_call.get("name", "")
+            tool_args = mcp_call.get("arguments", {})
+
+            if interpreter.verbose:
+                print(f"Running MCP tool: {tool_name}", tool_args)
+
+            emit_activity("mcp", f"Calling MCP tool: {tool_name}", str(tool_args)[:50])
+
+            try:
+                import asyncio
+
+                bridge = getattr(interpreter, "_mcp_bridge", None)
+                if bridge:
+                    # Run async tool call
+                    # NOTE: Bind variables via default args to avoid B023 warning
+                    async def _call_mcp_tool(
+                        _bridge=bridge, _name=tool_name, _args=tool_args
+                    ):
+                        return await _bridge.call_tool_any(_name, _args)
+
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+
+                    if loop.is_running():
+                        # Create a new loop in a thread if needed
+                        import concurrent.futures
+
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            future = executor.submit(asyncio.run, _call_mcp_tool())
+                            result = future.result(timeout=30)
+                    else:
+                        result = loop.run_until_complete(_call_mcp_tool())
+
+                    if result.success:
+                        tool_output = str(result.content)
+                    else:
+                        tool_output = f"Error: {result.error}"
+
+                    # Yield the result as a tool response
+                    yield {
+                        "role": "computer",
+                        "type": "console",
+                        "format": "output",
+                        "content": f"[MCP:{tool_name}] {tool_output}\n",
+                    }
+
+                    # Add tool response to messages for LLM context
+                    interpreter.messages.append(
+                        {
+                            "role": "function",
+                            "name": tool_name,
+                            "content": tool_output,
+                        }
+                    )
+
+                    # Continue loop so LLM can process the result
+                    continue
+                else:
+                    yield {
+                        "role": "computer",
+                        "type": "console",
+                        "format": "output",
+                        "content": f"[MCP] No bridge configured for tool: {tool_name}\n",
+                    }
+
+            except Exception as e:
+                logger.debug(f"MCP tool execution failed: {e}")
+                yield {
+                    "role": "computer",
+                    "type": "console",
+                    "format": "output",
+                    "content": f"[MCP Error] {tool_name}: {e}\n",
+                }
 
         else:
             ## LOOP MESSAGE

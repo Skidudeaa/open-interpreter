@@ -372,6 +372,12 @@ class OpenInterpreter:
         self._plugin_registry = None
         self.enable_plugins = True  # Enabled by default for extensibility
 
+        # MCP Bridge (lazy-initialized)
+        # WHY: Enables connection to external MCP servers (aider, filesystem, github, etc.)
+        # TRADEOFF: Adds async complexity but unlocks tool ecosystem
+        self._mcp_bridge = None
+        self.mcp_servers: list[dict] = []  # List of MCP server configs to auto-connect
+
         # Lock for thread-safe property lazy loading
         # Prevents race conditions when multiple threads access lazy properties
         self._property_lock = (
@@ -598,6 +604,36 @@ class OpenInterpreter:
         if self.plugin_registry is not None:
             self.plugin_registry.register(plugin)
         return self
+
+    @property
+    def mcp_bridge(self):
+        """
+        Lazy-initialized MCP bridge for connecting to external tools.
+
+        WHY: MCP (Model Context Protocol) enables OI to use external tools
+        like aider, filesystem, github, databases, etc. without code changes.
+
+        TRADEOFF: Adds async complexity but unlocks entire MCP tool ecosystem.
+
+        Example:
+            interpreter.mcp_servers = [{
+                "name": "fs",
+                "command": "npx",
+                "args": ["-y", "@anthropic/mcp-filesystem", "/tmp"]
+            }]
+            # Bridge auto-connects to configured servers
+            tools = interpreter.mcp_bridge.get_tool_definitions()
+        """
+        if self._mcp_bridge is None:
+            with self._property_lock:
+                if self._mcp_bridge is None:
+                    try:
+                        from ..sdk.mcp_bridge import MCPBridge
+
+                        self._mcp_bridge = MCPBridge()
+                    except ImportError:
+                        pass  # SDK not available
+        return self._mcp_bridge
 
     def activate_all_features(self):
         """

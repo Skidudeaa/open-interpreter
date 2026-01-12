@@ -414,9 +414,8 @@ class OpenInterpreter:
             self.enable_trace_feedback = True
             self.enable_plugins = True
             self.auto_commit = True
-            # Enable intent refiner for bypassing overly sanitized LLM responses
-            # Uses Mistral Small Creative via OpenRouter to refine prompts
-            self.enable_intent_refiner = True
+            # NOTE: intent_refiner deliberately NOT enabled here - it causes
+            # workflow misrouting by transforming simple commands into complex ones
 
         # Load persistent settings from ~/.config/open-interpreter/settings.json
         # These override both defaults and OI_ACTIVATE_ALL

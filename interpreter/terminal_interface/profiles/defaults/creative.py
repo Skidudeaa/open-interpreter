@@ -16,11 +16,9 @@ Usage:
 
 from interpreter import interpreter
 
-# Enable intent refinement (the "Un-Steering" feature)
-interpreter.enable_intent_refiner = True
-
-# Use Mistral Small Creative as the refiner (can be overridden with OI_UNSTEER_MODEL env var)
-interpreter.intent_refiner_model = "openrouter/mistralai/mistral-small-creative"
+# NOTE: Intent refiner disabled - it causes workflow misrouting by transforming
+# simple commands (like "save file") into complex ones that trigger wrong agents
+interpreter.enable_intent_refiner = False
 
 # Optionally adjust custom instructions to encourage less conservative behavior
 interpreter.custom_instructions += """

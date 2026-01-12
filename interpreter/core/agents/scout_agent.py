@@ -956,10 +956,9 @@ Return ONLY valid JSON. No markdown. No commentary."""
         # Fast path: use ripgrep when available
         if self.use_ripgrep and _RG_AVAILABLE:
             emit_activity("search", "Using ripgrep", pat[:30], agent="scout")
-            results = self._rg_search(pat, file_pattern, max_results)
-            if results:  # rg succeeded
-                return results
-            # Fall through to Python if rg returned empty (might be rg error)
+            # NOTE: _rg_search returns [] on both "no matches" and "rg error"
+            # We trust rg and return its result directly - no Python fallback
+            return self._rg_search(pat, file_pattern, max_results)
 
         # Fallback: Python implementation
         emit_activity("search", "Python grep", pat[:30], agent="scout")
@@ -1033,7 +1032,8 @@ Return ONLY valid JSON. No markdown. No commentary."""
             rg_pattern = "|".join(re.escape(k) for k in kws)
             results = self._rg_search(rg_pattern, file_pattern, max_results)
             # Update match_type to "keyword" for consistency
-            results = [
+            # NOTE: Return directly - empty results means no matches, not failure
+            return [
                 SearchResult(
                     file_path=r.file_path,
                     line_number=r.line_number,
@@ -1042,9 +1042,6 @@ Return ONLY valid JSON. No markdown. No commentary."""
                 )
                 for r in results
             ]
-            if results:
-                return results
-            # Fall through to Python if rg returned empty
 
         # Fallback: Python implementation
         emit_activity(

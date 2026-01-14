@@ -75,6 +75,50 @@ class CoreEngine:
         yield str(project)
 
 
+def _create_llm_run_mock():
+    """Create a mock for llm.run() that returns workflow type based on prompt content."""
+    import re
+
+    def mock_run(messages):
+        # Extract the prompt from messages
+        prompt = messages[0].get("content", "") if messages else ""
+
+        # Extract just the user request from the prompt (between "User request:" and next section)
+        match = re.search(
+            r"User request:\s*(.+?)(?:\n\n|\nWorkflow)", prompt, re.DOTALL
+        )
+        if match:
+            user_request = match.group(1).lower().strip()
+        else:
+            user_request = prompt.lower()
+
+        # Determine workflow type based on task keywords in the user request
+        # NOTE: Order matters - check more specific patterns first
+        if any(kw in user_request for kw in ["test the", "check if", "verify the"]):
+            response = "VALIDATE"
+        elif "validate the" in user_request:
+            response = "VALIDATE"
+        elif any(kw in user_request for kw in ["find", "search", "list all", "grep"]):
+            response = "EXPLORE"
+        elif any(kw in user_request for kw in ["where is", "show me", "explore the"]):
+            response = "EXPLORE"
+        elif any(
+            kw in user_request for kw in ["fix", "add a", "add new", "change the"]
+        ):
+            response = "EDIT"
+        elif any(kw in user_request for kw in ["update the", "modify the", "edit the"]):
+            response = "EDIT"
+        elif "implement" in user_request:
+            response = "EDIT"
+        else:
+            response = "NONE"
+
+        # Return an iterator of chunks like the real LLM does
+        yield {"type": "message", "content": response}
+
+    return mock_run
+
+
 @pytest.fixture
 def mock_interpreter():
     """Create a mock interpreter for testing."""
@@ -84,6 +128,7 @@ def mock_interpreter():
     mock.semantic_graph = None
     mock.messages = []
     mock.llm = MagicMock()
+    mock.llm.run = _create_llm_run_mock()
     mock.computer = MagicMock()
     return mock
 

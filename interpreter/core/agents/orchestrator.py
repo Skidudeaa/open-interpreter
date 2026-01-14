@@ -451,27 +451,43 @@ Examples:
 Respond with exactly one word: NONE, EXPLORE, EDIT, VALIDATE, or FULL"""
 
         try:
-            if self.interpreter and hasattr(self.interpreter, "llm"):
-                messages = [{"role": "user", "type": "message", "content": prompt}]
-                response_text = ""
-                for chunk in self.interpreter.llm.run(messages):
-                    if chunk.get("type") == "message" and chunk.get("content"):
-                        response_text += chunk["content"]
-                    # Stop early once we have enough
-                    if len(response_text) > 20:
-                        break
+            if not (self.interpreter and hasattr(self.interpreter, "llm")):
+                logger.warning("Workflow detection skipped: no LLM available")
+                return WorkflowType.NONE
 
-                # Parse response
-                response_upper = response_text.strip().upper()
-                for wf in WorkflowType:
-                    if wf.name in response_upper:
-                        return wf
+            # WHY: LiteLLM/OpenAI requires first message to have 'system' role
+            messages = [{"role": "system", "type": "message", "content": prompt}]
+            response_text = ""
+            for chunk in self.interpreter.llm.run(messages):
+                if chunk.get("type") == "message" and chunk.get("content"):
+                    response_text += chunk["content"]
+                # Stop early once we have enough
+                if len(response_text) > 20:
+                    break
+
+            # Check for empty response
+            if not response_text.strip():
+                logger.warning("Workflow detection: LLM returned empty response")
+                return WorkflowType.NONE
+
+            # Parse response
+            response_upper = response_text.strip().upper()
+            for wf in WorkflowType:
+                if wf.name in response_upper:
+                    logger.info(
+                        f"Workflow detected: {wf.name} (response: '{response_text.strip()[:30]}')"
+                    )
+                    return wf
+
+            # No match found
+            logger.warning(
+                f"Workflow detection: no match in response '{response_text.strip()[:50]}'"
+            )
+            return WorkflowType.NONE
 
         except Exception as e:
-            logger.debug(f"LLM workflow detection failed: {e}")
-
-        # Fallback: let the LLM handle it directly
-        return WorkflowType.NONE
+            logger.warning(f"LLM workflow detection failed: {e}")
+            return WorkflowType.NONE
 
     def _apply_pending_edits(self, result: WorkflowResult) -> None:
         """

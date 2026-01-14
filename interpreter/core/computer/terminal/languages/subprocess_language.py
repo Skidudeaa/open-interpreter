@@ -138,22 +138,25 @@ class SubprocessLanguage(BaseLanguage):
                     }
                     return
 
+        # WHY: Efficient queue draining without sleep delays.
+        # TRADEOFF: Short timeout (50ms) balances responsiveness with CPU usage.
         while True:
-            if not self.output_queue.empty():
-                yield self.output_queue.get()
-            else:
-                time.sleep(0.1)
             try:
-                output = self.output_queue.get(timeout=0.3)  # Waits for 0.3 seconds
+                # Block for first item with short timeout
+                output = self.output_queue.get(timeout=0.05)
                 yield output
+
+                # Drain any additional queued items immediately (batch)
+                batch_count = 0
+                while not self.output_queue.empty() and batch_count < 100:
+                    yield self.output_queue.get_nowait()
+                    batch_count += 1
+
             except queue.Empty:
                 if self.done.is_set():
-                    # Try to yank 3 more times from it... maybe there's something in there...
-                    # (I don't know if this actually helps. Maybe we just need to yank 1 more time)
-                    for _ in range(3):
-                        if not self.output_queue.empty():
-                            yield self.output_queue.get()
-                        time.sleep(0.2)
+                    # Final drain - get everything remaining
+                    while not self.output_queue.empty():
+                        yield self.output_queue.get_nowait()
                     break
 
     def handle_stream_output(self, stream, is_error_stream):

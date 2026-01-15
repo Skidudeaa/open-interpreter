@@ -52,7 +52,9 @@ class Llm:
         self.completions = fixed_litellm_completions
 
         # Settings
-        self.model = "gpt-4o"
+        # WHY: Gemini 3 Flash as default - fast, capable, cost-effective
+        # TRADEOFF: Optimized for speed over maximum capability
+        self.model = "gemini/gemini-3-flash-preview"
         self.temperature = 0.0
 
         self.supports_vision = None  # Will try to auto-detect

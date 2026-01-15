@@ -179,6 +179,16 @@ class AgentOrchestrator:
         AgentRole.VALIDATOR: ("validate", "Running validation"),
     }
 
+    # WHY: Per-agent model configuration for specialized tasks
+    # TRADEOFF: Scout uses fast model for exploration, Surgeon uses powerful model for precision
+    # NOTE: None means use interpreter's default model
+    _ROLE_MODELS: dict[AgentRole, str | None] = {
+        AgentRole.SCOUT: "gemini/gemini-3-flash-preview",  # Fast for exploration
+        AgentRole.SURGEON: "claude-opus-4-5-20251101",  # Precise for edits
+        AgentRole.ARCHITECT: None,  # Use default
+        AgentRole.VALIDATOR: None,  # Use default
+    }
+
     def __init__(
         self,
         interpreter: "OpenInterpreter",
@@ -285,6 +295,16 @@ class AgentOrchestrator:
         )
 
         agent = self.get_agent(role)
+
+        # WHY: Swap model for role-specific LLM configuration
+        # TRADEOFF: Slight overhead from model switching vs unified config
+        role_model = self._ROLE_MODELS.get(role)
+        original_model = None
+        if role_model is not None:
+            original_model = self.interpreter.llm.model
+            self.interpreter.llm.model = role_model
+            logger.debug(f"Switched model to {role_model} for {role.value}")
+
         try:
             agent_result = agent.run(task, context=context)
 
@@ -315,6 +335,11 @@ class AgentOrchestrator:
                     error=str(e),
                 )
             raise
+        finally:
+            # Restore original model after agent execution
+            if original_model is not None:
+                self.interpreter.llm.model = original_model
+                logger.debug(f"Restored model to {original_model}")
 
     def get_agent(self, role: AgentRole) -> BaseAgent:
         """Get or create an agent by role."""

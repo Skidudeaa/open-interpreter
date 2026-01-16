@@ -68,6 +68,7 @@ def process_messages(messages):
             tool_id = f"toolu_{last_tool_id}"
 
             # Add a tool call before this orphaned tool response
+            # NOTE: arguments must be valid JSON for Gemini/LiteLLM compatibility
             processed_messages.append(
                 {
                     "role": "assistant",
@@ -77,7 +78,7 @@ def process_messages(messages):
                             "type": "function",
                             "function": {
                                 "name": "execute",
-                                "arguments": "# Automated tool call to fetch more output, triggered by the user.",
+                                "arguments": "{}",
                             },
                         }
                     ],

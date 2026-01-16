@@ -615,7 +615,9 @@ class BaseAgent(ABC):
                 gen = None
 
                 try:
-                    gen = self.interpreter.chat(message="", display=False, stream=True)
+                    # NOTE: message=None (not "") to avoid appending empty content
+                    # which Anthropic rejects with "text content blocks must be non-empty"
+                    gen = self.interpreter.chat(message=None, display=False, stream=True)
                     for chunk in gen:
                         if (time.perf_counter() - start) > timeout:
                             self.log(f"LLM call timed out after {timeout}s")

@@ -847,9 +847,20 @@ Return ONLY valid JSON. No markdown. No commentary."""
         for dirname in self.ignore_dirnames:
             args.extend(["--glob", f"!{dirname}/**"])
 
-        # Ignore hidden dirs (except .github) like _should_ignore_dir
-        args.extend(["--glob", "!.*/**"])
-        args.extend(["--glob", ".github/**"])  # Re-include .github
+        # Ignore hidden dirs except .github
+        # WHY: Hidden dirs are usually caches/configs, but .github has workflows
+        # NOTE: Positive globs after negative globs act as whitelist filters in rg,
+        # so we exclude hidden dirs one-by-one instead of using !.*/**
+        for hidden in [
+            ".git",
+            ".svn",
+            ".hg",
+            ".cache",
+            ".tox",
+            ".mypy_cache",
+            ".pytest_cache",
+        ]:
+            args.extend(["--glob", f"!{hidden}/**"])
 
         args.append("--")  # End of options
         args.append(pattern)

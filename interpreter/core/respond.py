@@ -313,26 +313,86 @@ def respond(interpreter):
                             base_agent._INTERPRETER_ACTIVE = prev_active
 
                         if result.success:
-                            # For EXPLORE workflow, Scout's synthesized content IS the answer
+                            # WHY: Inject agent findings into conversation so main LLM can reason
+                            # TRADEOFF: Extra LLM call vs natural conversation flow
+                            # NOTE: Previously returned here, cutting off the LLM from responding
+
+                            # Build context from agent findings
+                            agent_context_parts = []
+                            files_found_count = 0
+
                             if workflow == WorkflowType.EXPLORE:
                                 scout_result = result.agent_results.get(AgentRole.SCOUT)
-                                if scout_result and scout_result.content:
-                                    yield {
-                                        "role": "assistant",
-                                        "type": "message",
-                                        "content": scout_result.content,
-                                    }
-                                    return
+                                if scout_result:
+                                    files_found_count = len(
+                                        scout_result.files_found or []
+                                    )
+                                    # Include structured findings for LLM to reason about
+                                    if scout_result.files_found:
+                                        agent_context_parts.append(
+                                            f"**Files found ({len(scout_result.files_found)}):**\n"
+                                            + "\n".join(
+                                                f"- {f}"
+                                                for f in scout_result.files_found[:30]
+                                            )
+                                        )
+                                    if scout_result.symbols_found:
+                                        agent_context_parts.append(
+                                            f"**Symbols found ({len(scout_result.symbols_found)}):**\n"
+                                            + "\n".join(
+                                                f"- {s}"
+                                                for s in scout_result.symbols_found[:20]
+                                            )
+                                        )
+                                    # Include search results with code snippets
+                                    search_results = scout_result.metadata.get(
+                                        "search_results", []
+                                    )
+                                    if search_results:
+                                        agent_context_parts.append(
+                                            f"**Code matches ({len(search_results)}):**"
+                                        )
+                                        for r in search_results[:15]:
+                                            agent_context_parts.append(
+                                                f"- `{r['file']}:{r['line']}`: {r['content'][:120]}"
+                                            )
 
-                            # For other workflows (EDIT, VALIDATE), use summary + context
-                            yield {
-                                "role": "assistant",
-                                "type": "message",
-                                "content": result.get_summary()
-                                + "\n\n"
-                                + result.final_context,
-                            }
-                            return
+                                    # If Scout found nothing useful, tell LLM explicitly
+                                    if not agent_context_parts:
+                                        agent_context_parts.append(
+                                            "No relevant files or code found for this query."
+                                        )
+                            else:
+                                # EDIT/VALIDATE: include full context
+                                agent_context_parts.append(result.final_context)
+
+                            agent_context = "\n\n".join(agent_context_parts)
+
+                            # Inject as a computer message so LLM sees it as tool output
+                            interpreter.messages.append(
+                                {
+                                    "role": "computer",
+                                    "type": "console",
+                                    "format": "output",
+                                    "content": f"[Agent Results]\n{agent_context}\n",
+                                }
+                            )
+
+                            # Emit activity so user knows LLM is now processing
+                            emit_activity(
+                                "think",
+                                "Analyzing agent findings",
+                                f"{files_found_count} files found"
+                                if workflow == WorkflowType.EXPLORE
+                                else workflow.value,
+                            )
+
+                            # Continue the loop so main LLM can respond naturally
+                            # The LLM will see the agent findings and can:
+                            # 1. Explain what was found
+                            # 2. Propose code changes
+                            # 3. Ask for more exploration
+                            continue
                         logger.warning(f"Agent workflow failed: {result.errors}")
             except Exception as e:
                 logger.warning(f"Agent orchestration failed, falling back to LLM: {e}")

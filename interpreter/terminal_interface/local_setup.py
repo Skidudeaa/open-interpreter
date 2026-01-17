@@ -5,11 +5,31 @@ import platform
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 
 import inquirer
 import psutil
 import requests
 import wget
+from rich.console import Console
+
+
+# WHY: Users experience frozen UI during sleeps. Spinners provide visual feedback.
+# TRADEOFF: Adds Rich dependency overhead vs. improved UX.
+@contextmanager
+def spinner_sleep(message: str, duration: float, console: Console | None = None):
+    """
+    Sleep with a visual spinner to indicate activity.
+
+    Args:
+        message: Status message to display during sleep
+        duration: Sleep duration in seconds
+        console: Optional Rich console instance
+    """
+    console = console or Console()
+    with console.status(f"[cyan]{message}[/cyan]", spinner="dots"):
+        time.sleep(duration)
+        yield
 
 
 def local_setup(interpreter, provider=None, model=None):
@@ -127,7 +147,8 @@ def local_setup(interpreter, provider=None, model=None):
                 if model["size"] <= free_disk_space and model["file_name"] not in models
             ]
             if filtered_models:
-                time.sleep(1)
+                with spinner_sleep("Loading model list...", 1):
+                    pass
 
                 # Prompt the user to select a model
                 model_choices = [
@@ -321,11 +342,13 @@ def local_setup(interpreter, provider=None, model=None):
         # If Ollama is not installed or not recognized as a command, prompt the user to download Ollama and try again
         except (subprocess.CalledProcessError, FileNotFoundError):
             print("Ollama is not installed or not recognized as a command.")
-            time.sleep(1)
+            with spinner_sleep("Checking system...", 1):
+                pass
             interpreter.display_message(
                 "\nPlease visit [https://ollama.com/](https://ollama.com/) to download Ollama and try again.\n"
             )
-            time.sleep(2)
+            with spinner_sleep("Preparing to exit...", 2):
+                pass
             sys.exit(1)
 
     elif selected_model == "Jan":
@@ -385,7 +408,8 @@ def local_setup(interpreter, provider=None, model=None):
                 interpreter.display_message(
                     "To use Llamafile, Open Interpreter requires Mac users to have Xcode installed. You can install Xcode from https://developer.apple.com/xcode/ .\n\nAlternatively, you can use `LM Studio`, `Jan.ai`, or `Ollama` to manage local language models. Learn more at https://docs.openinterpreter.com/guides/running-locally ."
                 )
-                time.sleep(3)
+                with spinner_sleep("Checking Xcode installation...", 3):
+                    pass
                 raise Exception(
                     "Xcode is not installed. Please install Xcode and try again."
                 )

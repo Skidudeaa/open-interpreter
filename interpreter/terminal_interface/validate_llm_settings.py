@@ -4,10 +4,11 @@ I guess it's setting up the model. So maybe this should be like, interpreter.llm
 """
 
 import os
-import time
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 from prompt_toolkit import prompt
+
+from .local_setup import spinner_sleep
 
 
 def validate_llm_settings(interpreter):
@@ -73,7 +74,8 @@ def validate_llm_settings(interpreter):
                     )
 
                     interpreter.llm.api_key = response
-                    time.sleep(2)
+                    with spinner_sleep("Validating API key...", 2):
+                        pass
                     break
 
             # This is a model we don't have checks for yet.
@@ -118,6 +120,7 @@ def display_welcome_message_once(interpreter):
         Welcome to **Open Interpreter**.
         """
         )
-        time.sleep(1)
+        with spinner_sleep("Initializing...", 1):
+            pass
 
         display_welcome_message_once._displayed = True

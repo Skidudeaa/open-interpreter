@@ -49,7 +49,7 @@ class SemanticEditGraph:
     def _check_duckdb_available(self) -> bool:
         """Check if DuckDB is installed."""
         try:
-            import duckdb
+            import duckdb  # noqa: F401
 
             return True
         except ImportError:
@@ -128,6 +128,8 @@ class SemanticEditGraph:
         )
 
         # Create indexes for common queries
+        # WHY: Full table scans on common query patterns cause performance issues.
+        # TRADEOFF: More indexes = slower inserts, but queries are far more common.
         self._connection.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_edits_file_path ON edits(file_path)
@@ -136,6 +138,21 @@ class SemanticEditGraph:
         self._connection.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_edits_timestamp ON edits(timestamp)
+        """
+        )
+        self._connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_edits_edit_type ON edits(edit_type)
+        """
+        )
+        self._connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_edits_user_intent ON edits(user_intent)
+        """
+        )
+        self._connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_edits_execution_trace_id ON edits(execution_trace_id)
         """
         )
         self._connection.execute(
@@ -199,11 +216,22 @@ class SemanticEditGraph:
         )
 
         # Create indexes
+        # WHY: Full table scans on common query patterns cause performance issues.
+        # TRADEOFF: More indexes = slower inserts, but queries are far more common.
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_edits_file_path ON edits(file_path)"
         )
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_edits_timestamp ON edits(timestamp)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_edits_edit_type ON edits(edit_type)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_edits_user_intent ON edits(user_intent)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_edits_execution_trace_id ON edits(execution_trace_id)"
         )
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(symbol_name)"

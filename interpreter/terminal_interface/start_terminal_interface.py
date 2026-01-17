@@ -2,7 +2,10 @@ import argparse
 import os
 import sys
 import time
+from contextlib import contextmanager
 from importlib.metadata import version
+
+from rich.console import Console
 
 from interpreter.terminal_interface.contributing_conversations import (
     contribute_conversation_launch_logic,
@@ -14,6 +17,17 @@ from .profiles.profiles import open_storage_dir, profile, reset_profile
 from .utils.check_for_update import check_for_update
 from .utils.session_manager import SessionManager, get_resume_prompt
 from .validate_llm_settings import validate_llm_settings
+
+
+# WHY: Users need visual feedback during sleeps. Spinners indicate activity.
+# TRADEOFF: Minor complexity vs. better UX.
+@contextmanager
+def spinner_sleep(message: str, duration: float, console: Console | None = None):
+    """Sleep with a visual spinner to indicate activity."""
+    console = console or Console()
+    with console.status(f"[cyan]{message}[/cyan]", spinner="dots"):
+        time.sleep(duration)
+        yield
 
 
 def start_terminal_interface(interpreter):
@@ -358,7 +372,8 @@ def start_terminal_interface(interpreter):
     for old_flag, new_flag in deprecated_flags.items():
         if old_flag in sys.argv:
             print(f"\n`{old_flag}` has been renamed to `{new_flag}`.\n")
-            time.sleep(1.5)
+            with spinner_sleep("Updating flag...", 1.5):
+                pass
             sys.argv.remove(old_flag)
             sys.argv.append(new_flag)
 
@@ -391,7 +406,7 @@ Use """ to write multi-line messages.
             [f"-{nickname}", f'--{arg["name"]}'] if nickname else [f'--{arg["name"]}']
         )
 
-        if arg["type"] == bool:
+        if arg["type"] is bool:
             parser.add_argument(
                 *flags,
                 dest=arg["name"],

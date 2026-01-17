@@ -1,11 +1,11 @@
 import json
 import os
-import time
 from importlib.metadata import version
 from typing import TypedDict
 
 import requests
 
+from interpreter.terminal_interface.local_setup import spinner_sleep
 from interpreter.terminal_interface.profiles.profiles import write_key_to_profile
 from interpreter.terminal_interface.utils.display_markdown_message import (
     display_markdown_message,
@@ -26,7 +26,8 @@ Want to contribute? Run `interpreter --model i` to use our free, hosted model. C
 
 """
     )
-    time.sleep(1)
+    with spinner_sleep("Loading...", 1):
+        pass
 
 
 def display_contributing_current_message():
@@ -46,7 +47,8 @@ def send_past_conversations(interpreter):
             "We are about to send all previous conversations to Open Interpreter for training an open-source language model. Please make sure these don't contain any private information. Run `interpreter --conversations` to browse them."
         )
         print()
-        time.sleep(2)
+        with spinner_sleep("Preparing...", 2):
+            pass
         uh = input(
             "Do we have your permission to send all previous conversations to Open Interpreter? (y/n): "
         )
@@ -162,8 +164,8 @@ def get_all_conversations(interpreter) -> list[list]:
     return all_conversations
 
 
-def is_list_of_lists(l):
-    return isinstance(l, list) and all([isinstance(e, list) for e in l])
+def is_list_of_lists(l):  # noqa: E741
+    return isinstance(l, list) and all(isinstance(e, list) for e in l)
 
 
 def contribute_conversations(

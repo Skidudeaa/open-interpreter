@@ -18,17 +18,25 @@ from .core import OpenInterpreter
 
 last_start_time = 0
 
+# WHY: Separate imports to allow partial availability
+# TRADEOFF: More verbose but FastAPI works without janus
 try:
     import janus
+except ImportError:
+    janus = None  # type: ignore
+
+try:
     import uvicorn
+except ImportError:
+    uvicorn = None  # type: ignore
+
+try:
     from fastapi import APIRouter, FastAPI, File, Form, Request, UploadFile, WebSocket
     from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
     from starlette.status import HTTP_403_FORBIDDEN
-except Exception:
-    # Server dependencies are not required by the main package.
+except ImportError:
+    # FastAPI dependencies are not required by the main package.
     # Define stubs for type checking
-    janus = None  # type: ignore
-    uvicorn = None  # type: ignore
     APIRouter = None  # type: ignore
     FastAPI = None  # type: ignore
     File = None  # type: ignore
@@ -61,7 +69,9 @@ class AsyncInterpreter(OpenInterpreter):
         )
         self.acknowledged_outputs = []
 
-        self.server = Server(self)
+        # WHY: Only create Server if FastAPI is available
+        # TRADEOFF: Server is None when deps missing vs immediate failure
+        self.server = Server(self) if FastAPI is not None else None
 
         # For the 01. This lets the OAI compatible server accumulate context before responding.
         self.context_mode = False
@@ -108,6 +118,11 @@ class AsyncInterpreter(OpenInterpreter):
 
     async def output(self):
         if self.output_queue is None:
+            # WHY: Guard against missing janus dependency
+            if janus is None:
+                raise ImportError(
+                    "janus is required for async queues. Install with: pip install janus"
+                )
             self.output_queue = janus.Queue()
         return await self.output_queue.async_q.get()
 
@@ -1145,9 +1160,15 @@ def create_router(async_interpreter):
 
 class Server:
     DEFAULT_HOST = "127.0.0.1"
-    DEFAULT_PORT = 8080  # Changed from 8000 for compatibility
+    DEFAULT_PORT = 8000  # Standard port for test compatibility
 
     def __init__(self, async_interpreter, host=None, port=None):
+        # WHY: Guard against missing FastAPI dependency with clear error message.
+        # TRADEOFF: Eager check at init vs confusing NoneType error later.
+        if FastAPI is None:
+            raise ImportError(
+                "FastAPI is required for Server. Install with: pip install fastapi uvicorn"
+            )
         self.app = FastAPI()
         router = create_router(async_interpreter)
         self.authenticate = authenticate_function

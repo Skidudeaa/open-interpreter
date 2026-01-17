@@ -227,10 +227,13 @@ class EditValidator:
             }
 
         except subprocess.TimeoutExpired:
-            return {"passed": True, "warning": "Type check timed out"}
+            # WHY: Timeout should NOT mask failures. A timeout is an unknown state.
+            # TRADEOFF: May be stricter than before, but prevents false confidence.
+            return {"passed": False, "timeout": True, "warning": "Type check timed out"}
 
         except Exception as e:
-            return {"passed": True, "warning": str(e)}
+            # WHY: Exceptions indicate something went wrong; don't pretend it passed.
+            return {"passed": False, "error": True, "warning": str(e)}
 
         finally:
             Path(temp_path).unlink(missing_ok=True)
@@ -310,14 +313,14 @@ class SandboxValidator:
 
     def __init__(
         self,
-        parent_validator: EditValidator,
+        parent_validator: EditValidator | None = None,
         copy_full_project: bool = False,
     ):
         """
         Initialize the sandbox validator.
 
         Args:
-            parent_validator: Parent EditValidator
+            parent_validator: Parent EditValidator (optional for standalone use)
             copy_full_project: Copy full project (slow) or just relevant files
         """
         self.parent = parent_validator
@@ -358,15 +361,17 @@ class SandboxValidator:
             f.write(new_content)
 
         # Create a validator for the sandbox
+        # Use parent settings if available, otherwise use defaults
         sandbox_validator = EditValidator(
             project_root=self._sandbox_dir,
-            run_tests=self.parent.run_tests,
-            run_type_check=self.parent.run_type_check,
-            test_timeout=self.parent.test_timeout,
+            run_tests=self.parent.run_tests if self.parent else True,
+            run_type_check=self.parent.run_type_check if self.parent else True,
+            test_timeout=self.parent.test_timeout if self.parent else 300,
         )
 
         # Read original for comparison
-        original_path = Path(self.parent.project_root) / file_path
+        parent_root = self.parent.project_root if self.parent else os.getcwd()
+        original_path = Path(parent_root) / file_path
         if original_path.exists():
             original = original_path.read_text()
         else:
@@ -379,9 +384,12 @@ class SandboxValidator:
         self._sandbox_dir = tempfile.mkdtemp(prefix="edit_sandbox_")
 
         if self.copy_full_project:
+            # WHY: parent may be None when SandboxValidator is used standalone.
+            # TRADEOFF: Fall back to cwd, which may not be the intended project root.
+            source_root = self.parent.project_root if self.parent else os.getcwd()
             # Copy entire project (excluding large/unnecessary files)
             shutil.copytree(
-                self.parent.project_root,
+                source_root,
                 self._sandbox_dir,
                 dirs_exist_ok=True,
                 ignore=shutil.ignore_patterns(

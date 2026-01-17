@@ -373,15 +373,19 @@ class ScoutAgent(BaseAgent):
             elapsed_ms = (time.perf_counter() - start) * 1000.0
 
             # Store raw findings and metadata for orchestrator to use
+            # WHY: Populate content with formatted context for direct consumption
+            # TRADEOFF: Slightly redundant with context_for_next, but enables
+            # both standalone use (via content) and pipeline use (via context_for_next)
+            formatted_context = self._format_context(
+                files_found, symbols_found, search_results
+            )
             result = create_result(
                 role=self.role,
                 success=True,
-                content="",  # Orchestrator will synthesize if needed
+                content=formatted_context,
                 files_found=files_found,
                 symbols_found=symbols_found,
-                context_for_next=self._format_context(
-                    files_found, symbols_found, search_results
-                ),
+                context_for_next=formatted_context,
                 metadata={
                     "task": task,
                     "analysis": asdict(analysis) if analysis else {},

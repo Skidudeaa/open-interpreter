@@ -2,10 +2,10 @@ import json
 import os
 import subprocess
 import sys
-import time
 from datetime import datetime
 
 from ..core.utils.system_debug_info import system_info
+from .local_setup import spinner_sleep
 from .utils.count_tokens import count_messages_tokens
 from .utils.export_to_markdown import export_to_markdown
 
@@ -346,7 +346,8 @@ def handle_magic_command(self, user_input):
         print(
             "\n`%debug` / `--debug_mode` has been renamed to `%verbose` / `--verbose`.\n"
         )
-        time.sleep(1.5)
+        with spinner_sleep("Switching to verbose mode...", 1.5):
+            pass
         command = "verbose"
 
     action = switch.get(

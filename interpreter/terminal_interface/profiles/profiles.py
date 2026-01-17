@@ -6,13 +6,13 @@ import platform
 import shutil
 import string
 import subprocess
-import time
 
 import platformdirs
 import requests
 import send2trash
 import yaml
 
+from ..local_setup import spinner_sleep
 from ..utils.oi_dir import oi_dir
 from .historical_profiles import historical_profiles
 
@@ -195,7 +195,8 @@ def apply_profile(interpreter, profile, profile_path):
         interpreter.display_message(
             "\n**FYI:** A `system_message` was found in your profile.\n\nBecause we frequently improve our default system message, we highly recommend removing the `system_message` parameter in your profile (which overrides the default system message) or simply resetting your profile.\n\n**To reset your profile, run `interpreter --reset_profile`.**\n"
         )
-        time.sleep(2)
+        with spinner_sleep("Processing profile...", 2):
+            pass
         interpreter.display_message("---")
 
     if "computer" in profile and "languages" in profile["computer"]:
@@ -203,7 +204,8 @@ def apply_profile(interpreter, profile, profile_path):
         interpreter.computer.languages = [
             i
             for i in interpreter.computer.languages
-            if i.name.lower() in [l.lower() for l in profile["computer"]["languages"]]
+            if i.name.lower()
+            in [lang.lower() for lang in profile["computer"]["languages"]]
         ]
         del profile["computer.languages"]
 

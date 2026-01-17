@@ -120,9 +120,11 @@ def _build_system_message(interpreter):
         lang_messages,
         interpreter.custom_instructions,
         interpreter.computer.import_computer_api,
-        interpreter.computer.system_message
-        if interpreter.computer.import_computer_api
-        else "",
+        (
+            interpreter.computer.system_message
+            if interpreter.computer.import_computer_api
+            else ""
+        ),
         _detect_headless(),
     )
 
@@ -218,18 +220,27 @@ def respond(interpreter):
     insert_loop_message = False
     loop_message = ""  # Initialized here, assigned in loop body
 
-    # ========= MCP SERVER CONNECTION (lazy, once per session) =========
+    # ========= MCP SERVER CONNECTION (lazy, background, once per session) =========
     # WHY: Connect to configured MCP servers to enable external tool use
-    # TRADEOFF: Async complexity vs access to MCP tool ecosystem
+    # TRADEOFF: Background thread complexity vs blocking startup
+    # NOTE: Connection now happens in background thread to avoid startup delay
     _mcp_connected = getattr(interpreter, "_mcp_servers_connected", False)
-    if not _mcp_connected and getattr(interpreter, "mcp_servers", None):
+    _mcp_connecting = getattr(interpreter, "_mcp_connecting", False)
+    if (
+        not _mcp_connected
+        and not _mcp_connecting
+        and getattr(interpreter, "mcp_servers", None)
+    ):
         try:
             import asyncio
+            import threading
 
             from ..sdk.mcp_bridge import MCPServer
 
             bridge = interpreter.mcp_bridge
             if bridge:
+                # Mark as connecting to prevent duplicate attempts
+                interpreter._mcp_connecting = True
 
                 async def _connect_mcp_servers():
                     for server_config in interpreter.mcp_servers:
@@ -245,22 +256,35 @@ def respond(interpreter):
                                 f"MCP server connection failed: {server.name}: {e}"
                             )
 
-                # Run async connection
-                try:
-                    loop = asyncio.get_event_loop()
-                except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
+                def _background_connect():
+                    """
+                    Run MCP connection in background thread.
 
-                if loop.is_running():
-                    # If already in async context, schedule it
-                    asyncio.ensure_future(_connect_mcp_servers())
-                else:
-                    loop.run_until_complete(_connect_mcp_servers())
+                    # WHY: run_until_complete blocks startup. Background thread allows
+                    #      interpreter to remain responsive while servers connect.
+                    # TRADEOFF: Slight complexity vs immediate tool availability.
+                    """
+                    try:
+                        # Create new event loop for this thread
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(_connect_mcp_servers())
+                        loop.close()
+                        interpreter._mcp_servers_connected = True
+                        interpreter._mcp_connecting = False
+                    except Exception as e:
+                        logger.debug(f"Background MCP connection failed: {e}")
+                        interpreter._mcp_connecting = False
 
-                interpreter._mcp_servers_connected = True
+                # Start background thread for non-blocking connection
+                mcp_thread = threading.Thread(
+                    target=_background_connect, daemon=True, name="mcp-connect"
+                )
+                mcp_thread.start()
+
         except Exception as e:
             logger.debug(f"MCP initialization failed (non-blocking): {e}")
+            interpreter._mcp_connecting = False
 
     while True:
         # ========= AGENT ORCHESTRATION (guarded) =========
@@ -382,9 +406,11 @@ def respond(interpreter):
                             emit_activity(
                                 "think",
                                 "Analyzing agent findings",
-                                f"{files_found_count} files found"
-                                if workflow == WorkflowType.EXPLORE
-                                else workflow.value,
+                                (
+                                    f"{files_found_count} files found"
+                                    if workflow == WorkflowType.EXPLORE
+                                    else workflow.value
+                                ),
                             )
 
                             # Continue the loop so main LLM can respond naturally
@@ -394,8 +420,50 @@ def respond(interpreter):
                             # 3. Ask for more exploration
                             continue
                         logger.warning(f"Agent workflow failed: {result.errors}")
+                        # WHY: User should know agents failed, not just silently fall back.
+                        # TRADEOFF: May be noisy, but transparency > silent failures.
+                        emit_activity(
+                            "wait",
+                            "Agents failed - falling back to main LLM",
+                            (
+                                "; ".join(result.errors[:2])
+                                if result.errors
+                                else "unknown error"
+                            ),
+                        )
+                        event_bus = get_event_bus()
+                        event_bus.emit(
+                            UIEvent(
+                                type=EventType.AGENT_ERROR,
+                                data={
+                                    "message": "Agent workflow failed",
+                                    "errors": result.errors,
+                                    "fallback": True,
+                                },
+                                source="orchestrator",
+                            )
+                        )
             except Exception as e:
                 logger.warning(f"Agent orchestration failed, falling back to LLM: {e}")
+                # WHY: User should know agents couldn't run, not just silently fall back.
+                # TRADEOFF: Visibility into failures vs. potential noise.
+                emit_activity(
+                    "wait",
+                    "Agent orchestration failed - falling back to main LLM",
+                    str(e)[:80],
+                )
+                event_bus = get_event_bus()
+                event_bus.emit(
+                    UIEvent(
+                        type=EventType.AGENT_ERROR,
+                        data={
+                            "message": "Agent orchestration failed",
+                            "error": str(e),
+                            "fallback": True,
+                        },
+                        source="orchestrator",
+                    )
+                )
                 # Fall through
 
         # ========= BUILD LLM MESSAGES =========
@@ -458,9 +526,11 @@ def respond(interpreter):
                 emit_activity(
                     "think",
                     "Thinking about response",
-                    last_msg + "..."
-                    if len(user_messages[-1].get("content", "")) > 40
-                    else last_msg,
+                    (
+                        last_msg + "..."
+                        if len(user_messages[-1].get("content", "")) > 40
+                        else last_msg
+                    ),
                 )
 
             # Network status tracking (ensure we always end_request)
@@ -872,9 +942,11 @@ def respond(interpreter):
                                     data={
                                         "success": not _execution_trace.exception_occurred,
                                         "call_count": call_count,
-                                        "exception": _execution_trace.exception_type
-                                        if _execution_trace.exception_occurred
-                                        else None,
+                                        "exception": (
+                                            _execution_trace.exception_type
+                                            if _execution_trace.exception_occurred
+                                            else None
+                                        ),
                                     },
                                     source="respond",
                                 )
@@ -1005,9 +1077,11 @@ def respond(interpreter):
                                         file_path=file_path,
                                         original_content=old_content,
                                         new_content=new_content,
-                                        user_message=user_msgs[-1].get("content", "")
-                                        if user_msgs
-                                        else "",
+                                        user_message=(
+                                            user_msgs[-1].get("content", "")
+                                            if user_msgs
+                                            else ""
+                                        ),
                                     )
                                     interpreter.semantic_graph.record_edit(edit)
                                     edits_to_commit.append(edit)
@@ -1077,16 +1151,26 @@ def respond(interpreter):
 
                         discovery = TestDiscovery(interpreter.computer.cwd or ".")
 
+                        # WHY: Batch lookup builds test index once instead of per-file.
+                        # TRADEOFF: Slight memory overhead vs. O(n^2) file walks.
                         all_test_results = []
-                        for file_path in _changed_files.keys():
-                            if not file_path.endswith(".py"):
-                                continue
-                            related_tests = discovery.find_related_tests(file_path)
-                            if related_tests:
-                                result = discovery.run_tests(
-                                    related_tests[:5], timeout_seconds=60
-                                )
-                                all_test_results.append((file_path, result))
+                        py_files = [
+                            f for f in _changed_files.keys() if f.endswith(".py")
+                        ]
+
+                        # Use batch method to find related tests for all files at once
+                        if py_files:
+                            related_tests_map = discovery.find_related_tests_batch(
+                                py_files, max_tests_per_file=5
+                            )
+
+                            for file_path in py_files:
+                                related_tests = related_tests_map.get(file_path, [])
+                                if related_tests:
+                                    result = discovery.run_tests(
+                                        related_tests[:5], timeout_seconds=60
+                                    )
+                                    all_test_results.append((file_path, result))
 
                         # Report test results
                         failed_tests_context = []
@@ -1101,9 +1185,11 @@ def respond(interpreter):
                                     {
                                         "file": file_path,
                                         "failed": result.failed_test_names,
-                                        "output": result.output[:1000]
-                                        if result.output
-                                        else "",
+                                        "output": (
+                                            result.output[:1000]
+                                            if result.output
+                                            else ""
+                                        ),
                                     }
                                 )
 

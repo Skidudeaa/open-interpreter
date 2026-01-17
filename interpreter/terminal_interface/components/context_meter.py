@@ -5,6 +5,10 @@ Shows current token usage as a progress bar with percentage.
 Color shifts from green → yellow → red as context fills.
 Reads from UIState.context_tokens and context_limit.
 
+# WHY: Users in ZEN mode don't see context meter; conversation abruptly fails.
+# This adds proactive toast warnings at 75% and 90% thresholds.
+# TRADEOFF: Potential for toast noise vs. preventing surprise failures.
+
 Part of Phase 2: Agent Visualization
 """
 
@@ -13,7 +17,12 @@ from rich.panel import Panel
 from rich.text import Text
 
 from .theme import BOX_STYLES, THEME
+from .toast import ToastLevel, get_toast_manager
 from .ui_state import UIState
+
+# Threshold constants
+WARNING_THRESHOLD = 75  # Emit warning toast at 75%
+CRITICAL_THRESHOLD = 90  # Emit critical toast at 90%
 
 
 class ContextMeter:
@@ -41,6 +50,9 @@ class ContextMeter:
         """
         self.state = state
         self.console = console or Console()
+        # Track whether warnings have been issued to avoid spam
+        self._warning_issued = False
+        self._critical_issued = False
 
     def get_usage_color(self, percent: float) -> str:
         """
@@ -59,6 +71,48 @@ class ContextMeter:
         else:
             return "error"  # Red
 
+    def check_and_warn(self) -> None:
+        """
+        Check context usage and emit toast warnings at thresholds.
+
+        # WHY: Users in ZEN mode miss context exhaustion until failure.
+        # This proactively warns at 75% and 90% so users can adjust.
+        # TRADEOFF: Toast spam vs. surprise context failures.
+
+        Called automatically during render() to ensure warnings are checked.
+        Warnings are only issued once per session until context drops below threshold.
+        """
+        percent = self.state.context_usage_percent
+        toast_mgr = get_toast_manager()
+        remaining = self.get_remaining_tokens()
+        remaining_str = self._format_token_count(remaining)
+
+        # Critical warning at 90%
+        if percent >= CRITICAL_THRESHOLD and not self._critical_issued:
+            toast_mgr.show(
+                f"⚠ Context nearly full ({percent:.0f}%) - {remaining_str} tokens left",
+                level=ToastLevel.ERROR,
+                duration=5.0,
+            )
+            self._critical_issued = True
+            self._warning_issued = True  # Don't also show warning
+
+        # Warning at 75%
+        elif percent >= WARNING_THRESHOLD and not self._warning_issued:
+            toast_mgr.show(
+                f"Context filling up ({percent:.0f}%) - {remaining_str} tokens remaining",
+                level=ToastLevel.WARNING,
+                duration=4.0,
+            )
+            self._warning_issued = True
+
+        # Reset flags if usage drops (e.g., new conversation)
+        if percent < WARNING_THRESHOLD:
+            self._warning_issued = False
+            self._critical_issued = False
+        elif percent < CRITICAL_THRESHOLD:
+            self._critical_issued = False
+
     def render(self) -> Text:
         """
         Render the context meter as a Text object.
@@ -66,6 +120,9 @@ class ContextMeter:
         Returns:
             Text with the meter display
         """
+        # Check thresholds and emit warnings if needed
+        self.check_and_warn()
+
         tokens = self.state.context_tokens
         limit = self.state.context_limit
         percent = self.state.context_usage_percent

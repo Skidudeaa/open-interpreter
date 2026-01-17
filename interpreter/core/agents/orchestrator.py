@@ -12,6 +12,7 @@ The orchestrator selects the smallest workflow that matches user intent and cont
 
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -230,6 +231,16 @@ class AgentOrchestrator:
         # Monotonic id generator for UI linking.
         self._agent_id_seq = count(1)
 
+        # WHY: Concurrent agents could clobber each other's model settings.
+        # This lock ensures model switching is atomic.
+        # TRADEOFF: Serializes agent execution, but prevents race conditions.
+        self._model_switch_lock = threading.Lock()
+
+        # WHY: _detect_workflow() makes LLM call every iteration, even on loop-back.
+        # Cache workflow decisions keyed by task hash to avoid redundant calls.
+        # TRADEOFF: Small memory overhead vs. repeated LLM calls.
+        self._workflow_cache: dict[str, WorkflowType] = {}
+
     @staticmethod
     def _preview(text: object, limit: int = 200) -> str:
         """Return a safe, short preview string for UI display."""
@@ -299,48 +310,52 @@ class AgentOrchestrator:
 
         # WHY: Swap model for role-specific LLM configuration
         # TRADEOFF: Slight overhead from model switching vs unified config
+        # NOTE: Lock prevents concurrent agents from clobbering each other's model
         role_model = self._ROLE_MODELS.get(role)
         original_model = None
-        if role_model is not None:
-            original_model = self.interpreter.llm.model
-            self.interpreter.llm.model = role_model
-            logger.debug(f"Switched model to {role_model} for {role.value}")
 
-        try:
-            agent_result = agent.run(task, context=context)
+        # Acquire lock for model switching to prevent race conditions
+        with self._model_switch_lock:
+            if role_model is not None:
+                original_model = self.interpreter.llm.model
+                self.interpreter.llm.model = role_model
+                logger.debug(f"Switched model to {role_model} for {role.value}")
 
-            if HAS_UI_EVENTS and self.event_bus:
-                if agent_result.success:
-                    self._emit_agent_event(
-                        EventType.AGENT_COMPLETE,
-                        agent_id,
-                        role,
-                        result=self._preview(agent_result.content),
-                    )
-                else:
+            try:
+                agent_result = agent.run(task, context=context)
+
+                if HAS_UI_EVENTS and self.event_bus:
+                    if agent_result.success:
+                        self._emit_agent_event(
+                            EventType.AGENT_COMPLETE,
+                            agent_id,
+                            role,
+                            result=self._preview(agent_result.content),
+                        )
+                    else:
+                        self._emit_agent_event(
+                            EventType.AGENT_ERROR,
+                            agent_id,
+                            role,
+                            error=f"{role.value} execution failed",
+                        )
+
+                return agent_id, agent_result
+
+            except Exception as e:
+                if HAS_UI_EVENTS and self.event_bus:
                     self._emit_agent_event(
                         EventType.AGENT_ERROR,
                         agent_id,
                         role,
-                        error=f"{role.value} execution failed",
+                        error=str(e),
                     )
-
-            return agent_id, agent_result
-
-        except Exception as e:
-            if HAS_UI_EVENTS and self.event_bus:
-                self._emit_agent_event(
-                    EventType.AGENT_ERROR,
-                    agent_id,
-                    role,
-                    error=str(e),
-                )
-            raise
-        finally:
-            # Restore original model after agent execution
-            if original_model is not None:
-                self.interpreter.llm.model = original_model
-                logger.debug(f"Restored model to {original_model}")
+                raise
+            finally:
+                # Restore original model after agent execution
+                if original_model is not None:
+                    self.interpreter.llm.model = original_model
+                    logger.debug(f"Restored model to {original_model}")
 
     def get_agent(self, role: AgentRole) -> BaseAgent:
         """Get or create an agent by role."""
@@ -443,10 +458,26 @@ class AgentOrchestrator:
         intent far better than pattern matching on "fix", "codebase", etc.
 
         TRADEOFF: One fast LLM call vs brittle keyword heuristics.
+
+        # NOTE: Results are cached by task hash to avoid repeated LLM calls on
+        # loop-back iterations. Cache invalidates on new task content.
         """
         # Very short messages don't need agent routing
         if len(task.strip()) < 15:
             return WorkflowType.NONE
+
+        # Check cache to avoid repeated LLM calls
+        # WHY: Same task resubmitted in loop should not re-call LLM
+        # TRADEOFF: Small memory overhead vs. repeated LLM calls
+        import hashlib
+
+        task_hash = hashlib.md5(task.encode("utf-8")).hexdigest()
+        if task_hash in self._workflow_cache:
+            cached = self._workflow_cache[task_hash]
+            logger.debug(
+                f"Workflow cache hit: {cached.name} for task hash {task_hash[:8]}"
+            )
+            return cached
 
         prompt = f"""Classify this user request into exactly ONE workflow type.
 
@@ -476,10 +507,21 @@ Examples:
 
 Respond with exactly one word: NONE, EXPLORE, EDIT, VALIDATE, or FULL"""
 
+        def _cache_and_return(workflow: WorkflowType) -> WorkflowType:
+            """Cache the workflow result and return it."""
+            self._workflow_cache[task_hash] = workflow
+            # Limit cache size to prevent unbounded growth
+            if len(self._workflow_cache) > 100:
+                # Remove oldest entries (arbitrary pruning)
+                oldest = list(self._workflow_cache.keys())[:50]
+                for key in oldest:
+                    del self._workflow_cache[key]
+            return workflow
+
         try:
             if not (self.interpreter and hasattr(self.interpreter, "llm")):
                 logger.warning("Workflow detection skipped: no LLM available")
-                return WorkflowType.NONE
+                return _cache_and_return(WorkflowType.NONE)
 
             # WHY: LiteLLM/OpenAI requires first message to have 'system' role
             messages = [{"role": "system", "type": "message", "content": prompt}]
@@ -494,7 +536,7 @@ Respond with exactly one word: NONE, EXPLORE, EDIT, VALIDATE, or FULL"""
             # Check for empty response
             if not response_text.strip():
                 logger.warning("Workflow detection: LLM returned empty response")
-                return WorkflowType.NONE
+                return _cache_and_return(WorkflowType.NONE)
 
             # Parse response
             response_upper = response_text.strip().upper()
@@ -503,17 +545,17 @@ Respond with exactly one word: NONE, EXPLORE, EDIT, VALIDATE, or FULL"""
                     logger.info(
                         f"Workflow detected: {wf.name} (response: '{response_text.strip()[:30]}')"
                     )
-                    return wf
+                    return _cache_and_return(wf)
 
             # No match found
             logger.warning(
                 f"Workflow detection: no match in response '{response_text.strip()[:50]}'"
             )
-            return WorkflowType.NONE
+            return _cache_and_return(WorkflowType.NONE)
 
         except Exception as e:
             logger.warning(f"LLM workflow detection failed: {e}")
-            return WorkflowType.NONE
+            return _cache_and_return(WorkflowType.NONE)
 
     def _apply_pending_edits(self, result: WorkflowResult) -> None:
         """

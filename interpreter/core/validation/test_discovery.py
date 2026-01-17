@@ -118,6 +118,68 @@ class TestDiscovery:
 
         return related_tests[:max_tests]
 
+    def find_related_tests_batch(
+        self, file_paths: list[str], max_tests_per_file: int = 10
+    ) -> dict[str, list[TestFile]]:
+        """
+        Find tests related to multiple files efficiently.
+
+        # WHY: Test discovery ran separately for each file, causing redundant work.
+        # TRADEOFF: Slightly more memory usage to cache test index vs. O(n^2) file walks.
+
+        Args:
+            file_paths: List of changed file paths (relative to project root)
+            max_tests_per_file: Maximum tests to return per file
+
+        Returns:
+            Dictionary mapping file_path -> list of related TestFile objects
+        """
+        # Build test file index once for all lookups
+        test_files = self._find_all_test_files()
+
+        # Pre-compute all test file contents and metadata
+        test_cache: dict[str, dict[str, Any]] = {}
+        for test_path in test_files:
+            test_cache[test_path] = {
+                "test_count": self._count_tests_in_file(test_path),
+                "content": None,  # Lazy-loaded on first import check
+            }
+
+        results: dict[str, list[TestFile]] = {}
+
+        for file_path in file_paths:
+            module_name = self._file_to_module(file_path)
+            file_stem = Path(file_path).stem
+            related_tests = []
+
+            for test_path in test_files:
+                cache_entry = test_cache[test_path]
+                test_file = TestFile(
+                    path=test_path,
+                    test_count=cache_entry["test_count"],
+                )
+
+                # Check if test imports the target file
+                if self._test_imports_module(test_path, module_name, file_path):
+                    test_file.imports_target = True
+
+                # Check if test name matches
+                if file_stem in Path(test_path).stem:
+                    test_file.name_matches = True
+
+                # Add if related
+                if test_file.imports_target or test_file.name_matches:
+                    related_tests.append(test_file)
+
+            # Sort by relevance (imports > name match, then by test count)
+            related_tests.sort(
+                key=lambda t: (not t.imports_target, not t.name_matches, -t.test_count)
+            )
+
+            results[file_path] = related_tests[:max_tests_per_file]
+
+        return results
+
     def find_same_directory_tests(self, file_path: str) -> list[TestFile]:
         """Find tests in the same directory as the file."""
         dir_path = Path(file_path).parent
@@ -199,6 +261,8 @@ class TestDiscovery:
             )
 
         except subprocess.TimeoutExpired:
+            # WHY: Timeout is a failure, not success. Tests may be hanging or infinite.
+            # TRADEOFF: Stricter behavior, but prevents masking test failures.
             return TestRunResult(
                 passed=False,
                 total_tests=0,
@@ -206,19 +270,22 @@ class TestDiscovery:
                 failed_tests=1,
                 skipped_tests=0,
                 duration_seconds=timeout_seconds,
-                output=f"Test run timed out after {timeout_seconds}s",
+                output=f"Test run timed out after {timeout_seconds}s (TIMEOUT - tests may be hanging)",
+                failed_test_names=["[TIMEOUT]"],
             )
 
         except FileNotFoundError:
-            # pytest not installed
+            # WHY: pytest not being installed should be surfaced, not hidden.
+            # TRADEOFF: May be noisy, but user should know tests couldn't run.
             return TestRunResult(
-                passed=True,  # Can't validate without pytest
+                passed=False,  # Can't validate without pytest - don't pretend we did
                 total_tests=0,
                 passed_tests=0,
                 failed_tests=0,
                 skipped_tests=0,
                 duration_seconds=0,
-                output="pytest not available",
+                output="pytest not available - install pytest to run tests",
+                failed_test_names=["[PYTEST_NOT_INSTALLED]"],
             )
 
         except Exception as e:

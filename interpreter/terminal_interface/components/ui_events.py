@@ -118,9 +118,14 @@ class UIEvent:
     source: str = "unknown"
 
     def __post_init__(self):
-        # Ensure data is always a dict
+        # WHY: Ensure data is always a dict to prevent "'str' object has no attribute 'get'" errors.
+        # TRADEOFF: Coercing types adds slight overhead vs. preventing handler crashes.
         if self.data is None:
             self.data = {}
+        elif isinstance(self.data, str):
+            self.data = {"message": self.data}
+        elif not isinstance(self.data, dict):
+            self.data = {"value": self.data}
 
 
 # Type alias for event handlers
@@ -472,9 +477,17 @@ def chunk_to_event(chunk: dict[str, Any]) -> UIEvent | None:
 
     # Status events
     if chunk_type == "status":
+        content = chunk.get("content", {})
+        # WHY: Status chunks often have string content (e.g., "complete", "interrupted")
+        # but event handlers expect dict data with .get() method.
+        # TRADEOFF: Wrapping string in dict vs. breaking event handlers.
+        if isinstance(content, str):
+            content = {"message": content}
+        elif not isinstance(content, dict):
+            content = {}
         return UIEvent(
             type=EventType.SYSTEM_TOKEN_UPDATE,
-            data=chunk.get("content", {}),
+            data=content,
             source="respond",
         )
 

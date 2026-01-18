@@ -334,8 +334,10 @@ def terminal_interface(interpreter, message):
                 ui_state.append_agent_output(agent_id, line)
 
         elif event.type == EventType.SYSTEM_TOKEN_UPDATE:
-            ui_state.context_tokens = event.data.get("tokens", 0)
-            ui_state.context_limit = event.data.get("limit", 128000)
+            # WHY: Belt-and-suspenders check for dict data. Status chunks can have string content.
+            if isinstance(event.data, dict):
+                ui_state.context_tokens = event.data.get("tokens", 0)
+                ui_state.context_limit = event.data.get("limit", 128000)
 
         # Phase 3: Track code blocks for navigation
         if event.type == EventType.CODE_START:

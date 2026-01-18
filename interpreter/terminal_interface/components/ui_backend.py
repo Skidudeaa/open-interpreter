@@ -236,8 +236,10 @@ class RichStreamBackend(UIBackend):
                 self.state.update_agent_status(agent_id, AgentStatus.ERROR, error)
 
         elif event.type == EventType.SYSTEM_TOKEN_UPDATE:
-            tokens = event.data.get("tokens", 0)
-            self.state.context_tokens = tokens
+            # WHY: Belt-and-suspenders check for dict data. Status chunks can have string content.
+            if isinstance(event.data, dict):
+                tokens = event.data.get("tokens", 0)
+                self.state.context_tokens = tokens
 
         elif event.type == EventType.SYSTEM_START:
             self.state.is_responding = True
@@ -380,8 +382,10 @@ class PromptToolkitBackend(UIBackend):
                 self.state.update_agent_status(agent_id, AgentStatus.ERROR, error)
 
         elif event.type == EventType.SYSTEM_TOKEN_UPDATE:
-            tokens = event.data.get("tokens", 0)
-            self.state.context_tokens = tokens
+            # WHY: Belt-and-suspenders check for dict data. Status chunks can have string content.
+            if isinstance(event.data, dict):
+                tokens = event.data.get("tokens", 0)
+                self.state.context_tokens = tokens
 
         elif event.type == EventType.SYSTEM_START:
             self.state.is_responding = True

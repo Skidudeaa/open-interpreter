@@ -173,6 +173,16 @@ def create_session_router() -> APIRouter:
     return router
 
 
+def _get_package_version() -> str:
+    """Get package version from metadata, with fallback."""
+    try:
+        from importlib.metadata import version
+
+        return version("open-interpreter")
+    except Exception:
+        return "unknown"
+
+
 def create_health_router(start_time: float | None = None) -> APIRouter:
     """
     Create the health/info router.
@@ -190,7 +200,7 @@ def create_health_router(start_time: float | None = None) -> APIRouter:
         """Detailed health check with feature status."""
         return HealthResponse(
             status="healthy",
-            version="1.0.0",  # TODO: Get from package
+            version=_get_package_version(),
             features={
                 "sessions": True,
                 "agents": True,

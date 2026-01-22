@@ -6,6 +6,7 @@ Memory and history API endpoints.
 # TRADEOFF: Exposes conversation data; scope queries to session for security
 """
 
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query
@@ -18,6 +19,9 @@ from .models import (
     MemorySearchResult,
 )
 from .sessions import session_manager
+
+# Module logger for memory API debugging
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["memory"])
 
@@ -110,7 +114,8 @@ async def get_memory_edits(
         # Try lazy loading
         try:
             semantic_graph = interpreter.semantic_graph
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to access semantic graph: {e}")
             return MemoryEditList(edits=[], total=0)
 
     # Query recent edits from the semantic graph
@@ -145,9 +150,9 @@ async def get_memory_edits(
                         summary=row[3],
                     )
                 )
-    except Exception:
+    except Exception as e:
         # If querying fails, return empty list
-        pass
+        logger.debug(f"Failed to query semantic graph edits: {e}")
 
     return MemoryEditList(edits=edits, total=len(edits))
 
@@ -178,7 +183,8 @@ async def search_memory(
     if semantic_graph is None:
         try:
             semantic_graph = interpreter.semantic_graph
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to access semantic graph for search: {e}")
             return MemorySearchResult(query=q, results=[], total=0)
 
     # Perform semantic search
@@ -198,7 +204,7 @@ async def search_memory(
         elif hasattr(semantic_graph, "search"):
             raw_results = semantic_graph.search(q, limit=limit)
             results = [{"content": str(r)} for r in raw_results]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Semantic search failed: {e}")
 
     return MemorySearchResult(query=q, results=results, total=len(results))

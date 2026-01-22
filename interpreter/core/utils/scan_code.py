@@ -19,8 +19,36 @@ logger = logging.getLogger(__name__)
 
 try:
     from yaspin import yaspin
+
+    HAS_YASPIN = True
 except ImportError:
-    yaspin = None
+    yaspin = None  # type: ignore
+    HAS_YASPIN = False
+
+
+class _NoOpSpinner:
+    """Fallback spinner when yaspin is not installed."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+    @property
+    def green(self):
+        return self
+
+    @property
+    def right(self):
+        return self
+
+    @property
+    def binary(self):
+        return self
+
+    def __call__(self, *args, **kwargs):
+        return self
 
 
 def parse_semgrep_output(stdout: str, stderr: str) -> list[dict[str, Any]]:
@@ -90,6 +118,11 @@ def scan_code(code, language, interpreter) -> list[dict[str, Any]]:
         code, language_class.file_extension, verbose=interpreter.verbose
     )
 
+    # Handle case where temp file creation failed
+    if temp_file is None:
+        logger.debug("Failed to create temporary file for code scanning")
+        return []
+
     temp_path = os.path.dirname(temp_file)
     file_name = os.path.basename(temp_file)
     language_name = language_class.name
@@ -100,11 +133,18 @@ def scan_code(code, language, interpreter) -> list[dict[str, Any]]:
 
     vulnerabilities: list[dict[str, Any]] = []
 
+    # Use yaspin spinner if available, otherwise use no-op fallback
+    spinner = (
+        yaspin(text="  Scanning code...").green.right.binary
+        if HAS_YASPIN
+        else _NoOpSpinner()
+    )
+
     # Run semgrep with JSON output for parsing
     try:
         # NOTE: Using list form instead of shell=True to avoid command injection risk.
         # The cwd parameter handles the directory change safely.
-        with yaspin(text="  Scanning code...").green.right.binary:
+        with spinner:
             scan = subprocess.run(
                 [
                     "semgrep",

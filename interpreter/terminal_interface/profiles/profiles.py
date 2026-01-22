@@ -21,25 +21,27 @@ from .historical_profiles import historical_profiles
 logger = logging.getLogger(__name__)
 
 
-# ARCHITECTURE: Restricted builtins for profile script execution.
-# WHY: Limit attack surface when executing profile scripts.
-# TRADEOFF: May break legitimate profiles that need these builtins;
-#           users can bypass by using local profiles they trust.
-# NOTE: We restrict dangerous builtins but allow most safe operations.
+# ARCHITECTURE: Restricted builtins for remote profile script execution.
+# WHY: Limit attack surface when executing untrusted remote profile scripts.
+# TRADEOFF: Remote profiles can't use eval/exec/compile/open/input.
+# NOTE: __import__ is allowed so profiles can import modules normally.
 def _get_safe_builtins() -> dict:
     """
-    Get a restricted version of builtins for profile script execution.
+    Get a restricted version of builtins for remote profile script execution.
 
     Restricts:
     - eval/exec/compile: Prevents nested arbitrary code execution
-    - __import__: Prevents dynamic module loading (use explicit imports)
     - open: Prevents file system access outside interpreter control
     - input: Prevents interactive prompts that could confuse users
+
+    Allows:
+    - __import__: Required for normal import statements to work
     """
     import builtins
 
     # List of dangerous builtins to remove
-    dangerous_builtins = {"eval", "exec", "compile", "__import__", "open", "input"}
+    # NOTE: __import__ is NOT blocked so import statements work
+    dangerous_builtins = {"eval", "exec", "compile", "open", "input"}
 
     safe = {}
     for name in dir(builtins):
@@ -188,10 +190,10 @@ def apply_profile(interpreter, profile, profile_path):
     """
     Apply a profile to the interpreter instance.
 
-    # ARCHITECTURE: Executes profile scripts with sandboxing and consent checks.
-    # WHY: Profiles can customize interpreter behavior but pose security risks.
-    # TRADEOFF: Consent prompts add friction vs protection against malicious profiles.
-    # NOTE: Local profiles are more trusted; remote profiles require explicit consent.
+    # ARCHITECTURE: Executes profile scripts with sandboxing for remote profiles only.
+    # WHY: Remote profiles pose security risks and need consent + sandboxing.
+    # TRADEOFF: Local profiles are fully trusted (backward compatible).
+    # NOTE: Sandboxing blocks eval/exec/compile/open/input but allows imports.
     """
     if "start_script" in profile:
         # Check if profile is from a remote source
@@ -217,15 +219,21 @@ def apply_profile(interpreter, profile, profile_path):
         logger.info(f"Executing profile script from: {profile_path}")
 
         try:
-            # Use restricted globals for exec to limit attack surface
-            # WHY: Prevents profile scripts from using dangerous operations
-            # TRADEOFF: May break profiles that need __import__, open, etc.
-            safe_builtins = _get_safe_builtins()
-            restricted_globals = {
-                "__builtins__": safe_builtins,
-                "interpreter": interpreter,
-            }
-            exec(profile["start_script"], restricted_globals, restricted_globals)
+            if is_remote:
+                # Remote profiles: use restricted globals to limit attack surface
+                # WHY: Prevents remote profile scripts from using dangerous operations
+                # TRADEOFF: Remote profiles can't use eval/exec/compile/open/input
+                safe_builtins = _get_safe_builtins()
+                restricted_globals = {
+                    "__builtins__": safe_builtins,
+                    "interpreter": interpreter,
+                }
+                exec(profile["start_script"], restricted_globals, restricted_globals)
+            else:
+                # Local profiles: trust them fully (backward compatible)
+                # WHY: User controls local profile files
+                scope = {"interpreter": interpreter}
+                exec(profile["start_script"], scope, scope)
         except Exception as e:
             logger.error(f"Profile script execution failed: {e}")
             print(f"\n⚠️  Profile script failed: {e}")

@@ -17,6 +17,7 @@ Capabilities:
 """
 
 import asyncio
+import logging
 import os
 import re
 import time
@@ -38,6 +39,9 @@ from .types import AgentResult, AgentRole, create_result
 if TYPE_CHECKING:
     from ..core import OpenInterpreter
     from ..memory import SemanticEditGraph
+
+# Module logger for research agent debugging
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -108,7 +112,9 @@ class ResearchAgent(BaseAgent):
             plugins: Optional plugins
             name: Optional agent name
         """
-        super().__init__(interpreter, memory, plugins=plugins, name=name or "researcher")
+        super().__init__(
+            interpreter, memory, plugins=plugins, name=name or "researcher"
+        )
         self.root_path = root_path or os.getcwd()
         self.config = config or ResearchConfig()
 
@@ -188,8 +194,9 @@ Always provide:
 
         try:
             report = loop.run_until_complete(self._research_async(task, context))
-        except Exception:
+        except Exception as e:
             # Fallback to basic search if async fails
+            logger.debug(f"Async research failed, falling back to sync: {e}")
             report = self._research_sync(task)
 
         execution_time = time.time() - start_time
@@ -285,7 +292,7 @@ Always provide:
             return ResearchReport(
                 query=query,
                 summary="Could not extract content from sources.",
-                citations=[r for r in top_results],
+                citations=list(top_results),
                 total_sources=len(top_results),
                 research_depth=self.config.depth,
             )

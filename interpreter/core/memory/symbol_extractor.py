@@ -10,8 +10,12 @@ For other languages, tree-sitter can be used as an optional extension.
 
 import ast
 import difflib
+import logging
 
 from .edit_record import SymbolReference
+
+# Module logger for symbol extraction debugging
+logger = logging.getLogger(__name__)
 
 
 class PythonSymbolExtractor:
@@ -134,8 +138,8 @@ class PythonSymbolExtractor:
             if arg.annotation:
                 try:
                     arg_str += f": {ast.unparse(arg.annotation)}"
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Could not unparse annotation for {arg.arg}: {e}")
             args.append(arg_str)
 
         # *args
@@ -152,8 +156,8 @@ class PythonSymbolExtractor:
         if node.returns:
             try:
                 signature += f" -> {ast.unparse(node.returns)}"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Could not unparse return type for {node.name}: {e}")
 
         return signature
 
@@ -163,7 +167,8 @@ class PythonSymbolExtractor:
         for base in node.bases:
             try:
                 bases.append(ast.unparse(base))
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Could not unparse base class for {node.name}: {e}")
                 bases.append("...")
 
         if bases:

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import shutil
 import socket
@@ -15,6 +16,9 @@ from pydantic import BaseModel
 from starlette.websockets import WebSocketState
 
 from .core import OpenInterpreter
+
+# Module logger for async core debugging
+logger = logging.getLogger(__name__)
 
 last_start_time = 0
 
@@ -826,7 +830,8 @@ def create_router(async_interpreter):
                         else:
                             return True
 
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"WebSocket send_output error (retrying): {e}")
                         await asyncio.sleep(0.01)
 
                 return False

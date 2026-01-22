@@ -21,11 +21,15 @@ Example - Exposing agent as MCP server:
 
 import asyncio
 import json
+import logging
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+# Module logger for MCP bridge debugging
+logger = logging.getLogger(__name__)
 
 
 class MCPTransport(Enum):
@@ -129,7 +133,8 @@ class MCPClient:
             else:
                 return False
 
-        except Exception:
+        except Exception as e:
+            logger.debug(f"MCP connection failed: {e}")
             self._connected = False
             return False
 
@@ -180,7 +185,8 @@ class MCPClient:
                 if self._connected:
                     await self._discover_tools()
                 return self._connected
-        except Exception:
+        except Exception as e:
+            logger.debug(f"MCP HTTP connection failed: {e}")
             return False
 
     async def disconnect(self) -> None:
@@ -694,7 +700,8 @@ class MCPBridge:
                 sys.stdout.write(json.dumps(response) + "\n")
                 sys.stdout.flush()
 
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                logger.debug(f"MCP server received malformed JSON: {e}")
                 continue
             except Exception as e:
                 error_response = {

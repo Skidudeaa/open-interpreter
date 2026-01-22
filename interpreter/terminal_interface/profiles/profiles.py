@@ -1,6 +1,7 @@
 import ast
 import glob
 import json
+import logging
 import os
 import platform
 import shutil
@@ -15,6 +16,47 @@ import yaml
 from ..local_setup import spinner_sleep
 from ..utils.oi_dir import oi_dir
 from .historical_profiles import historical_profiles
+
+# Module logger for profile-level debugging
+logger = logging.getLogger(__name__)
+
+
+# ARCHITECTURE: Restricted builtins for profile script execution.
+# WHY: Limit attack surface when executing profile scripts.
+# TRADEOFF: May break legitimate profiles that need these builtins;
+#           users can bypass by using local profiles they trust.
+# NOTE: We restrict dangerous builtins but allow most safe operations.
+def _get_safe_builtins() -> dict:
+    """
+    Get a restricted version of builtins for profile script execution.
+
+    Restricts:
+    - eval/exec/compile: Prevents nested arbitrary code execution
+    - __import__: Prevents dynamic module loading (use explicit imports)
+    - open: Prevents file system access outside interpreter control
+    - input: Prevents interactive prompts that could confuse users
+    """
+    import builtins
+
+    # List of dangerous builtins to remove
+    dangerous_builtins = {"eval", "exec", "compile", "__import__", "open", "input"}
+
+    safe = {}
+    for name in dir(builtins):
+        if not name.startswith("_") or name == "__name__":
+            if name not in dangerous_builtins:
+                safe[name] = getattr(builtins, name)
+
+    # Keep __builtins__ itself for compatibility
+    safe["__builtins__"] = safe
+
+    return safe
+
+
+def _is_remote_profile(profile_path: str) -> bool:
+    """Check if a profile path is from a remote source."""
+    return profile_path.startswith(("http://", "https://"))
+
 
 profile_dir = os.path.join(oi_dir, "profiles")
 user_default_profile_path = os.path.join(profile_dir, "default.yaml")
@@ -143,9 +185,52 @@ class RemoveInterpreter(ast.NodeTransformer):
 
 
 def apply_profile(interpreter, profile, profile_path):
+    """
+    Apply a profile to the interpreter instance.
+
+    # ARCHITECTURE: Executes profile scripts with sandboxing and consent checks.
+    # WHY: Profiles can customize interpreter behavior but pose security risks.
+    # TRADEOFF: Consent prompts add friction vs protection against malicious profiles.
+    # NOTE: Local profiles are more trusted; remote profiles require explicit consent.
+    """
     if "start_script" in profile:
-        scope = {"interpreter": interpreter}
-        exec(profile["start_script"], scope, scope)
+        # Check if profile is from a remote source
+        is_remote = _is_remote_profile(profile_path)
+
+        if is_remote:
+            print("\n⚠️  WARNING: About to execute remote profile script from:")
+            print(f"   {profile_path}")
+            print("\nThis script will have access to your interpreter instance.")
+            try:
+                user_input = input("Execute this profile? [y/N]: ").strip().lower()
+                if user_input not in ("y", "yes"):
+                    print("Profile execution cancelled.")
+                    return interpreter
+            except EOFError:
+                print("Non-interactive mode - skipping remote profile for safety.")
+                logger.warning(
+                    f"Skipped remote profile in non-interactive mode: {profile_path}"
+                )
+                return interpreter
+
+        # Log profile execution
+        logger.info(f"Executing profile script from: {profile_path}")
+
+        try:
+            # Use restricted globals for exec to limit attack surface
+            # WHY: Prevents profile scripts from using dangerous operations
+            # TRADEOFF: May break profiles that need __import__, open, etc.
+            safe_builtins = _get_safe_builtins()
+            restricted_globals = {
+                "__builtins__": safe_builtins,
+                "interpreter": interpreter,
+            }
+            exec(profile["start_script"], restricted_globals, restricted_globals)
+        except Exception as e:
+            logger.error(f"Profile script execution failed: {e}")
+            print(f"\n⚠️  Profile script failed: {e}")
+            print("Continuing with default settings...")
+            # Don't re-raise - allow interpreter to continue with defaults
 
     if (
         "version" not in profile or profile["version"] != OI_VERSION

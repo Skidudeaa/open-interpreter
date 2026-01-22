@@ -646,8 +646,10 @@ def respond(interpreter):
                         interpreter.messages[-1][
                             "format"
                         ] = language  # So the LLM can see it.
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(
+                            f"LLM output JSON parsing failed (non-blocking): {e}"
+                        )
 
                 # print(code)
                 # print("---")
@@ -659,8 +661,10 @@ def respond(interpreter):
                         interpreter.messages[-1][
                             "content"
                         ] = code  # So the LLM can see it.
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(
+                            f"Message content update failed (non-blocking): {e}"
+                        )
 
                 if code.replace("\n", "").replace(" ", "").startswith('{"language":'):
                     try:
@@ -674,8 +678,10 @@ def respond(interpreter):
                             interpreter.messages[-1][
                                 "format"
                             ] = language  # So the LLM can see it.
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(
+                            f"LLM JSON wrapper parsing failed (non-blocking): {e}"
+                        )
 
                 if code.replace("\n", "").replace(" ", "").startswith("{language:"):
                     try:
@@ -692,8 +698,10 @@ def respond(interpreter):
                             interpreter.messages[-1][
                                 "format"
                             ] = language  # So the LLM can see it.
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(
+                            f"LLM YAML-like wrapper parsing failed (non-blocking): {e}"
+                        )
 
                 if (
                     language == "text"

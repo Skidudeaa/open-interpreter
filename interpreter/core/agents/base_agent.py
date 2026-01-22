@@ -13,6 +13,7 @@ Agents can be used standalone or orchestrated together.
 
 import asyncio
 import inspect
+import logging
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -22,6 +23,9 @@ from typing import TYPE_CHECKING, Any, Optional
 
 # Import unified types (single source of truth)
 from .types import AgentResult, AgentRole
+
+# Module logger for agent-level debugging
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from ...sdk.plugins import AgentPlugin, PluginRegistry
@@ -331,10 +335,9 @@ class BaseAgent(ABC):
                 if hook_result is not None:
                     result = hook_result
             except Exception as e:
-                if getattr(self.interpreter, "verbose", False):
-                    print(
-                        f"[{self.name}] Plugin {getattr(plugin, 'name', plugin)} error: {e}"
-                    )
+                logger.debug(
+                    f"[{self.name}] Plugin {getattr(plugin, 'name', plugin)} error: {e}"
+                )
         return result
 
     def _run_hook_sync(self, hook_name: str, value: Any, **kwargs) -> Any:
@@ -360,8 +363,7 @@ class BaseAgent(ABC):
             try:
                 return asyncio.run(runner())
             except Exception as e:
-                if getattr(self.interpreter, "verbose", False):
-                    print(f"[{self.name}] Hook {hook_name} error: {e}")
+                logger.debug(f"[{self.name}] Hook {hook_name} error: {e}")
                 return value
 
         # Running loop exists: offload to a thread to avoid "asyncio.run() cannot be called..."
@@ -370,14 +372,12 @@ class BaseAgent(ABC):
             fut = executor.submit(lambda: asyncio.run(runner()))
             return fut.result(timeout=self.PLUGIN_HOOK_TIMEOUT_S)
         except FuturesTimeoutError:
-            if getattr(self.interpreter, "verbose", False):
-                print(
-                    f"[{self.name}] Hook {hook_name} timed out after {self.PLUGIN_HOOK_TIMEOUT_S}s"
-                )
+            logger.debug(
+                f"[{self.name}] Hook {hook_name} timed out after {self.PLUGIN_HOOK_TIMEOUT_S}s"
+            )
             return value
         except Exception as e:
-            if getattr(self.interpreter, "verbose", False):
-                print(f"[{self.name}] Hook {hook_name} error: {e}")
+            logger.debug(f"[{self.name}] Hook {hook_name} error: {e}")
             return value
 
     # =========================================================================
@@ -617,7 +617,9 @@ class BaseAgent(ABC):
                 try:
                     # NOTE: message=None (not "") to avoid appending empty content
                     # which Anthropic rejects with "text content blocks must be non-empty"
-                    gen = self.interpreter.chat(message=None, display=False, stream=True)
+                    gen = self.interpreter.chat(
+                        message=None, display=False, stream=True
+                    )
                     for chunk in gen:
                         if (time.perf_counter() - start) > timeout:
                             self.log(f"LLM call timed out after {timeout}s")

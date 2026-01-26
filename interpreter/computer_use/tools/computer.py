@@ -69,7 +69,9 @@ def smooth_move_to(x, y, duration=1.2):
     start_x, start_y = pyautogui.position()
     dx = x - start_x
     dy = y - start_y
-    distance = math.hypot(dx, dy)  # Calculate the distance in pixels
+    _distance = math.hypot(
+        dx, dy
+    )  # Calculate the distance in pixels (unused but kept for reference)
 
     start_time = time.time()
 

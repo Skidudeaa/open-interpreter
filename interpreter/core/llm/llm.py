@@ -472,7 +472,7 @@ def fixed_litellm_completions(**params):
     # Run completion
     attempts = 4
     first_error = None
-    last_error = None
+    _last_error = None  # noqa: F841 - kept for debugging purposes
 
     params["num_retries"] = 0
 
@@ -491,7 +491,7 @@ def fixed_litellm_completions(**params):
             print("Exiting...")
             sys.exit(0)
         except Exception as e:
-            last_error = e
+            _last_error = e  # noqa: F841 - kept for debugging purposes
             if attempt == 0:
                 # Store the first error
                 first_error = e

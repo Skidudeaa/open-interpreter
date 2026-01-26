@@ -28,7 +28,7 @@ if "--os" in sys.argv:
             # Aesthetic choice. For these tags, they need a space below them
             print("")
 
-    from importlib.metadata import version
+    from importlib.metadata import version as get_version
 
     import requests
     from packaging import version
@@ -39,7 +39,7 @@ if "--os" in sys.argv:
         latest_version = response.json()["info"]["version"]
 
         # Get the current version using importlib.metadata
-        current_version = version("open-interpreter")
+        current_version = get_version("open-interpreter")
 
         return version.parse(latest_version) > version.parse(current_version)
 

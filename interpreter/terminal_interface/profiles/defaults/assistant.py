@@ -1,8 +1,8 @@
+import importlib.util
+
 from interpreter import interpreter
 
-try:
-    import pyautogui
-except ImportError:
+if importlib.util.find_spec("pyautogui") is None:
     print(
         "Some actions may fail as OS dependencies are not installed. Please run 'pip install open-interpreter[os]' to install them."
     )

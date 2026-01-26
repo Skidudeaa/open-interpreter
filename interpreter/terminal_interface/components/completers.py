@@ -64,7 +64,9 @@ class MagicCommandCompleter(Completer):
         self, document: Document, complete_event
     ) -> Iterable[Completion]:
         text = document.text_before_cursor
-        word = document.get_word_before_cursor()
+        _word = (
+            document.get_word_before_cursor()
+        )  # noqa: F841 - reserved for future use
 
         # Only complete if starts with %
         if not text.lstrip().startswith("%"):

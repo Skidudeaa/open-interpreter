@@ -517,7 +517,7 @@ Move your mouse to any corner of the screen to exit.
             data = {"first_name": first_name, "email": email}
 
             try:
-                response = requests.post(url, json=data)
+                requests.post(url, json=data)
             except requests.RequestException as e:
                 print(f"Failed to submit to waitlist: {e}")
 

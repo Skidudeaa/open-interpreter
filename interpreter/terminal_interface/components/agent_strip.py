@@ -202,7 +202,6 @@ class AgentStrip:
             return f"{total} agent{plural}"
         else:
             plural1 = "s" if total != 1 else ""
-            plural2 = "s" if running != 1 else ""
             return f"{total} agent{plural1} ({running} running)"
 
 

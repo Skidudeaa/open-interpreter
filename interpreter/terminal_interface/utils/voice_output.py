@@ -7,6 +7,7 @@ Supports:
 - Linux: espeak or pyttsx3
 """
 
+import importlib.util
 import platform
 import subprocess
 import threading
@@ -241,11 +242,7 @@ def check_tts_available() -> bool:
                 continue
 
         # Try pyttsx3
-        try:
-            import pyttsx3
-
+        if importlib.util.find_spec("pyttsx3") is not None:
             return True
-        except ImportError:
-            pass
 
         return False

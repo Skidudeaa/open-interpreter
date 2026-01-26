@@ -256,7 +256,9 @@ def _looks_like_csv(output: str) -> bool:
     try:
         sample = "\n".join(lines[:10])
         dialect = csv.Sniffer().sniff(sample, delimiters=",\t;|")
-        has_header = csv.Sniffer().has_header(sample)
+        _has_header = csv.Sniffer().has_header(
+            sample
+        )  # noqa: F841 - detected but not used currently
     except csv.Error:
         return False
 

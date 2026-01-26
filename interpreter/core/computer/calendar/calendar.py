@@ -165,7 +165,7 @@ class Calendar:
         end_date: datetime.datetime,
         location: str = "",
         notes: str = "",
-        calendar: str = None,
+        calendar: str | None = None,
     ) -> str:
         """
         Creates a new calendar event in the default calendar with the given parameters using AppleScript.
@@ -210,7 +210,10 @@ class Calendar:
             return str(e)
 
     def delete_event(
-        self, event_title: str, start_date: datetime.datetime, calendar: str = None
+        self,
+        event_title: str,
+        start_date: datetime.datetime,
+        calendar: str | None = None,
     ) -> str:
         if platform.system() != "Darwin":
             return "This method is only supported on MacOS"
@@ -274,7 +277,7 @@ class Calendar:
         else:
             return "Unknown error deleting event. Please check event title and date."
 
-    def get_first_calendar(self) -> str:
+    def get_first_calendar(self) -> str | None:
         # Literally just gets the first calendar name of all the calendars on the system. AppleScript does not provide a way to get the "default" calendar
         script = f"""
             -- Open calendar first

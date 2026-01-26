@@ -14,14 +14,23 @@ import uuid
 from collections.abc import Callable
 from datetime import datetime
 
-try:
+if sys.version_info >= (3, 11):
     from enum import StrEnum
-except ImportError:  # 3.10 compatibility
-    from enum import Enum as StrEnum
+else:
+    # Python 3.10 compatibility
+    from enum import Enum
 
-from typing import Any, cast
+    class StrEnum(str, Enum):  # type: ignore[no-redef]
+        """String enum for Python 3.10 compatibility."""
 
+        pass
+
+
+from typing import Any, Literal, Union, cast
+
+import pyautogui
 import requests
+import uvicorn
 from anthropic import Anthropic, AnthropicBedrock, AnthropicVertex
 from anthropic.types import ToolResultBlockParam
 from anthropic.types.beta import (
@@ -35,21 +44,18 @@ from anthropic.types.beta import (
     BetaRawContentBlockStopEvent,
     BetaTextBlockParam,
     BetaToolResultBlockParam,
+    BetaUsage,
 )
-
-from .tools import ComputerTool, ToolCollection, ToolResult
-
-BETA_FLAG = "computer-use-2024-10-22"
-
-
-import pyautogui
-import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from rich import print as rich_print
 from rich.markdown import Markdown
 from rich.rule import Rule
+
+from .tools import ComputerTool, ToolCollection, ToolResult
+
+BETA_FLAG = "computer-use-2024-10-22"
 
 # Global variables
 messages: list[BetaMessageParam] = []
@@ -178,12 +184,15 @@ async def sampling_loop(
         if only_n_most_recent_images:
             _maybe_filter_to_n_most_recent_images(messages, only_n_most_recent_images)
 
+        client: Union[Anthropic, AnthropicVertex, AnthropicBedrock]
         if provider == APIProvider.ANTHROPIC:
             client = Anthropic(api_key=api_key)
         elif provider == APIProvider.VERTEX:
             client = AnthropicVertex()
         elif provider == APIProvider.BEDROCK:
             client = AnthropicBedrock()
+        else:
+            raise ValueError(f"Unknown provider: {provider}")
 
         # Call the API
         # we use raw_response to provide debug information to streamlit. Your
@@ -199,40 +208,41 @@ async def sampling_loop(
             stream=True,
         )
 
-        response_content = []
-        current_block = None
+        response_content: list[BetaContentBlock] = []
+        current_block: BetaContentBlock | None = None
+        # Track partial JSON for tool use blocks separately (SDK objects are immutable)
+        partial_json_buffer: str = ""
 
         for chunk in raw_response:
             if isinstance(chunk, BetaRawContentBlockStartEvent):
                 current_block = chunk.content_block
+                partial_json_buffer = ""
             elif isinstance(chunk, BetaRawContentBlockDeltaEvent):
                 if chunk.delta.type == "text_delta":
-                    print(f"{chunk.delta.text}", end="", flush=True)
-                    yield {"type": "chunk", "chunk": chunk.delta.text}
+                    delta_text = getattr(chunk.delta, "text", "")
+                    print(f"{delta_text}", end="", flush=True)
+                    yield {"type": "chunk", "chunk": delta_text}
                     await asyncio.sleep(0)
-                    if current_block and current_block.type == "text":
-                        current_block.text += chunk.delta.text
+                    # Text blocks accumulate text via the SDK's stream handling
                 elif chunk.delta.type == "input_json_delta":
-                    print(f"{chunk.delta.partial_json}", end="", flush=True)
-                    if current_block and current_block.type == "tool_use":
-                        if not hasattr(current_block, "partial_json"):
-                            current_block.partial_json = ""
-                        current_block.partial_json += chunk.delta.partial_json
+                    delta_json = getattr(chunk.delta, "partial_json", "")
+                    print(f"{delta_json}", end="", flush=True)
+                    partial_json_buffer += delta_json
             elif isinstance(chunk, BetaRawContentBlockStopEvent):
                 if current_block:
-                    if hasattr(current_block, "partial_json"):
-                        # Finished a tool call
-                        # print()
-                        current_block.input = json.loads(current_block.partial_json)
-                        # yield {"type": "chunk", "chunk": current_block.input}
-                        delattr(current_block, "partial_json")
+                    if current_block.type == "tool_use" and partial_json_buffer:
+                        # Reconstruct tool_use block with parsed input
+                        # Use object.__setattr__ to bypass frozen dataclass
+                        parsed_input = json.loads(partial_json_buffer)
+                        object.__setattr__(current_block, "input", parsed_input)
                     else:
-                        # Finished a message
+                        # Finished a text message
                         print("\n")
                         yield {"type": "chunk", "chunk": "\n"}
                         await asyncio.sleep(0)
                     response_content.append(current_block)
                     current_block = None
+                    partial_json_buffer = ""
 
         response = BetaMessage(
             id=str(uuid.uuid4()),
@@ -242,10 +252,7 @@ async def sampling_loop(
             stop_reason=None,
             stop_sequence=None,
             type="message",
-            usage={
-                "input_tokens": 0,
-                "output_tokens": 0,
-            },  # Add a default usage dictionary
+            usage=BetaUsage(input_tokens=0, output_tokens=0),
         )
 
         messages.append(
@@ -399,28 +406,34 @@ async def main():
             async def stream_response():
                 # Instead of creating converted_messages, append the last message to global messages
                 global messages
+                role = request.messages[-1].role
+                # Cast role to the expected literal type
+                msg_role: Literal["user", "assistant"] = (
+                    "user" if role == "user" else "assistant"
+                )
                 messages.append(
                     {
-                        "role": request.messages[-1].role,
+                        "role": msg_role,
                         "content": [
                             {"type": "text", "text": request.messages[-1].content}
                         ],
                     }
                 )
 
-                response_chunks = []
+                response_chunks: list[str] = []
 
-                async def output_callback(content_block: BetaContentBlock):
-                    chunk = f"data: {json.dumps({'choices': [{'delta': {'content': content_block.text}}]})}\n\n"
-                    response_chunks.append(chunk)
-                    yield chunk
+                def output_callback(content_block: BetaContentBlock) -> None:
+                    # Only text blocks have .text attribute
+                    if content_block.type == "text":
+                        text_content = content_block.text
+                        chunk = f"data: {json.dumps({'choices': [{'delta': {'content': text_content}}]})}\n\n"
+                        response_chunks.append(chunk)
 
-                async def tool_output_callback(result: ToolResult, tool_id: str):
+                def tool_output_callback(result: ToolResult, _tool_id: str) -> None:
                     if result.output or result.error:
                         content = result.output if result.output else result.error
                         chunk = f"data: {json.dumps({'choices': [{'delta': {'content': content}}]})}\n\n"
                         response_chunks.append(chunk)
-                        yield chunk
 
                 try:
                     yield f"data: {json.dumps({'choices': [{'delta': {'role': 'assistant'}}]})}\n\n"
@@ -443,7 +456,11 @@ async def main():
                             await asyncio.sleep(0)
                             yield f"data: {json.dumps({'choices': [{'delta': {'content': chunk['chunk']}}]})}\n\n"
                         if chunk["type"] == "messages":
-                            messages = chunk["messages"]
+                            # Update global messages list in place
+                            messages.clear()
+                            messages.extend(
+                                cast(list[BetaMessageParam], chunk["messages"])
+                            )
 
                     yield f"data: {json.dumps({'choices': [{'delta': {'content': '', 'finish_reason': 'stop'}}]})}\n\n"
 
@@ -528,10 +545,10 @@ Move your mouse to any corner of the screen to exit.
             {"role": "user", "content": [{"type": "text", "text": user_input}]}
         )
 
-        def output_callback(content_block: BetaContentBlock):
+        def output_callback(_content_block: BetaContentBlock) -> None:
             pass
 
-        def tool_output_callback(result: ToolResult, tool_id: str):
+        def tool_output_callback(result: ToolResult, _tool_id: str) -> None:
             if result.output:
                 print(f"---\n{result.output}\n---")
             if result.error:
@@ -548,18 +565,21 @@ Move your mouse to any corner of the screen to exit.
                 api_key=api_key,
             ):
                 if chunk["type"] == "messages":
-                    messages = chunk["messages"]
+                    # Update messages list in place
+                    messages.clear()
+                    messages.extend(cast(list[BetaMessageParam], chunk["messages"]))
         except Exception:
             raise
 
     # The thread will automatically terminate when the main program exits
 
 
-def run_async_main():
+def run_async_main() -> None:
     if "--server" in sys.argv:
         # Start uvicorn server directly without asyncio.run()
         app = asyncio.run(main())
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+        if app is not None:
+            uvicorn.run(app, host="0.0.0.0", port=8000)
     else:
         asyncio.run(main())
 

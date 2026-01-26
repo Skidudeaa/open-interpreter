@@ -7,7 +7,7 @@ import tempfile
 import time
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 from uuid import uuid4
 
 # Add import for PyAutoGUI
@@ -133,8 +133,8 @@ class ComputerTool(BaseAnthropicTool):
         action: Action,
         text: str | None = None,
         coordinate: tuple[int, int] | None = None,
-        **kwargs,
-    ):
+        **_kwargs: Any,
+    ) -> ToolResult:
         if action in ("mouse_move", "left_click_drag"):
             if coordinate is None:
                 raise ToolError(f"coordinate is required for {action}")
@@ -157,18 +157,18 @@ class ComputerTool(BaseAnthropicTool):
                     text = text.replace("super+", "command+")
 
                 # Normalize key names
-                def normalize_key(key):
-                    key = key.lower().replace("_", "")
-                    key_map = {
+                def normalize_key(key: str) -> str:
+                    normalized = key.lower().replace("_", "")
+                    key_map: dict[str, str] = {
                         "pagedown": "pgdn",
                         "pageup": "pgup",
                         "enter": "return",
                         "return": "enter",
                         # Add more mappings as needed
                     }
-                    return key_map.get(key, key)
+                    return key_map.get(normalized, normalized)
 
-                keys = [normalize_key(k) for k in text.split("+")]
+                keys: list[str] = [normalize_key(k) for k in text.split("+")]
 
                 if len(keys) > 1:
                     if "darwin" in platform.system().lower():

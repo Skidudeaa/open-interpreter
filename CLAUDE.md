@@ -74,6 +74,21 @@ Output fed back to LLM until complete
 - Dual backends: `PromptToolkitBackend` (interactive) / `RichStreamBackend` (fallback)
 - Adaptive modes: ZEN → STANDARD → POWER → DEBUG (auto-escalates based on activity score)
 
+**`interpreter/terminal_interface/components/`** (UI Components)
+- `ui_state.py` - Centralized state: `UIState`, `UIMode`, `AgentState`, `AgentStatus`
+- `ui_events.py` - `EventBus` pub/sub with `EventType` enum (`AGENT_SPAWN`, `CODE_START`, etc.)
+- `ui_mode_manager.py` - Auto-escalation scoring (agent spawn +10, error +5, long exec +3)
+- `input_handler.py` - prompt_toolkit key bindings (Alt+P mode, Alt+H panel, Ctrl+R history)
+- `completers.py` - `MagicCommandCompleter`, `ConversationCompleter`, `AtFileCompleter`
+- `command_palette.py` - Fuzzy `/` command search with recent prioritization
+- `pt_app.py` - Full-screen prompt_toolkit `Application` with layout
+- `agent_strip.py` - Bottom bar: `[Scout: ✓ 2.3s] [Surgeon: ⏳ running]`
+- `agent_tree.py` - Hierarchical parent→child agent view with output preview
+- `context_panel.py` - Variables/functions/metrics sidebar (POWER/DEBUG mode)
+- `context_meter.py` - Token usage bar with threshold warnings
+- `code_block.py` - Syntax-highlighted code with fold/unfold, traceback highlighting
+- `toast.py` - Transient notification system
+
 **`interpreter/sdk/`**
 - `AgentBuilder` - Factory for custom agents from templates (scout, surgeon, architect, reviewer, tester)
 - Plugin system with hooks: `on_before_execute`, `on_after_execute`, `on_error`, etc.
@@ -111,6 +126,45 @@ OI_NO_TUI=true                    # Disable interactive mode
 3. **Generator-Based Streaming** - `respond()` yields chunks for real-time display
 4. **Git-Based Rollback** - `TransactionalEdit` context manager for atomic file changes
 5. **Exit via Exception** - Ctrl+C/D use `event.app.exit(exception=EOFError())` so prompt_toolkit raises instead of returning empty string
+
+## Terminal UI Architecture
+
+### Key Bindings (prompt_toolkit)
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+L` | Clear screen |
+| `Ctrl+R` | Search history |
+| `Ctrl+D` | Exit (empty buffer) |
+| `Alt+P` / `F2` | Cycle UI mode |
+| `Alt+H` / `F3` | Toggle context panel |
+| `Alt+A` / `F4` | Focus agent strip |
+| `Esc` | Cancel operation |
+| `F1` | Show help overlay |
+
+### Event Types (ui_events.py)
+
+```python
+# Agent lifecycle
+AGENT_SPAWN, AGENT_COMPLETE, AGENT_ERROR, AGENT_OUTPUT
+
+# Code execution
+CODE_START, CODE_END, CONSOLE_OUTPUT, CONSOLE_ERROR
+
+# System
+SYSTEM_TOKEN_UPDATE, SYSTEM_ERROR, UI_MODE_CHANGE, UI_CANCEL
+```
+
+### UI Modes (auto-escalation)
+
+| Mode | Score | Visible Elements |
+|------|-------|------------------|
+| ZEN | 0 | Conversation only |
+| STANDARD | 5+ | + Status bar |
+| POWER | 15+ | + Agent strip, context panel |
+| DEBUG | 30+ | + Token counts, timing, raw chunks |
+
+Scoring: Agent spawn +10, error +5, code exec +3, long run +3. Decays 1 pt/30s.
 
 ## Code Style
 

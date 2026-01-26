@@ -260,6 +260,10 @@ def terminal_interface(interpreter, message):
     pending_message_start = None  # Buffer "start" until non-empty content arrives
     voice_subprocess = None
 
+    # Deduplication: prevent creating identical code blocks in rapid succession
+    # WHY: Agents may emit many similar chunks causing duplicate visual blocks
+    _last_code_block_key = None  # (language, code_start) tuple for deduplication
+
     # Phase 2-4: Initialize UI components
     ui_state = getattr(interpreter, "_ui_state", None) or UIState()
     mode_manager = UIModeManager(ui_state)
@@ -637,18 +641,15 @@ def terminal_interface(interpreter, message):
                 if ui_event:
                     event_bus.emit(ui_event)
 
-                # Phase 2: Display agent strip when agents are active
-                if not interpreter.plain_text_display and ui_state.agent_strip_visible:
+                # Phase 2: Track agent status (DO NOT print inline - causes duplicates)
+                # Agent status is tracked in ui_state and displayed via events
+                # The inline printing was causing duplicate agent strip panels
+                # If you need to display agent status, use LiveAgentTracker instead
+                if ui_state.agent_strip_visible:
                     current_time = time.time()
                     if current_time - last_refresh_time > REFRESH_INTERVAL:
-                        with UIErrorContext("AgentStrip", "render"):
-                            agent_panel = agent_strip.render()
-                            if agent_panel:
-                                from rich.console import Console
-
-                                console = Console()
-                                console.print(agent_panel, end="")
                         last_refresh_time = current_time
+                        # Status is already updated via event handlers, no action needed
 
                 # Stop spinner when a block is about to be created (start) or content arrives
                 # Must stop before creating any new Live contexts to avoid Rich conflicts
@@ -830,12 +831,11 @@ def terminal_interface(interpreter, message):
                     and chunk.get("type") == "message"
                     and pending_message_start
                 ):
-                    if getattr(interpreter, "debug_empty_responses", False):
-                        import sys
-
-                        print(
-                            "[EMPTY] Discarding message block: start received but no content",
-                            file=sys.stderr,
+                    if getattr(interpreter, "debug_empty_responses", False) and getattr(
+                        interpreter, "verbose", False
+                    ):
+                        logger.debug(
+                            "Discarding message block: start received but no content"
                         )
                     pending_message_start = None
                     continue

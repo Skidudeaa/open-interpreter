@@ -178,12 +178,29 @@ class CodeBlock(BaseBlock):
 
         # Combine and display
         group = Group(*components)
-        if self.live:
-            self.live.update(group)
-            self.live.refresh()
-        else:
-            # Fallback: print directly when Live isn't available
+
+        # Lock render mode once set to prevent switching mid-stream (causes duplicates)
+        # WHY: If Live works then fails, switching to fallback creates duplicate output
+        if self._render_mode is None:
+            # First render - decide mode
+            if self.live:
+                self._render_mode = "live"
+            else:
+                self._render_mode = "fallback"
+
+        if self._render_mode == "fallback":
+            # Fallback mode: only print once, then skip updates
+            if self._fallback_printed:
+                return
             self.fallback_print(group)
+        elif self._render_mode == "live" and self._live:
+            # Live mode: update in place
+            try:
+                self._live.update(group)
+                self._live.refresh()
+            except Exception:
+                # Live failed mid-stream - don't switch to fallback, just stop updating
+                pass
 
     def _build_header(self) -> Table:
         """Build the language header with status indicator."""

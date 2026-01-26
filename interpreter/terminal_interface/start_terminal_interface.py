@@ -698,6 +698,13 @@ def main():
         start_terminal_interface(interpreter)
     except KeyboardInterrupt:
         try:
+            # Clear any Rich Live displays that may still be running
+            # This prevents spinner artifacts from appearing during feedback prompts
+            from rich.console import Console
+
+            console = Console()
+            console.clear_live()
+
             # Save session on interrupt
             if interpreter.messages:
                 session_mgr.save_session()

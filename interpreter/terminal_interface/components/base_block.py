@@ -36,6 +36,7 @@ class BaseBlock:
         self._live_failed = False  # Track if init failed (allows retry)
         self._live_lock = threading.Lock()
         self._fallback_printed = False  # Track if we've already printed fallback
+        self._render_mode = None  # 'live' or 'fallback' - once set, don't switch
 
     def _ensure_live(self) -> bool:
         """

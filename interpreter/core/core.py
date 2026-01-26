@@ -848,13 +848,16 @@ class OpenInterpreter:
 
                 if chunk.get("content") == "":
                     # Only log empty assistant messages (not console/computer chunks)
-                    if self.debug_empty_responses and chunk.get("role") == "assistant":
-                        import sys
+                    # Use logger.debug instead of print to avoid confusing users
+                    if (
+                        self.debug_empty_responses
+                        and self.verbose
+                        and chunk.get("role") == "assistant"
+                    ):
+                        import logging
 
-                        print(
-                            f"[EMPTY] Filtered empty chunk: type={chunk.get('type')}",
-                            file=sys.stderr,
-                        )
+                        logger = logging.getLogger(__name__)
+                        logger.debug(f"Filtered empty chunk: type={chunk.get('type')}")
                     continue
 
                 # If active_line is None, we finished running code.

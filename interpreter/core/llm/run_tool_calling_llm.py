@@ -377,11 +377,16 @@ def run_tool_calling_llm(llm, request_params):
 
     # Debug logging: Log once at end-of-stream if no content was yielded
     # WHY: Moved from per-chunk to reduce log spam while still supporting debugging
-    if not any_content_yielded and getattr(
-        llm.interpreter, "debug_empty_responses", False
+    # GUARD: Only log if BOTH debug_empty_responses AND verbose are True
+    # This prevents confusing messages from appearing to regular users
+    if (
+        not any_content_yielded
+        and getattr(llm.interpreter, "debug_empty_responses", False)
+        and getattr(llm.interpreter, "verbose", False)
     ):
-        import sys
+        import logging
 
+        logger = logging.getLogger(__name__)
         try:
             keys = (
                 list(accumulated_deltas.keys())
@@ -390,10 +395,7 @@ def run_tool_calling_llm(llm, request_params):
             )
         except Exception:
             keys = ["unknown"]
-        print(
-            f"[EMPTY] LLM returned empty content, accumulated delta keys: {keys}",
-            file=sys.stderr,
-        )
+        logger.debug(f"LLM returned empty content, accumulated delta keys: {keys}")
 
     # Empty response retry: If LLM returned only thinking/reasoning blocks with no content,
     # try refining the prompt and retrying once

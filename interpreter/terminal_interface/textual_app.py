@@ -704,8 +704,7 @@ class InterpreterTUI(App):
 
         # Run chat in worker thread
         self.run_worker(
-            self._chat_worker,
-            message,
+            lambda: self._chat_worker(message),
             name="chat_worker",
             exclusive=True,
             thread=True,

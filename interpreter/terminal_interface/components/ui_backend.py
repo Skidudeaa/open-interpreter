@@ -43,6 +43,7 @@ class BackendType(Enum):
 
     RICH_STREAM = auto()  # Current behavior: Rich streaming
     PROMPT_TOOLKIT = auto()  # Interactive: prompt_toolkit app
+    TEXTUAL = auto()  # Textual TUI framework (Phase 0+)
 
 
 class UIBackend(ABC):
@@ -496,6 +497,16 @@ def prompt_toolkit_available() -> bool:
         return False
 
 
+def textual_available() -> bool:
+    """Check if textual is installed"""
+    try:
+        import textual  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 def create_backend(
     interpreter: "OpenInterpreter",
     state: UIState | None = None,
@@ -507,9 +518,11 @@ def create_backend(
     Selection logic:
     1. If force_type specified, use that
     2. If not a TTY (pipe/CI), use RichStream
-    3. If NO_TUI env var set, use RichStream
-    4. If prompt_toolkit available, use it
-    5. Otherwise, fall back to RichStream
+    3. If OI_NO_TUI env var set, use RichStream
+    4. If OI_LEGACY_TUI env var set, use prompt_toolkit
+    5. If textual available, use Textual (DEFAULT)
+    6. If prompt_toolkit available, use it
+    7. Otherwise, fall back to RichStream
 
     Args:
         interpreter: The OpenInterpreter instance
@@ -524,12 +537,21 @@ def create_backend(
 
     # Check for forced type
     if force_type is not None:
+        if force_type == BackendType.TEXTUAL:
+            if textual_available():
+                from ..textual_backend import TextualBackend
+
+                return TextualBackend(interpreter, state)
+            # Fall through to prompt_toolkit if textual not available
         if force_type == BackendType.PROMPT_TOOLKIT:
             return PromptToolkitBackend(interpreter, state)
         else:
             return RichStreamBackend(interpreter, state)
 
-    # Check for --no-tui or NO_TUI env
+    # Check for --no-tui or OI_NO_TUI env (disable all TUI features)
+    if os.environ.get("OI_NO_TUI", "").lower() in ("1", "true", "yes"):
+        return RichStreamBackend(interpreter, state)
+    # Also check legacy NO_TUI for backwards compatibility
     if os.environ.get("NO_TUI", "").lower() in ("1", "true", "yes"):
         return RichStreamBackend(interpreter, state)
 
@@ -537,11 +559,22 @@ def create_backend(
     if not is_tty():
         return RichStreamBackend(interpreter, state)
 
-    # Check for prompt_toolkit availability
+    # Check for OI_LEGACY_TUI env var (opt-in to legacy prompt_toolkit)
+    if os.environ.get("OI_LEGACY_TUI", "").lower() in ("1", "true", "yes"):
+        if prompt_toolkit_available():
+            return PromptToolkitBackend(interpreter, state)
+
+    # DEFAULT: Use Textual backend if available
+    if textual_available():
+        from ..textual_backend import TextualBackend
+
+        return TextualBackend(interpreter, state)
+
+    # Fallback to prompt_toolkit if available
     if prompt_toolkit_available():
         return PromptToolkitBackend(interpreter, state)
 
-    # Fallback to Rich streaming
+    # Final fallback to Rich streaming
     return RichStreamBackend(interpreter, state)
 
 
@@ -554,4 +587,5 @@ __all__ = [
     "create_backend",
     "is_tty",
     "prompt_toolkit_available",
+    "textual_available",
 ]

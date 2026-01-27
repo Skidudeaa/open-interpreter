@@ -341,6 +341,14 @@ def start_terminal_interface(interpreter):
             "action": "store_true",
             "default": False,
         },
+        {
+            "name": "legacy_tui",
+            "nickname": "lt",
+            "help_text": "Use legacy prompt_toolkit TUI instead of Textual (default)",
+            "type": bool,
+            "action": "store_true",
+            "default": False,
+        },
     ]
 
     if "--stdin" in sys.argv and "--plain" not in sys.argv:
@@ -613,17 +621,23 @@ Use """ to write multi-line messages.
 
     interpreter.in_terminal_interface = True
 
-    # Initialize UI backend (Phase 1)
+    # Initialize UI backend
     from .components.ui_backend import BackendType, create_backend
     from .components.ui_state import UIState
 
     ui_state = UIState()
 
-    # Determine backend type
+    # Determine backend type based on CLI flags
+    # Default: Textual (if available)
+    # --no-tui: Rich streaming (no interactive features)
+    # --legacy-tui: prompt_toolkit (legacy interactive TUI)
     if args.no_tui or interpreter.plain_text_display:
         backend_type = BackendType.RICH_STREAM
+    elif args.legacy_tui:
+        backend_type = BackendType.PROMPT_TOOLKIT
     else:
-        backend_type = None  # Auto-detect
+        # Default to Textual (auto-detect will try Textual first)
+        backend_type = None
 
     backend = create_backend(interpreter, ui_state, force_type=backend_type)
     backend.start()
@@ -640,6 +654,12 @@ Use """ to write multi-line messages.
             stdin_input = input()
             interpreter.plain_text_display = True
             interpreter.chat(stdin_input)
+        elif backend.backend_type == BackendType.TEXTUAL:
+            # Textual has its own run loop that handles chat internally
+            from .textual_backend import TextualBackend
+
+            if isinstance(backend, TextualBackend):
+                backend.run()  # Blocking - Textual handles everything
         else:
             interpreter.chat()
     finally:

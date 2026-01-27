@@ -6,7 +6,6 @@ Replaces prompt_toolkit input handling with Textual's Input widget.
 
 from collections.abc import Callable
 
-from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import Input
 
@@ -23,7 +22,7 @@ class InputArea(Input):
     - Submit on Enter
 
     Messages:
-    - InputArea.Submitted - Fired when user submits input
+    - Input.Submitted - Uses parent class event (access value via event.value)
 
     CSS Classes:
     - .input-area - Base styling
@@ -51,13 +50,6 @@ class InputArea(Input):
         min-height: 3;
     }
     """
-
-    class Submitted(Message):
-        """Fired when input is submitted."""
-
-        def __init__(self, value: str) -> None:
-            self.value = value
-            super().__init__()
 
     def __init__(
         self,
@@ -101,13 +93,10 @@ class InputArea(Input):
             self._history.append(text)
         self._history_index = -1
 
-        # Fire submitted message
-        self.post_message(self.Submitted(text))
-
         # Clear input
         self.value = ""
 
-        # Callback
+        # Callback (parent Input.Submitted event is already fired)
         if self._on_submit:
             self._on_submit(text)
 

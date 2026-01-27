@@ -704,14 +704,16 @@ class InterpreterTUI(App):
 
         # Run chat in worker thread
         self.run_worker(
-            self._chat_worker(message),
+            self._chat_worker,
+            message,
             name="chat_worker",
             exclusive=True,
+            thread=True,
         )
 
-    async def _chat_worker(self, message: str) -> None:
+    def _chat_worker(self, message: str) -> None:
         """
-        Worker coroutine that processes chat with interpreter.
+        Worker function that processes chat with interpreter.
 
         Runs in a separate thread. Uses call_from_thread for UI updates.
         """
@@ -722,12 +724,12 @@ class InterpreterTUI(App):
             # Process chunks from interpreter.chat()
             for chunk in self.interpreter.chat(message, display=False, stream=True):
                 # Route chunk to appropriate handler
-                await self._process_chunk(chunk)
+                self._process_chunk(chunk)
 
         except Exception as e:
             self.call_from_thread(self._show_error, str(e))
 
-    async def _process_chunk(self, chunk: dict) -> None:
+    def _process_chunk(self, chunk: dict) -> None:
         """Process a single chunk from interpreter.chat()."""
         chunk_type = chunk.get("type", "")
         role = chunk.get("role", "")

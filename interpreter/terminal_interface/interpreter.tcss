@@ -1,0 +1,641 @@
+/*
+Open Interpreter Textual Stylesheet
+
+Base layout and theming for the Textual-based TUI.
+Designed to match the existing Rich-based theme while adding
+Textual-specific capabilities like CSS variables and animations.
+
+Usage:
+    class InterpreterTUI(App):
+        CSS_PATH = "interpreter.tcss"
+*/
+
+/* ============================================
+   CSS Variables (Theme)
+   ============================================ */
+
+$bg-dark: #0d1117;
+$bg-medium: #161b22;
+$bg-light: #21262d;
+$surface: #1a1a2e;
+
+$primary: #58a6ff;
+$secondary: #8b949e;
+$accent: #a855f7;
+
+$success: #3fb950;
+$warning: #d29922;
+$error: #f85149;
+
+$text: #c9d1d9;
+$text-muted: #8b949e;
+$text-bright: #ffffff;
+
+/* ============================================
+   Screen Layout
+   ============================================ */
+
+Screen {
+    layout: grid;
+    grid-size: 1;
+    grid-rows: auto 1fr auto auto;
+    background: $bg-dark;
+}
+
+/* ============================================
+   Header / Status Bar
+   ============================================ */
+
+Header {
+    dock: top;
+    height: 1;
+    background: $bg-medium;
+    color: $text;
+}
+
+#status-bar {
+    dock: top;
+    height: 1;
+    background: $bg-medium;
+    color: $text-muted;
+    padding: 0 1;
+}
+
+#status-bar .model {
+    color: $primary;
+    text-style: bold;
+}
+
+#status-bar .mode {
+    color: $accent;
+}
+
+#status-bar .tokens {
+    color: $secondary;
+}
+
+/* ============================================
+   Main Container
+   ============================================ */
+
+#main-container {
+    layout: horizontal;
+    height: 1fr;
+}
+
+/* ============================================
+   Output Panel
+   ============================================ */
+
+#output-panel {
+    width: 1fr;
+    height: 100%;
+    background: $bg-dark;
+    scrollbar-background: $bg-medium;
+    scrollbar-color: $secondary;
+    scrollbar-color-hover: $primary;
+    scrollbar-color-active: $accent;
+}
+
+/* ============================================
+   Agent Strip
+   ============================================ */
+
+#agent-strip {
+    dock: bottom;
+    height: auto;
+    min-height: 1;
+    max-height: 3;
+    background: $bg-medium;
+    padding: 0 1;
+    border-top: solid #8b949e;  /* $text-muted */
+}
+
+.agent-badge {
+    margin: 0 1;
+    padding: 0 1;
+}
+
+.agent-badge.pending {
+    color: $warning;
+}
+
+.agent-badge.running {
+    color: $primary;
+}
+
+.agent-badge.complete {
+    color: $success;
+}
+
+.agent-badge.error {
+    color: $error;
+}
+
+/* ============================================
+   Input Area
+   ============================================ */
+
+#input-area {
+    dock: bottom;
+    height: auto;
+    min-height: 3;
+    max-height: 10;
+    margin: 1;
+    padding: 1;
+    background: $bg-medium;
+    border: round #58a6ff;  /* $primary */
+}
+
+#input-area:focus {
+    border: round #a855f7;  /* $accent */
+}
+
+/* ============================================
+   Footer
+   ============================================ */
+
+Footer {
+    dock: bottom;
+    height: 1;
+    background: $bg-medium;
+}
+
+Footer > .footer--key {
+    background: $bg-light;
+    color: $primary;
+}
+
+Footer > .footer--description {
+    color: $text-muted;
+}
+
+/* ============================================
+   Code Block
+   ============================================ */
+
+.code-block {
+    margin: 1 0;
+    padding: 1;
+    background: $surface;
+    border: round #8b949e;  /* $secondary */
+}
+
+.code-block.status-pending {
+    border: round #8b949e;  /* $text-muted */
+}
+
+.code-block.status-running {
+    border: round #d29922;  /* $warning */
+}
+
+.code-block.status-success {
+    border: round #3fb950;  /* $success */
+}
+
+.code-block.status-error {
+    border: round #f85149;  /* $error */
+}
+
+.code-block .output {
+    margin-top: 1;
+    padding: 1;
+    background: $bg-dark;
+    color: $text-muted;
+}
+
+/* ============================================
+   Message Block
+   ============================================ */
+
+.message {
+    margin: 1 0;
+    padding: 1;
+}
+
+.message-user {
+    background: $primary 10%;
+    border-left: thick #58a6ff;  /* $primary */
+}
+
+.message-assistant {
+    background: $surface;
+    border-left: thick #8b949e;  /* $secondary */
+}
+
+/* ============================================
+   Toast Notifications
+   ============================================ */
+
+Toast {
+    background: $bg-light;
+    color: $text;
+    border: round #8b949e;  /* $secondary */
+    padding: 1 2;
+}
+
+Toast.-information {
+    border: round #58a6ff;  /* $primary */
+}
+
+Toast.-warning {
+    border: round #d29922;  /* $warning */
+}
+
+Toast.-error {
+    border: round #f85149;  /* $error */
+}
+
+/* ============================================
+   Context Panel (POWER/DEBUG mode)
+   ============================================ */
+
+#context-panel {
+    dock: right;
+    width: 30;
+    min-width: 20;
+    max-width: 50;
+    background: $bg-medium;
+    border-left: solid #8b949e;  /* $text-muted */
+    padding: 1;
+    display: none;
+}
+
+#context-panel.visible {
+    display: block;
+}
+
+#context-panel .section-title {
+    color: $primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#context-panel .variable {
+    color: $text;
+}
+
+#context-panel .type {
+    color: $text-muted;
+    text-style: italic;
+}
+
+/* ============================================
+   Agent Tree (POWER/DEBUG mode)
+   ============================================ */
+
+#agent-tree {
+    dock: right;
+    width: 40;
+    min-width: 30;
+    max-width: 60;
+    background: $bg-medium;
+    border-left: solid #8b949e;  /* $text-muted */
+    padding: 1;
+    display: none;
+}
+
+#agent-tree.visible {
+    display: block;
+}
+
+#agent-tree:focus {
+    border-left: solid #58a6ff;  /* $primary */
+}
+
+#agent-tree > .tree--guides {
+    color: $secondary;
+}
+
+#agent-tree > .tree--cursor {
+    background: $primary 20%;
+}
+
+/* ============================================
+   Mode-specific styles
+   ============================================ */
+
+/* ZEN mode - minimal UI (conversation only) */
+.mode-zen #agent-strip,
+.mode-zen #context-panel,
+.mode-zen #agent-tree,
+.mode-zen #status-bar {
+    display: none;
+}
+
+/* STANDARD mode - show status bar, panels toggleable */
+.mode-standard #agent-strip {
+    display: none;
+}
+
+.mode-standard #context-panel,
+.mode-standard #agent-tree {
+    /* Hidden by default, shown via .visible class when toggled with F3/F4 */
+    display: none;
+}
+
+.mode-standard #context-panel.visible,
+.mode-standard #agent-tree.visible {
+    display: block;
+}
+
+/* POWER mode - show agent strip, panels toggleable */
+.mode-power #context-panel,
+.mode-power #agent-tree {
+    /* Hidden by default, shown via .visible class when toggled */
+    display: none;
+}
+
+.mode-power #context-panel.visible,
+.mode-power #agent-tree.visible {
+    display: block;
+}
+
+/* DEBUG mode - show everything, panels auto-visible */
+.mode-debug #agent-strip {
+    display: block;
+}
+
+.mode-debug #context-panel,
+.mode-debug #agent-tree {
+    /* Auto-show in DEBUG mode */
+    display: block;
+}
+
+.mode-debug #status-bar {
+    display: block;
+}
+
+/* ============================================
+   Loading / Spinner
+   ============================================ */
+
+LoadingIndicator {
+    color: $primary;
+}
+
+/* ============================================
+   Animations
+   ============================================ */
+
+/* NOTE: Textual CSS doesn't support @keyframes animations.
+   For thinking/loading states, use Textual's built-in LoadingIndicator
+   widget or toggle CSS classes programmatically. */
+
+.thinking {
+    /* Fallback: just reduce opacity for thinking state */
+    opacity: 70%;
+}
+
+/* ============================================
+   Scrollbar styling
+   ============================================ */
+
+* {
+    scrollbar-background: $bg-medium;
+    scrollbar-color: $secondary 50%;
+    scrollbar-color-hover: $primary;
+    scrollbar-color-active: $accent;
+}
+
+/* ============================================
+   LIGHT THEME
+   ============================================ */
+
+.theme-light {
+    /* Light theme color overrides */
+}
+
+.theme-light Screen {
+    background: #f5f5f5;
+}
+
+.theme-light Header {
+    background: #e0e0e0;
+    color: #333333;
+}
+
+.theme-light #status-bar {
+    background: #e8e8e8;
+    color: #666666;
+}
+
+.theme-light #output-panel {
+    background: #ffffff;
+}
+
+.theme-light #main-container {
+    background: #ffffff;
+}
+
+.theme-light #input-area {
+    background: #f0f0f0;
+    border: round #0066cc;
+}
+
+.theme-light #input-area:focus {
+    border: round #9933cc;
+}
+
+.theme-light #agent-strip {
+    background: #e8e8e8;
+    border-top: solid #cccccc;
+}
+
+.theme-light #context-panel,
+.theme-light #agent-tree {
+    background: #f0f0f0;
+    border-left: solid #cccccc;
+}
+
+.theme-light .code-block {
+    background: #f8f8f8;
+    border: round #cccccc;
+}
+
+.theme-light .code-block.status-pending {
+    border: round #888888;
+}
+
+.theme-light .code-block.status-running {
+    border: round #cc8800;
+}
+
+.theme-light .code-block.status-success {
+    border: round #228822;
+}
+
+.theme-light .code-block.status-error {
+    border: round #cc2222;
+}
+
+.theme-light .message {
+    color: #333333;
+}
+
+.theme-light .message-user {
+    background: #e6f2ff;
+    border-left: thick #0066cc;
+}
+
+.theme-light .message-assistant {
+    background: #f5f5f5;
+    border-left: thick #888888;
+}
+
+.theme-light Footer {
+    background: #e0e0e0;
+}
+
+.theme-light Footer > .footer--key {
+    background: #d0d0d0;
+    color: #0066cc;
+}
+
+.theme-light Footer > .footer--description {
+    color: #666666;
+}
+
+.theme-light Toast {
+    background: #ffffff;
+    color: #333333;
+    border: round #cccccc;
+}
+
+/* ============================================
+   HIGH CONTRAST THEME
+   ============================================ */
+
+.theme-high-contrast {
+    /* High contrast theme for accessibility */
+}
+
+.theme-high-contrast Screen {
+    background: #000000;
+}
+
+.theme-high-contrast Header {
+    background: #000000;
+    color: #ffffff;
+    border-bottom: solid #ffffff;
+}
+
+.theme-high-contrast #status-bar {
+    background: #000000;
+    color: #ffffff;
+}
+
+.theme-high-contrast #output-panel {
+    background: #000000;
+}
+
+.theme-high-contrast #main-container {
+    background: #000000;
+}
+
+.theme-high-contrast #input-area {
+    background: #000000;
+    color: #ffffff;
+    border: round #ffffff;
+}
+
+.theme-high-contrast #input-area:focus {
+    border: double #ffff00;
+}
+
+.theme-high-contrast #agent-strip {
+    background: #000000;
+    border-top: solid #ffffff;
+    color: #ffffff;
+}
+
+.theme-high-contrast #context-panel,
+.theme-high-contrast #agent-tree {
+    background: #000000;
+    border-left: solid #ffffff;
+    color: #ffffff;
+}
+
+.theme-high-contrast .code-block {
+    background: #000000;
+    border: round #ffffff;
+    color: #ffffff;
+}
+
+.theme-high-contrast .code-block.status-pending {
+    border: round #aaaaaa;
+}
+
+.theme-high-contrast .code-block.status-running {
+    border: round #ffff00;
+}
+
+.theme-high-contrast .code-block.status-success {
+    border: round #00ff00;
+}
+
+.theme-high-contrast .code-block.status-error {
+    border: round #ff0000;
+}
+
+.theme-high-contrast .message {
+    color: #ffffff;
+}
+
+.theme-high-contrast .message-user {
+    background: #000033;
+    border-left: thick #0088ff;
+}
+
+.theme-high-contrast .message-assistant {
+    background: #000000;
+    border-left: thick #ffffff;
+}
+
+.theme-high-contrast Footer {
+    background: #000000;
+    border-top: solid #ffffff;
+}
+
+.theme-high-contrast Footer > .footer--key {
+    background: #333333;
+    color: #ffff00;
+}
+
+.theme-high-contrast Footer > .footer--description {
+    color: #ffffff;
+}
+
+.theme-high-contrast Toast {
+    background: #000000;
+    color: #ffffff;
+    border: round #ffffff;
+}
+
+.theme-high-contrast Toast.-information {
+    border: round #0088ff;
+}
+
+.theme-high-contrast Toast.-warning {
+    border: round #ffff00;
+}
+
+.theme-high-contrast Toast.-error {
+    border: round #ff0000;
+}
+
+.theme-high-contrast .agent-badge.pending {
+    color: #ffff00;
+}
+
+.theme-high-contrast .agent-badge.running {
+    color: #00ffff;
+}
+
+.theme-high-contrast .agent-badge.complete {
+    color: #00ff00;
+}
+
+.theme-high-contrast .agent-badge.error {
+    color: #ff0000;
+}

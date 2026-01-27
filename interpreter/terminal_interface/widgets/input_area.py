@@ -6,6 +6,7 @@ Replaces prompt_toolkit input handling with Textual's Input widget.
 
 from collections.abc import Callable
 
+from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import Input
 
@@ -22,12 +23,24 @@ class InputArea(Input):
     - Submit on Enter
 
     Messages:
-    - Input.Submitted - Uses parent class event (access value via event.value)
+    - InputArea.UserSubmitted - Fired after input is processed (use this in parent)
 
     CSS Classes:
     - .input-area - Base styling
     - .multiline - When in multiline mode
     """
+
+    class UserSubmitted(Message):
+        """
+        Fired when user submits processed input.
+
+        NOTE: Named UserSubmitted (not Submitted) to avoid conflicting with
+        Input.Submitted which has a different signature.
+        """
+
+        def __init__(self, value: str) -> None:
+            self.value = value
+            super().__init__()
 
     is_multiline: reactive[bool] = reactive(False)
 
@@ -71,7 +84,7 @@ class InputArea(Input):
         self.add_class("input-area")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle input submission."""
+        """Handle input submission from parent Input class."""
         text = event.value.strip()
         if not text:
             return
@@ -96,7 +109,10 @@ class InputArea(Input):
         # Clear input
         self.value = ""
 
-        # Callback (parent Input.Submitted event is already fired)
+        # Post our own event for parent handlers
+        self.post_message(self.UserSubmitted(text))
+
+        # Callback (alternative to message-based handling)
         if self._on_submit:
             self._on_submit(text)
 

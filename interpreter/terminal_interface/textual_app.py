@@ -716,17 +716,35 @@ class InterpreterTUI(App):
 
         Runs in a separate thread. Uses call_from_thread for UI updates.
         """
+        import sys
+
+        print(
+            f"[DEBUG] _chat_worker started with message: {message!r}", file=sys.stderr
+        )
+
         if not self.interpreter:
+            print("[DEBUG] No interpreter!", file=sys.stderr)
             return
 
         try:
             # Process chunks from interpreter.chat()
+            print("[DEBUG] Calling interpreter.chat()...", file=sys.stderr)
             for chunk in self.interpreter.chat(message, display=False, stream=True):
+                print(f"[DEBUG] Got chunk: {chunk}", file=sys.stderr)
                 # Route chunk to appropriate handler
                 self._process_chunk(chunk)
+            print("[DEBUG] Chat loop finished", file=sys.stderr)
 
         except Exception as e:
+            print(f"[DEBUG] Exception in worker: {e}", file=sys.stderr)
+            import traceback
+
+            traceback.print_exc()
             self.call_from_thread(self._show_error, str(e))
+        finally:
+            # Always remove loading indicator when done
+            print("[DEBUG] Worker cleanup", file=sys.stderr)
+            self.call_from_thread(self._remove_loading)
 
     def _process_chunk(self, chunk: dict) -> None:
         """Process a single chunk from interpreter.chat()."""

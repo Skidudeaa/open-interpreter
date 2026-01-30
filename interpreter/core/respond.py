@@ -539,8 +539,44 @@ def respond(interpreter):
             _req_ok = False
 
             try:
+                # Track tokens during LLM streaming
+                _total_tokens = 0
+                _input_tokens = 0
+                _output_tokens = 0
+                event_bus = get_event_bus()
+
                 for chunk in interpreter.llm.run(messages_for_llm):
                     yield {"role": "assistant", **chunk}
+
+                    # Extract token usage if present in chunk
+                    if "usage" in chunk:
+                        usage = chunk["usage"]
+                        _input_tokens = usage.get("prompt_tokens", _input_tokens)
+                        _output_tokens = usage.get("completion_tokens", _output_tokens)
+                        _total_tokens = usage.get(
+                            "total_tokens", _input_tokens + _output_tokens
+                        )
+
+                # Emit final token update after LLM response
+                if _total_tokens > 0 or _input_tokens > 0 or _output_tokens > 0:
+                    context_limit = (
+                        interpreter.llm.context_window
+                        if interpreter.llm.context_window
+                        else 128000
+                    )
+                    event_bus.emit(
+                        UIEvent(
+                            type=EventType.SYSTEM_TOKEN_UPDATE,
+                            data={
+                                "tokens": _total_tokens
+                                or (_input_tokens + _output_tokens),
+                                "limit": context_limit,
+                                "input_tokens": _input_tokens,
+                                "output_tokens": _output_tokens,
+                            },
+                            source="respond",
+                        )
+                    )
 
                 _req_ok = True
 

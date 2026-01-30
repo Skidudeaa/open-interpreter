@@ -152,7 +152,7 @@ class Llm:
             if self.interpreter.os:
                 # Keep only the last two images if the interpreter is running in OS mode
                 if len(image_messages) > 2:
-                    keep_images = set(id(img) for img in image_messages[-2:])
+                    keep_images = {id(img) for img in image_messages[-2:]}
                     removed_count = len(image_messages) - 2
                     messages = [
                         m
@@ -165,9 +165,9 @@ class Llm:
                 # Delete all the middle ones (leave only the first and last 2 images) from messages_for_llm
                 if len(image_messages) > 3:
                     # Keep first image and last 2 images
-                    keep_images = set(
+                    keep_images = {
                         id(img) for img in [image_messages[0]] + image_messages[-2:]
-                    )
+                    }
                     removed_count = len(image_messages) - 3
                     messages = [
                         m
@@ -444,6 +444,27 @@ Continuing...
                     )
             except Exception:
                 pass
+
+        # Emit model change event for UI updates
+        try:
+            from interpreter.terminal_interface.components.ui_events import (
+                EventType,
+                UIEvent,
+                get_event_bus,
+            )
+
+            get_event_bus().emit(
+                UIEvent(
+                    type=EventType.SYSTEM_MODEL_CHANGE,
+                    data={
+                        "model": self.model,
+                        "context_window": self.context_window,
+                    },
+                    source="llm",
+                )
+            )
+        except ImportError:
+            pass  # UI not available
 
 
 def fixed_litellm_completions(**params):

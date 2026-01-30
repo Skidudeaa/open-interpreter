@@ -74,6 +74,7 @@ class EventType(Enum):
     SYSTEM_END = auto()  # Interpreter finished
     SYSTEM_ERROR = auto()  # Error occurred
     SYSTEM_TOKEN_UPDATE = auto()  # Token count updated
+    SYSTEM_MODEL_CHANGE = auto()  # Model changed (data: model, context_window)
 
     # Confirmation events (for code approval)
     CONFIRMATION_REQUEST = auto()  # Asking user to approve code

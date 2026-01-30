@@ -146,7 +146,12 @@ class StatusBar(Static):
     """
     Top status bar showing model, mode, and token usage.
 
-    Updates reactively based on app state.
+    Updates reactively based on app state. Shows:
+    - Model name with context window size
+    - UI mode (ZEN/STANDARD/POWER/DEBUG)
+    - Token usage with color-coded percentage
+    - Input/output token breakdown (when available)
+    - Active features indicator
     """
 
     DEFAULT_CSS = """
@@ -175,10 +180,13 @@ class StatusBar(Static):
 
     def __init__(
         self,
-        model: str = "gpt-4o",
+        model: str = "unknown",
         mode: str = "ZEN",
         tokens: int = 0,
         token_limit: int = 128000,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        features: list[str] | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -186,29 +194,76 @@ class StatusBar(Static):
         self._mode = mode
         self._tokens = tokens
         self._token_limit = token_limit
+        self._input_tokens = input_tokens
+        self._output_tokens = output_tokens
+        self._features = features or []
+
+    def _format_tokens(self, count: int) -> str:
+        """Format token count for display (e.g., 32k, 1.2M)."""
+        if count >= 1_000_000:
+            return f"{count / 1_000_000:.1f}M"
+        elif count >= 1_000:
+            return f"{count / 1_000:.0f}k"
+        return str(count)
 
     def render(self) -> Text:
         """Render status bar content."""
         text = Text()
 
-        # Model
-        text.append(" Model: ", style="dim")
-        text.append(self._model, style="bold cyan")
+        # Model with context window
+        text.append("🤖 ", style="dim")
+        model_display = self._model
+        if len(model_display) > 20:
+            model_display = model_display[:17] + "..."
+        text.append(model_display, style="bold cyan")
+
+        # Show context window size
+        if self._token_limit > 0:
+            text.append(
+                f" ({self._format_tokens(self._token_limit)})", style="dim cyan"
+            )
 
         text.append(" │ ", style="dim")
 
         # Mode
-        text.append("Mode: ", style="dim")
-        text.append(self._mode, style="bold magenta")
+        mode_styles = {
+            "ZEN": "dim",
+            "STANDARD": "white",
+            "POWER": "bold yellow",
+            "DEBUG": "bold red",
+        }
+        text.append(self._mode, style=mode_styles.get(self._mode, "white"))
 
         text.append(" │ ", style="dim")
 
-        # Token usage
+        # Token usage bar
         pct = (self._tokens / self._token_limit * 100) if self._token_limit > 0 else 0
-        token_style = "green" if pct < 60 else "yellow" if pct < 85 else "red"
-        text.append("Tokens: ", style="dim")
-        text.append(f"{self._tokens:,}/{self._token_limit:,}", style=token_style)
-        text.append(f" ({pct:.0f}%)", style="dim")
+        token_style = "green" if pct < 60 else "yellow" if pct < 85 else "red bold"
+
+        # Mini progress bar
+        bar_width = 10
+        filled = int(pct / 100 * bar_width)
+        bar = "█" * filled + "░" * (bar_width - filled)
+        text.append(bar, style=token_style)
+        text.append(f" {pct:.0f}%", style=token_style)
+
+        # Token breakdown (if we have input/output info)
+        if self._input_tokens > 0 or self._output_tokens > 0:
+            text.append(" (", style="dim")
+            text.append(
+                f"↑{self._format_tokens(self._input_tokens)}", style="dim green"
+            )
+            text.append("/", style="dim")
+            text.append(
+                f"↓{self._format_tokens(self._output_tokens)}", style="dim blue"
+            )
+            text.append(")", style="dim")
+
+        # Features indicator
+        if self._features:
+            text.append(" │ ", style="dim")
+            text.append("⚡", style="yellow")
+            text.append(f"{len(self._features)}", style="dim")
 
         return text
 
@@ -222,11 +277,26 @@ class StatusBar(Static):
         self._mode = mode
         self.refresh()
 
-    def update_tokens(self, tokens: int, limit: int | None = None) -> None:
-        """Update token counts."""
+    def update_tokens(
+        self,
+        tokens: int,
+        limit: int | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+    ) -> None:
+        """Update token counts with optional breakdown."""
         self._tokens = tokens
         if limit is not None:
             self._token_limit = limit
+        if input_tokens is not None:
+            self._input_tokens = input_tokens
+        if output_tokens is not None:
+            self._output_tokens = output_tokens
+        self.refresh()
+
+    def update_features(self, features: list[str]) -> None:
+        """Update enabled features list."""
+        self._features = features
         self.refresh()
 
 
@@ -420,17 +490,37 @@ class InterpreterTUI(App):
 
     def compose(self) -> ComposeResult:
         """Compose the application layout."""
-        # Get model name from interpreter if available
-        model = "gpt-4o"
+        # Get model name from interpreter.llm (the actual model location)
+        model = "unknown"
+        context_limit = 128000
+        features: list[str] = []
+
         if self.interpreter:
-            model = getattr(self.interpreter, "model", "gpt-4o")
+            # Get model info from LLM
+            if hasattr(self.interpreter, "llm"):
+                model = getattr(self.interpreter.llm, "model", None) or "unknown"
+                # Sync context window from LLM if available
+                if self.interpreter.llm.context_window:
+                    context_limit = self.interpreter.llm.context_window
+                    self.ui_state.context_limit = context_limit
+
+            # Detect enabled features
+            if getattr(self.interpreter, "enable_semantic_memory", False):
+                features.append("memory")
+            if getattr(self.interpreter, "enable_validation", False):
+                features.append("validation")
+            if getattr(self.interpreter, "enable_agents", False):
+                features.append("agents")
+            if getattr(self.interpreter, "enable_tracing", False):
+                features.append("tracing")
 
         yield Header()
         yield StatusBar(
             model=model,
             mode=self.ui_mode.name,
             tokens=self.ui_state.context_tokens,
-            token_limit=self.ui_state.context_limit,
+            token_limit=context_limit,
+            features=features,
             id="status-bar",
         )
 
@@ -468,6 +558,7 @@ class InterpreterTUI(App):
             EventType.MESSAGE_START: self._on_message_start,
             EventType.MESSAGE_END: self._on_message_end,
             EventType.SYSTEM_TOKEN_UPDATE: self._on_token_update,
+            EventType.SYSTEM_MODEL_CHANGE: self._on_model_change,
         }
         for event_type, handler in handlers.items():
             self._event_bus.subscribe(event_type, handler)
@@ -525,16 +616,43 @@ class InterpreterTUI(App):
         self.call_from_thread(self._end_message_block)
 
     def _on_token_update(self, event: UIEvent) -> None:
-        """Handle token count update."""
+        """Handle token count update with input/output breakdown."""
         if isinstance(event.data, dict):
             tokens = event.data.get("tokens", 0)
             limit = event.data.get("limit")
-            self.call_from_thread(self._update_tokens, tokens, limit)
+            input_tokens = event.data.get("input_tokens", 0)
+            output_tokens = event.data.get("output_tokens", 0)
+            self.call_from_thread(
+                self._update_tokens, tokens, limit, input_tokens, output_tokens
+            )
 
-    def _update_tokens(self, tokens: int, limit: int | None) -> None:
-        """Update status bar tokens."""
+    def _update_tokens(
+        self,
+        tokens: int,
+        limit: int | None,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+    ) -> None:
+        """Update status bar tokens with breakdown."""
         status = self.query_one("#status-bar", StatusBar)
-        status.update_tokens(tokens, limit)
+        status.update_tokens(tokens, limit, input_tokens, output_tokens)
+        # Also update UIState for consistency
+        self.ui_state.set_context_tokens(tokens, limit)
+
+    def _on_model_change(self, event: UIEvent) -> None:
+        """Handle model change event."""
+        if isinstance(event.data, dict):
+            model = event.data.get("model", "unknown")
+            context_window = event.data.get("context_window")
+            self.call_from_thread(self._update_model, model, context_window)
+
+    def _update_model(self, model: str, context_window: int | None) -> None:
+        """Update status bar model and context limit."""
+        status = self.query_one("#status-bar", StatusBar)
+        status.update_model(model)
+        if context_window:
+            self.ui_state.context_limit = context_window
+            status.update_tokens(self.ui_state.context_tokens, context_window)
 
     # Actions
 

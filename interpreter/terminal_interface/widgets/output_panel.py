@@ -58,10 +58,14 @@ class OutputPanel(VerticalScroll):
         """Set up panel on mount."""
         self.scroll_end(animate=False)
 
-    async def watch_children(self) -> None:
+    def on_descendant_added(self, _event) -> None:
         """Auto-scroll when new children added."""
         if self.auto_scroll:
-            self.scroll_end(animate=True)
+            self.call_after_refresh(self._scroll_to_end)
+
+    def _scroll_to_end(self) -> None:
+        """Scroll to end after refresh."""
+        self.scroll_end(animate=True)
 
     def action_scroll_down(self) -> None:
         """Scroll down one line."""

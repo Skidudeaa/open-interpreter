@@ -173,31 +173,32 @@ Footer > .footer--description {
    ============================================ */
 
 .code-block {
-    margin: 1 0;
-    padding: 1;
+    margin: 0;
+    padding: 0 1;
     background: $surface;
-    border: round #8b949e;  /* $secondary */
+    border: none;
+    border-left: thick #8b949e;  /* $secondary */
 }
 
 .code-block.status-pending {
-    border: round #8b949e;  /* $text-muted */
+    border-left: thick #8b949e;  /* $text-muted */
 }
 
 .code-block.status-running {
-    border: round #d29922;  /* $warning */
+    border-left: thick #d29922;  /* $warning */
 }
 
 .code-block.status-success {
-    border: round #3fb950;  /* $success */
+    border-left: thick #3fb950;  /* $success */
 }
 
 .code-block.status-error {
-    border: round #f85149;  /* $error */
+    border-left: thick #f85149;  /* $error */
 }
 
 .code-block .output {
-    margin-top: 1;
-    padding: 1;
+    margin-top: 0;
+    padding: 0 1;
     background: $bg-dark;
     color: $text-muted;
 }
@@ -207,18 +208,20 @@ Footer > .footer--description {
    ============================================ */
 
 .message {
-    margin: 1 0;
-    padding: 1;
+    margin: 0;
+    padding: 0 1;
 }
 
 .message-user {
-    background: $primary 10%;
+    background: $primary 5%;
     border-left: thick #58a6ff;  /* $primary */
+    padding: 0 1;
 }
 
 .message-assistant {
-    background: $surface;
-    border-left: thick #8b949e;  /* $secondary */
+    background: transparent;
+    border-left: none;
+    padding: 0 1;
 }
 
 /* ============================================

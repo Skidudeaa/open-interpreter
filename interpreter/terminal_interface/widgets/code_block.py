@@ -54,10 +54,11 @@ class OutputStatic(Static):
 
     DEFAULT_CSS = """
     OutputStatic {
-        margin-top: 1;
-        padding: 1;
-        background: #0d1117;  /* $bg-dark */
-        border: round #8b949e;  /* $text-muted */
+        margin-top: 0;
+        padding: 0 1;
+        background: #161b22;  /* $bg-medium */
+        border: none;
+        border-left: thin #8b949e;  /* $text-muted */
         display: none;
     }
 
@@ -66,7 +67,7 @@ class OutputStatic(Static):
     }
 
     OutputStatic.has-error {
-        border: round #f85149;  /* $error */
+        border-left: thin #f85149;  /* $error */
     }
 
     OutputStatic.folded {
@@ -192,10 +193,11 @@ class CodeStatic(Static):
         return Syntax(
             display_code,
             self.language,
-            theme="monokai",
+            theme="github-dark",
             line_numbers=not self.is_folded,
             word_wrap=True,
             highlight_lines={self.active_line} if self.active_line else None,
+            background_color="#0d1117",
         )
 
 
@@ -232,27 +234,28 @@ class CodeBlockWidget(Vertical):
 
     DEFAULT_CSS = """
     CodeBlockWidget {
-        margin: 1 0;
-        padding: 1;
-        border: round #8b949e;  /* $secondary */
-        background: #1a1a2e;  /* $surface */
+        margin: 0;
+        padding: 0;
+        border: none;
+        border-left: thick #8b949e;  /* $secondary */
+        background: #0d1117;  /* $bg-dark */
         height: auto;
     }
 
     CodeBlockWidget.status-pending {
-        border: round #8b949e;  /* $text-muted */
+        border-left: thick #8b949e;  /* $text-muted */
     }
 
     CodeBlockWidget.status-running {
-        border: round #d29922;  /* $warning */
+        border-left: thick #d29922;  /* $warning */
     }
 
     CodeBlockWidget.status-success {
-        border: round #3fb950;  /* $success */
+        border-left: thick #3fb950;  /* $success */
     }
 
     CodeBlockWidget.status-error {
-        border: round #f85149;  /* $error */
+        border-left: thick #f85149;  /* $error */
     }
 
     CodeBlockWidget.folded {

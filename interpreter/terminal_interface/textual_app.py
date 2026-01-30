@@ -461,9 +461,12 @@ class InterpreterTUI(App):
         Binding("f3", "toggle_panel", "Panel", show=True),
         Binding("f4", "toggle_agents", "Agents", show=True),
         Binding("f5", "cycle_theme", "Theme", show=False),
+        Binding("f6", "toggle_selection_mode", "Select", show=True),
         Binding("ctrl+l", "clear_output", "Clear", show=True),
         Binding("ctrl+d", "quit", "Exit", show=True),
         Binding("ctrl+r", "search_history", "History", show=False),
+        Binding("c", "copy_last", "Copy", show=True, priority=True),
+        Binding("ctrl+shift+c", "copy_last", "Copy", show=False),
     ]
 
     # Available themes (CSS classes)
@@ -474,6 +477,7 @@ class InterpreterTUI(App):
     ui_theme: reactive[str] = reactive("theme-dark")
     is_responding: reactive[bool] = reactive(False)
     is_streaming: reactive[bool] = reactive(False)
+    selection_mode: reactive[bool] = reactive(False)  # Disables mouse capture for text selection
 
     def __init__(
         self,
@@ -487,6 +491,8 @@ class InterpreterTUI(App):
         self._active_code_block: CodeBlockWidget | None = None
         self._active_message: MessageWidget | None = None
         self._loading: LoadingIndicator | None = None
+        self._last_assistant_content: str = ""  # Track last response for copy
+        self._last_code_content: str = ""  # Track last code for copy
 
     def compose(self) -> ComposeResult:
         """Compose the application layout."""
@@ -744,6 +750,42 @@ class InterpreterTUI(App):
         # History search implementation
         self.notify("History search (Ctrl+R) - not yet implemented")
 
+    def action_toggle_selection_mode(self) -> None:
+        """Toggle selection mode hint - guides users on text selection."""
+        self.selection_mode = not self.selection_mode
+        if self.selection_mode:
+            # Guide user on how to select text
+            self.notify(
+                "📋 Selection: Hold SHIFT + drag mouse | Press 'c' to copy last response",
+                timeout=8,
+            )
+        else:
+            self.notify("Selection mode OFF")
+
+    def action_copy_last(self) -> None:
+        """Copy last assistant response or code block to clipboard."""
+        try:
+            import pyperclip
+        except ImportError:
+            self.notify("pyperclip not installed - use Shift+drag to select", severity="warning")
+            return
+
+        # Prefer code if we have it, otherwise use message
+        content = self._last_code_content or self._last_assistant_content
+
+        if not content:
+            self.notify("Nothing to copy", severity="warning")
+            return
+
+        try:
+            pyperclip.copy(content)
+            # Show what was copied (truncated)
+            preview = content[:50] + "..." if len(content) > 50 else content
+            preview = preview.replace("\n", "↵")
+            self.notify(f"Copied: {preview}")
+        except Exception as e:
+            self.notify(f"Copy failed: {e}", severity="error")
+
     # Input handling
 
     def on_input_area_user_submitted(self, event: InputArea.UserSubmitted) -> None:
@@ -906,6 +948,9 @@ class InterpreterTUI(App):
 
     def _end_message_block(self) -> None:
         """Finalize message block (main thread)."""
+        # Save content for copy functionality
+        if self._active_message:
+            self._last_assistant_content = getattr(self._active_message, "content", "")
         self._active_message = None
 
     def _start_code_block(self, language: str = "python") -> None:
@@ -938,6 +983,8 @@ class InterpreterTUI(App):
     def _end_code_block(self) -> None:
         """Finalize code block (main thread)."""
         if self._active_code_block:
+            # Save code for copy functionality
+            self._last_code_content = self._active_code_block.code
             # Check output for errors
             output = self._active_code_block.output
             if "Traceback" in output or "Error" in output:

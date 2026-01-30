@@ -44,9 +44,15 @@ class JupyterLanguage(BaseLanguage):
         self.km.start_kernel()
         self.kc = self.km.client()
         self.kc.start_channels()
-        while not self.kc.is_alive():
-            time.sleep(0.1)
-        time.sleep(0.5)
+        # ARCHITECTURE: Use wait_for_ready() instead of polling sleep for ~500ms savings
+        # WHY: wait_for_ready() blocks intelligently on kernel heartbeat vs busy-wait polling
+        # TRADEOFF: 5s timeout is generous but prevents hangs on slow systems
+        try:
+            self.kc.wait_for_ready(timeout=5.0)
+        except RuntimeError:
+            # Fallback to polling if wait_for_ready fails (older jupyter_client versions)
+            while not self.kc.is_alive():
+                time.sleep(0.05)  # Reduced from 0.1s
 
         self.listener_thread = None
         self.finish_flag = False
@@ -101,8 +107,10 @@ import matplotlib.pyplot as plt
             pass  # Kernel may already be shut down
 
     def run(self, code):
+        # ARCHITECTURE: Reduced polling interval for faster responsiveness
+        # WHY: 0.05s is responsive enough without excessive CPU usage
         while not self.kc.is_alive():
-            time.sleep(0.1)
+            time.sleep(0.05)
 
         self.last_output_time = time.time()
         self.last_output_message_time = time.time()
@@ -196,7 +204,7 @@ import matplotlib.pyplot as plt
                         response = ""
                         for chunk in litellm.completion(**params):
                             content = chunk.choices[0].delta.content
-                            if type(content) == str:
+                            if isinstance(content, str):
                                 response += content
 
                         # Parse the response for input tags

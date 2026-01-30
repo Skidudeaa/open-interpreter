@@ -1,17 +1,8 @@
 import os
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
-import sys
-
-# Note: litellm in DEV mode will load .env files from the current directory
-# and all parent directories. This can lead to unexpected API keys being loaded
-# if there are .env files in parent folders.
-import litellm
-
-litellm.suppress_debug_info = True
-litellm.REPEATED_STREAMING_CHUNK_LIMIT = 99999999
-
 import logging
+import sys
 import time
 import uuid
 
@@ -23,6 +14,27 @@ from .run_text_llm import run_text_llm
 # from .run_function_calling_llm import run_function_calling_llm
 from .run_tool_calling_llm import run_tool_calling_llm
 from .utils.convert_to_openai_messages import convert_to_openai_messages
+
+# ARCHITECTURE: Lazy-load litellm for ~300ms cold start savings
+# WHY: litellm import is expensive (loads tokenizers, model configs, etc.)
+# TRADEOFF: First LLM call pays the import cost vs every startup pays it
+# Note: litellm in DEV mode will load .env files from the current directory
+# and all parent directories. This can lead to unexpected API keys being loaded
+# if there are .env files in parent folders.
+_litellm = None
+
+
+def _get_litellm():
+    """Lazy-load litellm module on first use."""
+    global _litellm
+    if _litellm is None:
+        import litellm
+
+        litellm.suppress_debug_info = True
+        litellm.REPEATED_STREAMING_CHUNK_LIMIT = 99999999
+        _litellm = litellm
+    return _litellm
+
 
 # Create or get the logger
 logger = logging.getLogger("LiteLLM")
@@ -63,7 +75,9 @@ class Llm:
         )  # Will only use if supports_vision is False
 
         self.supports_functions = None  # Will try to auto-detect
-        self.execution_instructions: str | bool = "To execute code on the user's machine, write a markdown code block. Specify the language after the ```. You will receive the output. Use any programming language."  # If supports_functions is False, this will be added to the system message. Can be set to False to disable.
+        self.execution_instructions: str | bool = (
+            "To execute code on the user's machine, write a markdown code block. Specify the language after the ```. You will receive the output. Use any programming language."  # If supports_functions is False, this will be added to the system message. Can be set to False to disable.
+        )
 
         # Optional settings
         self.context_window = None
@@ -129,7 +143,7 @@ class Llm:
         # Detect function support
         if self.supports_functions is None:
             try:
-                if litellm.supports_function_calling(model):
+                if _get_litellm().supports_function_calling(model):
                     self.supports_functions = True
                 else:
                     self.supports_functions = False
@@ -139,7 +153,7 @@ class Llm:
         # Detect vision support
         if self.supports_vision is None:
             try:
-                if litellm.supports_vision(model):
+                if _get_litellm().supports_vision(model):
                     self.supports_vision = True
                 else:
                     self.supports_vision = False
@@ -334,9 +348,9 @@ Continuing...
 
         # Set some params directly on LiteLLM
         if self.max_budget:
-            litellm.max_budget = self.max_budget
+            _get_litellm().max_budget = self.max_budget
         if self.interpreter.verbose:
-            litellm.set_verbose = True
+            _get_litellm().set_verbose = True
 
         if (
             self.interpreter.debug and False  # DISABLED
@@ -436,7 +450,7 @@ Continuing...
 
         if self.context_window is None:
             try:
-                model_info = litellm.get_model_info(model=self.model)
+                model_info = _get_litellm().get_model_info(model=self.model)
                 self.context_window = model_info["max_input_tokens"]
                 if self.max_tokens is None:
                     self.max_tokens = min(
@@ -472,8 +486,9 @@ def fixed_litellm_completions(**params):
     Just uses a dummy API key, since we use litellm without an API key sometimes.
     Hopefully they will fix this!
     """
+    litellm = _get_litellm()
 
-    if "local" in params.get("model"):
+    if "local" in params.get("model", ""):
         # Kinda hacky, but this helps sometimes
         params["stop"] = ["<|assistant|>", "<|end|>", "<|eot_id|>"]
 

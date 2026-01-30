@@ -1,6 +1,8 @@
 import sys
 
 if "--os" in sys.argv:
+    import threading
+
     from rich import print as rich_print
     from rich.markdown import Markdown
     from rich.rule import Rule
@@ -28,25 +30,37 @@ if "--os" in sys.argv:
             # Aesthetic choice. For these tags, they need a space below them
             print("")
 
-    from importlib.metadata import version as get_version
+    def _background_update_check():
+        """
+        Check for updates in background thread to avoid blocking startup.
 
-    import requests
-    from packaging import version
+        ARCHITECTURE: Non-blocking version check via daemon thread
+        WHY: PyPI fetch can take 200-500ms; users shouldn't wait for it
+        TRADEOFF: Update message may appear slightly after startup vs immediate
+        """
+        try:
+            from importlib.metadata import version as get_version
 
-    def check_for_update():
-        # Fetch the latest version from the PyPI API
-        response = requests.get("https://pypi.org/pypi/open-interpreter/json")
-        latest_version = response.json()["info"]["version"]
+            import requests
+            from packaging import version
 
-        # Get the current version using importlib.metadata
-        current_version = get_version("open-interpreter")
+            response = requests.get(
+                "https://pypi.org/pypi/open-interpreter/json", timeout=3
+            )
+            if response.ok:
+                latest_version = response.json()["info"]["version"]
+                current_version = get_version("open-interpreter")
 
-        return version.parse(latest_version) > version.parse(current_version)
+                if version.parse(latest_version) > version.parse(current_version):
+                    print_markdown(
+                        "> **A new version of Open Interpreter is available.**\n>Please run: `pip install --upgrade open-interpreter`\n\n---"
+                    )
+        except Exception:
+            # Non-blocking: silently ignore network/parse errors
+            pass
 
-    if check_for_update():
-        print_markdown(
-            "> **A new version of Open Interpreter is available.**\n>Please run: `pip install --upgrade open-interpreter`\n\n---"
-        )
+    # Start background update check (daemon=True so it won't block exit)
+    threading.Thread(target=_background_update_check, daemon=True).start()
 
     if "--voice" in sys.argv:
         print("Coming soon...")

@@ -507,46 +507,22 @@ class InterpreterTUI(App):
         strip.update_agent(agent_id, status)
 
     def _on_code_start(self, event: UIEvent) -> None:
-        """Handle code block start."""
+        """Handle code block start from EventBus."""
         language = event.data.get("language", "python")
         self.call_from_thread(self._start_code_block, language)
 
-    def _start_code_block(self, language: str) -> None:
-        """Create new code block."""
-        panel = self.query_one("#output-panel", OutputPanel)
-        self._active_code_block = CodeBlockWidget("", language)
-        panel.mount(self._active_code_block)
-        panel.scroll_end()
-
     def _on_code_end(self, event: UIEvent) -> None:
-        """Handle code block end."""
+        """Handle code block end from EventBus."""
         self.call_from_thread(self._end_code_block)
 
-    def _end_code_block(self) -> None:
-        """Finalize code block."""
-        if self._active_code_block:
-            self._active_code_block.set_success()
-            self._active_code_block = None
-
     def _on_message_start(self, event: UIEvent) -> None:
-        """Handle message start."""
+        """Handle message start from EventBus."""
         role = event.data.get("role", "assistant")
-        self.call_from_thread(self._start_message, role)
-
-    def _start_message(self, role: str) -> None:
-        """Create new message widget."""
-        panel = self.query_one("#output-panel", OutputPanel)
-        self._active_message = MessageWidget("", role=role)
-        panel.mount(self._active_message)
-        panel.scroll_end()
+        self.call_from_thread(self._start_message_block, role)
 
     def _on_message_end(self, event: UIEvent) -> None:
-        """Handle message end."""
-        self.call_from_thread(self._end_message)
-
-    def _end_message(self) -> None:
-        """Finalize message."""
-        self._active_message = None
+        """Handle message end from EventBus."""
+        self.call_from_thread(self._end_message_block)
 
     def _on_token_update(self, event: UIEvent) -> None:
         """Handle token count update."""
@@ -655,6 +631,7 @@ class InterpreterTUI(App):
     def on_input_area_user_submitted(self, event: InputArea.UserSubmitted) -> None:
         """Handle input submission from InputArea."""
         text = event.value
+
         if not text:
             return
 
@@ -664,12 +641,18 @@ class InterpreterTUI(App):
             return
 
         # Add user message to output
-        panel = self.query_one("#output-panel", OutputPanel)
-        panel.add_message(text, role="user")
+        try:
+            panel = self.query_one("#output-panel", OutputPanel)
+            panel.add_message(text, role="user")
+        except Exception as e:
+            self.notify(f"Error: {e}", severity="error")
+            return
 
         # Process with interpreter in worker thread
         if self.interpreter:
             self._start_chat_worker(text)
+        else:
+            self.notify("No interpreter available", severity="error")
 
     def _handle_magic_command(self, command: str) -> None:
         """Handle % magic commands."""
@@ -716,40 +699,38 @@ class InterpreterTUI(App):
 
         Runs in a separate thread. Uses call_from_thread for UI updates.
         """
-        import sys
-
-        print(
-            f"[DEBUG] _chat_worker started with message: {message!r}", file=sys.stderr
-        )
-
         if not self.interpreter:
-            print("[DEBUG] No interpreter!", file=sys.stderr)
+            self.call_from_thread(self.notify, "No interpreter!", severity="error")
             return
 
         try:
-            # Process chunks from interpreter.chat()
-            print("[DEBUG] Calling interpreter.chat()...", file=sys.stderr)
-            for chunk in self.interpreter.chat(message, display=False, stream=True):
-                print(f"[DEBUG] Got chunk: {chunk}", file=sys.stderr)
-                # Route chunk to appropriate handler
+            chat_generator = self.interpreter.chat(message, display=False, stream=True)
+
+            if chat_generator is None:
+                self.call_from_thread(
+                    self.notify, "No response from model", severity="warning"
+                )
+                return
+
+            for chunk in chat_generator:
                 self._process_chunk(chunk)
-            print("[DEBUG] Chat loop finished", file=sys.stderr)
 
         except Exception as e:
-            print(f"[DEBUG] Exception in worker: {e}", file=sys.stderr)
-            import traceback
-
-            traceback.print_exc()
+            self.call_from_thread(
+                self.notify, f"Error: {e}", severity="error", timeout=5
+            )
             self.call_from_thread(self._show_error, str(e))
         finally:
-            # Always remove loading indicator when done
-            print("[DEBUG] Worker cleanup", file=sys.stderr)
             self.call_from_thread(self._remove_loading)
 
     def _process_chunk(self, chunk: dict) -> None:
         """Process a single chunk from interpreter.chat()."""
         chunk_type = chunk.get("type", "")
         role = chunk.get("role", "")
+
+        # Status chunks - informational only, skip display
+        if chunk_type == "status":
+            return
 
         # Message chunks
         if chunk_type == "message":
@@ -790,13 +771,15 @@ class InterpreterTUI(App):
 
     def _start_message_block(self, role: str = "assistant") -> None:
         """Create new message widget (main thread)."""
-        # Remove loading indicator if present
         self._remove_loading()
 
-        panel = self.query_one("#output-panel", OutputPanel)
-        self._active_message = MessageWidget("", role=role)
-        panel.mount(self._active_message)
-        panel.scroll_end()
+        try:
+            panel = self.query_one("#output-panel", OutputPanel)
+            self._active_message = MessageWidget("", role=role)
+            panel.mount(self._active_message)
+            panel.scroll_end()
+        except Exception as e:
+            self.notify(f"Error creating message: {e}", severity="error", timeout=5)
 
     def _append_message(self, content: str) -> None:
         """Append to active message (main thread)."""
@@ -901,37 +884,22 @@ class InterpreterTUI(App):
                 self._remove_loading()
                 self.notify("Operation cancelled", severity="warning")
 
-    # Stream content (called from interpreter thread)
+    # Stream content (called from interpreter thread via TextualBackend)
 
     def stream_code(self, content: str) -> None:
         """Stream code content to active block."""
         if self._active_code_block:
             self.call_from_thread(self._append_code, content)
 
-    def _append_code(self, content: str) -> None:
-        """Append to active code block."""
-        if self._active_code_block:
-            self._active_code_block.code += content
-
     def stream_message(self, content: str) -> None:
         """Stream message content."""
         if self._active_message:
             self.call_from_thread(self._append_message, content)
 
-    def _append_message(self, content: str) -> None:
-        """Append to active message."""
-        if self._active_message:
-            self._active_message.append(content)
-
     def stream_output(self, content: str) -> None:
         """Stream console output."""
         if self._active_code_block:
             self.call_from_thread(self._append_output, content)
-
-    def _append_output(self, content: str) -> None:
-        """Append to active code block output."""
-        if self._active_code_block:
-            self._active_code_block.add_output(content)
 
 
 # Entry point for development

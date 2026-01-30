@@ -86,6 +86,7 @@ class InputArea(Input):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle input submission from parent Input class."""
         text = event.value.strip()
+
         if not text:
             return
 

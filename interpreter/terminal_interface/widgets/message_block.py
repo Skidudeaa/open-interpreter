@@ -29,16 +29,22 @@ class MessageWidget(Markdown):
     MessageWidget {
         margin: 1 0;
         padding: 1;
+        height: auto;
+        min-height: 3;
+        width: 100%;
+        display: block;
     }
 
     MessageWidget.message-user {
-        background: #58a6ff 10%;  /* $primary 10% */
-        border-left: thick #58a6ff;  /* $primary */
+        background: #1a3a5c;
+        border-left: thick #58a6ff;
+        color: #ffffff;
     }
 
     MessageWidget.message-assistant {
-        background: #1a1a2e;  /* $surface */
-        border-left: thick #8b949e;  /* $secondary */
+        background: #2a2a4e;
+        border-left: thick #8b949e;
+        color: #ffffff;
     }
     """
 
@@ -53,6 +59,10 @@ class MessageWidget(Markdown):
     ):
         super().__init__(markdown, name=name, id=id, classes=classes)
         self.role = role
+        # WHY: Track content ourselves because Textual's Markdown widget
+        # doesn't expose the source content after update() calls.
+        # TRADEOFF: Slight memory overhead vs ability to append content.
+        self._content = markdown
         self.add_class("message")
         self.add_class(f"message-{role}")
 
@@ -64,9 +74,10 @@ class MessageWidget(Markdown):
 
     def append(self, text: str) -> None:
         """Append text to the message (for streaming)."""
-        current = self.document.source if hasattr(self, "document") else ""
-        self.update(current + text)
+        self._content += text
+        self.update(self._content)
 
     async def stream_content(self, content: str) -> None:
         """Update content for streaming display."""
+        self._content = content
         self.update(content)

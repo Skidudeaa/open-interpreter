@@ -29,8 +29,11 @@ class OutputPanel(VerticalScroll):
     DEFAULT_CSS = """
     OutputPanel {
         height: 1fr;
+        min-height: 10;
+        width: 100%;
         scrollbar-gutter: stable;
         padding: 0 1;
+        overflow-y: auto;
     }
     """
 

@@ -36,9 +36,7 @@ $text-bright: #ffffff;
    ============================================ */
 
 Screen {
-    layout: grid;
-    grid-size: 1;
-    grid-rows: auto 1fr auto auto;
+    layout: vertical;
     background: $bg-dark;
 }
 

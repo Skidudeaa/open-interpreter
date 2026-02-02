@@ -640,3 +640,198 @@ LoadingIndicator {
 .theme-high-contrast .agent-badge.error {
     color: #ff0000;
 }
+
+/* ============================================
+   Activity Timeline
+   ============================================ */
+
+#activity-timeline {
+    width: 1fr;
+    height: 100%;
+    background: $bg-dark;
+    padding: 0 1;
+    scrollbar-background: $bg-medium;
+    scrollbar-color: $secondary;
+    scrollbar-color-hover: $primary;
+    scrollbar-color-active: $accent;
+}
+
+#activity-timeline.-hidden {
+    display: none;
+}
+
+#activity-timeline:focus {
+    border: solid $primary;
+}
+
+#activity-timeline > .tree--guides {
+    color: $secondary;
+}
+
+#activity-timeline > .tree--cursor {
+    background: $primary 20%;
+}
+
+#activity-timeline > .tree--highlight {
+    background: $primary 10%;
+}
+
+/* Output panel hidden class for timeline toggle */
+#output-panel.-hidden {
+    display: none;
+}
+
+/* ============================================
+   Code Sidebar
+   ============================================ */
+
+#code-sidebar {
+    dock: right;
+    width: 40%;
+    min-width: 30;
+    max-width: 80;
+    background: $bg-medium;
+    border-left: solid $secondary;
+}
+
+#code-sidebar.-hidden {
+    display: none;
+}
+
+#code-sidebar #sidebar-header {
+    height: 1;
+    background: $surface;
+    padding: 0 1;
+    dock: top;
+}
+
+#code-sidebar #code-container {
+    height: 1fr;
+    padding: 1;
+    overflow-y: auto;
+}
+
+#code-sidebar #sidebar-footer {
+    height: 1;
+    background: $surface;
+    padding: 0 1;
+    dock: bottom;
+    color: $text-muted;
+}
+
+/* Code block inside sidebar */
+#code-sidebar .code-header {
+    background: $surface;
+    padding: 0 1;
+    height: 1;
+}
+
+#code-sidebar .code-content {
+    background: $bg-dark;
+    padding: 0 1;
+}
+
+/* ============================================
+   Resource Bar
+   ============================================ */
+
+#resource-bar {
+    dock: bottom;
+    height: 1;
+    background: $bg-medium;
+    color: $text;
+    padding: 0 1;
+    border-top: solid $secondary;
+}
+
+#resource-bar.-hidden {
+    display: none;
+}
+
+/* ============================================
+   Mode-specific styles for new widgets
+   ============================================ */
+
+/* ZEN mode - hide new widgets */
+.mode-zen #activity-timeline,
+.mode-zen #code-sidebar,
+.mode-zen #resource-bar {
+    display: none;
+}
+
+/* STANDARD mode - timeline/sidebar toggleable, resource bar visible */
+.mode-standard #activity-timeline.-hidden,
+.mode-standard #code-sidebar.-hidden {
+    display: none;
+}
+
+/* POWER mode - all toggleable */
+.mode-power #activity-timeline.-hidden,
+.mode-power #code-sidebar.-hidden {
+    display: none;
+}
+
+/* DEBUG mode - resource bar always visible */
+.mode-debug #resource-bar {
+    display: block;
+}
+
+/* ============================================
+   Light theme additions for new widgets
+   ============================================ */
+
+.theme-light #activity-timeline {
+    background: #ffffff;
+}
+
+.theme-light #code-sidebar {
+    background: #f0f0f0;
+    border-left: solid #cccccc;
+}
+
+.theme-light #code-sidebar #sidebar-header,
+.theme-light #code-sidebar #sidebar-footer {
+    background: #e8e8e8;
+}
+
+.theme-light #code-sidebar .code-content {
+    background: #f8f8f8;
+}
+
+.theme-light #resource-bar {
+    background: #e8e8e8;
+    color: #333333;
+    border-top: solid #cccccc;
+}
+
+/* ============================================
+   High contrast theme additions for new widgets
+   ============================================ */
+
+.theme-high-contrast #activity-timeline {
+    background: #000000;
+    color: #ffffff;
+}
+
+.theme-high-contrast #code-sidebar {
+    background: #000000;
+    border-left: solid #ffffff;
+    color: #ffffff;
+}
+
+.theme-high-contrast #code-sidebar #sidebar-header,
+.theme-high-contrast #code-sidebar #sidebar-footer {
+    background: #000000;
+    color: #ffffff;
+}
+
+.theme-high-contrast #code-sidebar .code-content {
+    background: #000000;
+    color: #ffffff;
+}
+
+.theme-high-contrast #resource-bar {
+    background: #000000;
+    color: #ffffff;
+    border-top: solid #ffffff;
+}

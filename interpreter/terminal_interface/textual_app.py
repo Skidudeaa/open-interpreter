@@ -29,7 +29,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Header, LoadingIndicator, Static
@@ -45,6 +45,9 @@ from .widgets import (
     MessageWidget,
     OutputPanel,
 )
+from .widgets.activity_timeline import ActivityTimelineWidget
+from .widgets.code_sidebar import CodeSidebarWidget
+from .widgets.resource_bar import ResourceBarWidget
 
 
 class ConfirmCodeScreen(ModalScreen[bool]):
@@ -462,6 +465,8 @@ class InterpreterTUI(App):
         Binding("f4", "toggle_agents", "Agents", show=True),
         Binding("f5", "cycle_theme", "Theme", show=False),
         Binding("f6", "toggle_selection_mode", "Select", show=True),
+        Binding("alt+c", "toggle_code_sidebar", "Code", show=True),
+        Binding("alt+t", "toggle_timeline", "Timeline", show=True),
         Binding("ctrl+l", "clear_output", "Clear", show=True),
         Binding("ctrl+d", "quit", "Exit", show=True),
         Binding("ctrl+r", "search_history", "History", show=False),
@@ -477,7 +482,9 @@ class InterpreterTUI(App):
     ui_theme: reactive[str] = reactive("theme-dark")
     is_responding: reactive[bool] = reactive(False)
     is_streaming: reactive[bool] = reactive(False)
-    selection_mode: reactive[bool] = reactive(False)  # Disables mouse capture for text selection
+    selection_mode: reactive[bool] = reactive(
+        False
+    )  # Disables mouse capture for text selection
 
     def __init__(
         self,
@@ -530,14 +537,22 @@ class InterpreterTUI(App):
             id="status-bar",
         )
 
-        # Main content area with optional sidebars
-        with Container(id="main-container"):
+        # Main content area with timeline + sidebars
+        with Horizontal(id="main-container"):
+            # Activity timeline (main view) - starts hidden, toggle with Alt+T
+            yield ActivityTimelineWidget(
+                self.ui_state, id="activity-timeline", classes="-hidden"
+            )
+            # Traditional output panel (default view)
             yield OutputPanel(id="output-panel")
+            # Code sidebar (collapsible) - toggle with Alt+C
+            yield CodeSidebarWidget(id="code-sidebar", classes="-hidden")
             # Context panel (shown in POWER/DEBUG modes)
             yield ContextPanelWidget(self.ui_state, id="context-panel")
             # Agent tree (shown when agents are active in POWER/DEBUG modes)
             yield AgentTreeWidget(self.ui_state, id="agent-tree")
 
+        yield ResourceBarWidget(id="resource-bar")
         yield AgentStrip(id="agent-strip")
         yield InputArea(id="input-area")
         yield Footer()
@@ -716,6 +731,38 @@ class InterpreterTUI(App):
         except Exception:
             self.notify("Agent tree not available", severity="warning")
 
+    def action_toggle_code_sidebar(self) -> None:
+        """Toggle code sidebar visibility (Alt+C)."""
+        try:
+            sidebar = self.query_one("#code-sidebar", CodeSidebarWidget)
+            if sidebar.has_class("-hidden"):
+                sidebar.remove_class("-hidden")
+                self.notify("Code sidebar shown")
+            else:
+                sidebar.add_class("-hidden")
+                self.notify("Code sidebar hidden")
+        except Exception:
+            self.notify("Code sidebar not available", severity="warning")
+
+    def action_toggle_timeline(self) -> None:
+        """Toggle activity timeline visibility (Alt+T)."""
+        try:
+            timeline = self.query_one("#activity-timeline", ActivityTimelineWidget)
+            output_panel = self.query_one("#output-panel", OutputPanel)
+
+            if timeline.has_class("-hidden"):
+                # Show timeline, hide output panel
+                timeline.remove_class("-hidden")
+                output_panel.add_class("-hidden")
+                self.notify("Activity timeline view")
+            else:
+                # Hide timeline, show output panel
+                timeline.add_class("-hidden")
+                output_panel.remove_class("-hidden")
+                self.notify("Output panel view")
+        except Exception:
+            self.notify("Timeline not available", severity="warning")
+
     def action_cycle_theme(self) -> None:
         """Cycle through themes (dark/light/high-contrast)."""
         # Remove current theme class
@@ -767,7 +814,9 @@ class InterpreterTUI(App):
         try:
             import pyperclip
         except ImportError:
-            self.notify("pyperclip not installed - use Shift+drag to select", severity="warning")
+            self.notify(
+                "pyperclip not installed - use Shift+drag to select", severity="warning"
+            )
             return
 
         # Prefer code if we have it, otherwise use message

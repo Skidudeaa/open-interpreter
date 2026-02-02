@@ -12,12 +12,7 @@ from typing import Any
 
 import requests
 
-from .base import (
-    BaseParser,
-    DocumentParseError,
-    DocumentType,
-    ParsedDocument,
-)
+from .base import BaseParser, DocumentParseError, DocumentType, ParsedDocument
 
 # Lazy imports for optional dependencies
 trafilatura = None
@@ -105,7 +100,7 @@ class WebParser(BaseParser):
             response.raise_for_status()
             html = response.text
         except requests.RequestException as e:
-            raise DocumentParseError(f"Failed to fetch {source}: {e}")
+            raise DocumentParseError(f"Failed to fetch {source}: {e}") from e
 
         title = None
         text = ""
@@ -178,7 +173,7 @@ class WebParser(BaseParser):
                     converter.ignore_images = True
                     text = converter.handle(html)
                 else:
-                    raise DocumentParseError(f"Content extraction failed: {e}")
+                    raise DocumentParseError(f"Content extraction failed: {e}") from e
         else:
             raise DocumentParseError(
                 "No HTML parser available. Install with: pip install trafilatura"

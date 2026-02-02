@@ -80,6 +80,7 @@ def chunk_responses(responses, tokens, llm):
 def fast_llm(llm, system_message, user_message):
     old_messages = llm.interpreter.messages
     old_system_message = llm.interpreter.system_message
+    response = None
     try:
         llm.interpreter.system_message = system_message
         llm.interpreter.messages = []
@@ -87,7 +88,7 @@ def fast_llm(llm, system_message, user_message):
     finally:
         llm.interpreter.messages = old_messages
         llm.interpreter.system_message = old_system_message
-        return response[-1].get("content")
+    return response[-1].get("content")
 
 
 def query_map_chunks(chunks, llm, query):
@@ -143,6 +144,7 @@ class Ai:
         old_execution_instructions = (
             self.computer.interpreter.llm.execution_instructions
         )
+        response = None
         try:
             self.computer.interpreter.llm.interpreter.system_message = (
                 "You are an AI assistant."
@@ -162,7 +164,7 @@ class Ai:
                 old_execution_instructions
             )
 
-            return response[-1].get("content")
+        return response[-1].get("content")
 
     def query(self, text, query, custom_reduce_query=None):
         if custom_reduce_query is None:

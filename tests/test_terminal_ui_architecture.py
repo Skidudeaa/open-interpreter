@@ -818,10 +818,14 @@ class TestBackendDetection:
     @patch(
         "interpreter.terminal_interface.components.ui_backend.prompt_toolkit_available"
     )
-    def test_create_backend_prompt_toolkit_preferred(self, mock_pt_avail, mock_is_tty):
-        """Test create_backend prefers prompt_toolkit when available"""
+    @patch("interpreter.terminal_interface.components.ui_backend.textual_available")
+    def test_create_backend_prompt_toolkit_preferred(
+        self, mock_textual_avail, mock_pt_avail, mock_is_tty
+    ):
+        """Test create_backend prefers prompt_toolkit when textual is unavailable"""
         mock_is_tty.return_value = True
         mock_pt_avail.return_value = True
+        mock_textual_avail.return_value = False
         mock_interpreter = Mock()
 
         backend = create_backend(mock_interpreter)

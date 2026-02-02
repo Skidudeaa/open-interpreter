@@ -6,6 +6,7 @@ from IPython.display import display
 from PIL import Image
 
 from ...utils.lazy_import import lazy_import
+from ..utils.computer_vision import find_text_in_image, pytesseract_get_text
 from ..utils.recipient_utils import format_to_recipient
 
 # Still experimenting with this
@@ -30,9 +31,6 @@ np = lazy_import("numpy")
 plt = lazy_import("matplotlib.pyplot")
 screeninfo = lazy_import("screeninfo")
 pywinctl = lazy_import("pywinctl")
-
-
-from ..utils.computer_vision import find_text_in_image, pytesseract_get_text
 
 
 class Display:
@@ -264,7 +262,7 @@ class Display:
                     raise Exception(
                         str(e)
                         + "\n\nIcon locating API not available, or we were unable to find the icon. Please try another method to find this icon."
-                    )
+                    ) from e
 
     def find_text(self, text, screenshot=None):
         """
@@ -325,10 +323,10 @@ class Display:
 
         try:
             return pytesseract_get_text(screenshot)
-        except Exception:
+        except Exception as e:
             raise Exception(
                 "Failed to find text locally.\n\nTo find text in order to use the mouse, please make sure you've installed `pytesseract` along with the Tesseract executable (see this Stack Overflow answer for help installing Tesseract: https://stackoverflow.com/questions/50951955/pytesseract-tesseractnotfound-error-tesseract-is-not-installed-or-its-not-i)."
-            )
+            ) from e
 
 
 def take_screenshot_to_pil(screen=0, combine_screens=True):

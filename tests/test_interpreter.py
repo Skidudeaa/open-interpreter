@@ -1,5 +1,6 @@
 import os
 import signal
+import socket
 import time
 from random import randint
 
@@ -79,12 +80,29 @@ def test_hallucinations():
             break
 
 
-def run_auth_server():
+def get_free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def wait_for_port(port, host="127.0.0.1", timeout=5.0):
+    start = time.time()
+    while time.time() - start < timeout:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            if s.connect_ex((host, port)) == 0:
+                return True
+        time.sleep(0.05)
+    return False
+
+
+def run_auth_server(port):
     os.environ["INTERPRETER_REQUIRE_ACKNOWLEDGE"] = "True"
     os.environ["INTERPRETER_API_KEY"] = "testing"
     async_interpreter = AsyncInterpreter()
     async_interpreter.print = False
-    async_interpreter.server.run()
+    async_interpreter.server.run(port=port)
 
 
 @pytest.mark.skipif(not FASTAPI_AVAILABLE, reason="FastAPI not installed")
@@ -97,11 +115,12 @@ def test_authenticated_acknowledging_breaking_server():
 
     # Start the server in a new process
 
-    process = multiprocessing.Process(target=run_auth_server)
+    port = get_free_port()
+    process = multiprocessing.Process(target=run_auth_server, args=(port,))
     process.start()
 
     # Give the server a moment to start
-    time.sleep(2)
+    assert wait_for_port(port)
 
     import asyncio
     import json
@@ -110,7 +129,7 @@ def test_authenticated_acknowledging_breaking_server():
     import websockets
 
     async def test_fastapi_server():
-        async with websockets.connect("ws://localhost:8000/") as websocket:
+        async with websockets.connect(f"ws://localhost:{port}/") as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
 
@@ -118,7 +137,7 @@ def test_authenticated_acknowledging_breaking_server():
             await websocket.send(json.dumps({"auth": "testing"}))
 
             # Sending POST request
-            post_url = "http://localhost:8000/settings"
+            post_url = f"http://localhost:{port}/settings"
             settings = {
                 "llm": {
                     "model": "gpt-4o",
@@ -188,7 +207,7 @@ def test_authenticated_acknowledging_breaking_server():
         # Now let's hilariously keep going
         print("RESUMING")
 
-        async with websockets.connect("ws://localhost:8000/") as websocket:
+        async with websockets.connect(f"ws://localhost:{port}/") as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
 
@@ -230,24 +249,25 @@ def test_authenticated_acknowledging_breaking_server():
         process.join()
 
 
-def run_server():
+def run_server(port):
     os.environ["INTERPRETER_REQUIRE_ACKNOWLEDGE"] = "False"
     if "INTERPRETER_API_KEY" in os.environ:
         del os.environ["INTERPRETER_API_KEY"]
     async_interpreter = AsyncInterpreter()
     async_interpreter.print = False
-    async_interpreter.server.run()
+    async_interpreter.server.run(port=port)
 
 
 @pytest.mark.skipif(not FASTAPI_AVAILABLE, reason="FastAPI not installed")
 def test_server():
     # Start the server in a new process
 
-    process = multiprocessing.Process(target=run_server)
+    port = get_free_port()
+    process = multiprocessing.Process(target=run_server, args=(port,))
     process.start()
 
     # Give the server a moment to start
-    time.sleep(2)
+    assert wait_for_port(port)
 
     import asyncio
     import json
@@ -256,7 +276,7 @@ def test_server():
     import websockets
 
     async def test_fastapi_server():
-        async with websockets.connect("ws://localhost:8000/") as websocket:
+        async with websockets.connect(f"ws://localhost:{port}/") as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
 
@@ -264,7 +284,7 @@ def test_server():
             await websocket.send(json.dumps({"auth": "dummy-api-key"}))
 
             # Sending POST request
-            post_url = "http://localhost:8000/settings"
+            post_url = f"http://localhost:{port}/settings"
             settings = {
                 "llm": {"model": "gpt-4o-mini"},
                 "messages": [
@@ -320,7 +340,7 @@ def test_server():
             assert "crunk" in accumulated_content
 
             # Send another POST request
-            post_url = "http://localhost:8000/settings"
+            post_url = f"http://localhost:{port}/settings"
             settings = {
                 "llm": {"model": "gpt-4o-mini"},
                 "messages": [
@@ -376,7 +396,7 @@ def test_server():
             assert "barloney" in accumulated_content
 
             # Send another POST request
-            post_url = "http://localhost:8000/settings"
+            post_url = f"http://localhost:{port}/settings"
             settings = {
                 "messages": [],
                 "custom_instructions": "",
@@ -425,7 +445,7 @@ def test_server():
             time.sleep(5)
 
             # Send a GET request to /settings/messages
-            get_url = "http://localhost:8000/settings/messages"
+            get_url = f"http://localhost:{port}/settings/messages"
             response = requests.get(get_url)
             print("GET request sent, response:", response.json())
 
@@ -478,7 +498,7 @@ def test_server():
             #### TEST FILE ####
 
             # Send another POST request
-            post_url = "http://localhost:8000/settings"
+            post_url = f"http://localhost:{port}/settings"
             settings = {"messages": [], "auto_run": True}
             response = requests.post(post_url, json=settings)
             print("POST request sent, response:", response.json())
@@ -544,7 +564,7 @@ def test_server():
                     break
 
             # Get messages
-            get_url = "http://localhost:8000/settings/messages"
+            get_url = f"http://localhost:{port}/settings/messages"
             response_json = requests.get(get_url).json()
             print("GET request sent, response:", response_json)
             if isinstance(response_json, str):
@@ -560,7 +580,7 @@ def test_server():
             #### TEST IMAGES ####
 
             # Send another POST request
-            post_url = "http://localhost:8000/settings"
+            post_url = f"http://localhost:{port}/settings"
             settings = {"messages": [], "auto_run": True}
             response = requests.post(post_url, json=settings)
             print("POST request sent, response:", response.json())
@@ -621,7 +641,7 @@ def test_server():
                     break
 
             # Get messages
-            get_url = "http://localhost:8000/settings/messages"
+            get_url = f"http://localhost:{port}/settings/messages"
             response_json = requests.get(get_url).json()
             print("GET request sent, response:", response_json)
             if isinstance(response_json, str):
@@ -636,7 +656,7 @@ def test_server():
 
             # Sending POST request to /run endpoint with code to kill a thread in Python
             # actually wait i dont think this will work..? will just kill the python interpreter
-            post_url = "http://localhost:8000/run"
+            post_url = f"http://localhost:{port}/run"
             code_data = {
                 "code": "import os, signal; os.kill(os.getpid(), signal.SIGINT)",
                 "language": "python",

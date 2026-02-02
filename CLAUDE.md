@@ -28,7 +28,9 @@ poetry run interpreter --local
 poetry run interpreter --os
 
 # Non-interactive (pipe input)
-echo "list files" | poetry run interpreter
+Echo "list files" | poetry run interpreter
+curl https://example.com | poetry run interpreter
+journalctl -n 50 | poetry run interpreter
 
 # Debug logging
 OI_UI_DEBUG=true poetry run interpreter

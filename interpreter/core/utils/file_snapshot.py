@@ -109,7 +109,7 @@ def diff_file_states(
     """
     changed = {}
 
-    for file_path, (mtime_after, hash_after, content_after) in after.items():
+    for file_path, (_mtime_after, hash_after, content_after) in after.items():
         if file_path in before:
             mtime_before, hash_before, content_before = before[file_path]
             # Check if content actually changed (hash comparison is fast)

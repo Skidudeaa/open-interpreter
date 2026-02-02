@@ -244,6 +244,10 @@ def convert_to_openai_messages(
         elif message["type"] == "error":
             print("Ignoring 'type' == 'error' messages.")
             continue
+        elif message["type"] == "mcp_tool":
+            if interpreter is not None and getattr(interpreter, "debug", False):
+                print("Ignoring 'type' == 'mcp_tool' messages.")
+            continue
         else:
             raise Exception(f"Unable to convert this message type: {message}")
 

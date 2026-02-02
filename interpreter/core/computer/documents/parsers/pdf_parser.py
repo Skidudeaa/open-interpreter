@@ -10,12 +10,7 @@ Uses PyMuPDF (fitz) for PDF parsing with support for:
 
 from typing import Any
 
-from .base import (
-    BaseParser,
-    DependencyMissingError,
-    DocumentType,
-    ParsedDocument,
-)
+from .base import BaseParser, DependencyMissingError, DocumentType, ParsedDocument
 
 # Lazy import for optional dependency
 fitz = None
@@ -163,7 +158,7 @@ class PDFParser(BaseParser):
                 # Extract images if requested
                 if extract_images:
                     try:
-                        for img_index, img in enumerate(page.get_images()):
+                        for _img_index, img in enumerate(page.get_images()):
                             xref = img[0]
                             try:
                                 base_image = doc.extract_image(xref)

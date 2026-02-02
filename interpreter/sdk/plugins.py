@@ -24,7 +24,6 @@ Example:
     )
 """
 
-from abc import ABC
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -82,7 +81,7 @@ class EditContext:
     symbols_affected: list[str] = field(default_factory=list)
 
 
-class AgentPlugin(ABC):
+class AgentPlugin:
     """
     Base class for agent plugins.
 

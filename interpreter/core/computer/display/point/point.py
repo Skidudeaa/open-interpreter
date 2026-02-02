@@ -10,7 +10,10 @@ import torch
 from PIL import Image, ImageDraw, ImageEnhance, ImageFont
 from sentence_transformers import SentenceTransformer, util
 
-from ...utils.computer_vision import pytesseract_get_text_bounding_boxes
+from ...utils.computer_vision import (
+    find_text_in_image,
+    pytesseract_get_text_bounding_boxes,
+)
 
 try:
     nltk.corpus.words.words()
@@ -35,9 +38,6 @@ def take_screenshot_to_pil(filename="temp_screenshot.png"):
     os.remove(filename)
 
     return image
-
-
-from ...utils.computer_vision import find_text_in_image
 
 
 def point(description, screenshot=None, debug=False, hashes=None):
@@ -341,7 +341,7 @@ def find_icon(description, screenshot=None, debug=False, hashes=None):
         while True:
             combined_boxes = []
             for box in icons_bounding_boxes:
-                for i, combined_box in enumerate(combined_boxes):
+                for _i, combined_box in enumerate(combined_boxes):
                     if (
                         box["x"] < combined_box["x"] + combined_box["width"]
                         and box["x"] + box["width"] > combined_box["x"]

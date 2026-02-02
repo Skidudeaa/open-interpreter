@@ -9,6 +9,18 @@ import threading
 import time
 from datetime import datetime
 
+from ..terminal_interface.local_setup import local_setup
+from ..terminal_interface.terminal_interface import terminal_interface
+from ..terminal_interface.utils.display_markdown_message import display_markdown_message
+from ..terminal_interface.utils.local_storage_path import get_storage_path
+from ..terminal_interface.utils.oi_dir import oi_dir
+from .computer.computer import Computer
+from .default_system_message import default_system_message
+from .llm.llm import Llm
+from .respond import respond
+from .utils.telemetry import send_telemetry
+from .utils.truncate_output import truncate_output
+
 # Check for OI_ACTIVATE_ALL at module load time (before 'os' param shadows it)
 _OI_ACTIVATE_ALL = os_module.environ.get("OI_ACTIVATE_ALL", "").lower() in (
     "true",
@@ -23,17 +35,6 @@ _OI_ENABLE_UNSTEER = os_module.environ.get("OI_ENABLE_UNSTEER", "").lower() in (
     "yes",
 )
 
-from ..terminal_interface.local_setup import local_setup
-from ..terminal_interface.terminal_interface import terminal_interface
-from ..terminal_interface.utils.display_markdown_message import display_markdown_message
-from ..terminal_interface.utils.local_storage_path import get_storage_path
-from ..terminal_interface.utils.oi_dir import oi_dir
-from .computer.computer import Computer
-from .default_system_message import default_system_message
-from .llm.llm import Llm
-from .respond import respond
-from .utils.telemetry import send_telemetry
-from .utils.truncate_output import truncate_output
 
 # Thread-safe lazy loading for modules (prevents race conditions in async/multi-threaded usage)
 _module_lock = threading.Lock()
@@ -258,12 +259,7 @@ class OpenInterpreter:
         shrink_images=True,
         loop=False,
         loop_message="""Proceed. You CAN run code on my machine. If the entire task I asked for is done, say exactly 'The task is done.' If you need some specific information (like username or password) say EXACTLY 'Please provide more information.' If it's impossible, say 'The task is impossible.' (If I haven't provided a task, say exactly 'Let me know what you'd like to do next.') Otherwise keep going.""",
-        loop_breakers=[
-            "The task is done.",
-            "The task is impossible.",
-            "Let me know what you'd like to do next.",
-            "Please provide more information.",
-        ],
+        loop_breakers=None,
         disable_telemetry=False,
         in_terminal_interface=False,
         conversation_history=True,
@@ -311,6 +307,13 @@ class OpenInterpreter:
 
         # Loop messages
         self.loop = loop
+        if loop_breakers is None:
+            loop_breakers = [
+                "The task is done.",
+                "The task is impossible.",
+                "Let me know what you'd like to do next.",
+                "Please provide more information.",
+            ]
         self.loop_message = loop_message
         self.loop_breakers = loop_breakers
 
@@ -917,14 +920,9 @@ class OpenInterpreter:
                     # (Except active_line, which shouldn't be stored)
                     if not is_ephemeral(chunk):
                         if any(
-                            [
-                                (property in self.messages[-1])
-                                and (
-                                    self.messages[-1].get(property)
-                                    != chunk.get(property)
-                                )
-                                for property in ["role", "type", "format"]
-                            ]
+                            (property in self.messages[-1])
+                            and (self.messages[-1].get(property) != chunk.get(property))
+                            for property in ["role", "type", "format"]
                         ):
                             self.messages.append(chunk)
                         else:

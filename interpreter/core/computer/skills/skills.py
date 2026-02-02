@@ -106,7 +106,7 @@ class Skills:
 
         # Make sure it's not over 100mb
         total_size = 0
-        for path, dirs, files in os.walk(self.path):
+        for path, _dirs, files in os.walk(self.path):
             for f in files:
                 fp = os.path.join(path, f)
                 total_size += os.path.getsize(fp)

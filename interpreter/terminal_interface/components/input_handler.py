@@ -349,7 +349,7 @@ class InputHandler:
 
         # Key Bindings section
         help_text.append("⌨️  Key Bindings\n", style="bold yellow")
-        for action, binding in self.bindings.items():
+        for _action, binding in self.bindings.items():
             key_str = binding.primary
             if binding.fallback:
                 key_str += f" / {binding.fallback}"
@@ -509,7 +509,7 @@ class InputHandler:
     def get_binding_help(self) -> str:
         """Get help text for all key bindings"""
         lines = ["Key Bindings:", ""]
-        for action, binding in self.bindings.items():
+        for _action, binding in self.bindings.items():
             key_str = binding.primary
             if binding.fallback:
                 key_str += f" / {binding.fallback}"

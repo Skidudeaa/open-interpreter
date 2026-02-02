@@ -197,7 +197,7 @@ def get_error_summary() -> str:
     for comp, errors in by_component.items():
         summary.append(f"\n  {comp}: {len(errors)} errors")
         # Show last 3 unique error types
-        error_types = list(set(e["error_type"] for e in errors[-5:]))
+        error_types = list({e["error_type"] for e in errors[-5:]})
         for et in error_types[:3]:
             summary.append(f"    - {et}")
 

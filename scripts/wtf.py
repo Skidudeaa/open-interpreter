@@ -259,7 +259,7 @@ def main():
                 and "saving" not in line
                 and "Saving session..." not in line
             ]
-            history = [l.strip() for l in history if l.strip()][-10:]
+            history = [line.strip() for line in history if line.strip()][-10:]
 
             # Split the history into individual commands
 

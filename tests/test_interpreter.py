@@ -1,10 +1,14 @@
+import importlib.util
+import multiprocessing
 import os
 import signal
 import socket
+import threading
 import time
 from random import randint
 
 import pytest
+from websocket import create_connection
 
 #####
 from interpreter import AsyncInterpreter, OpenInterpreter
@@ -17,17 +21,7 @@ interpreter = OpenInterpreter()
 #####
 
 # Check if FastAPI is available for server tests
-try:
-    import fastapi
-
-    FASTAPI_AVAILABLE = True
-except ImportError:
-    FASTAPI_AVAILABLE = False
-
-import multiprocessing
-import threading
-
-from websocket import create_connection
+FASTAPI_AVAILABLE = importlib.util.find_spec("fastapi") is not None
 
 
 def test_hallucinations():
@@ -43,9 +37,9 @@ def test_hallucinations():
             assert chunk.get("content") == "22"
             break
 
-    code = """{                                                                             
-    "language": "python",                                                        
-    "code": "10+12"                                                        
+    code = """{
+    "language": "python",
+    "code": "10+12"
   }"""
 
     interpreter.messages = [
@@ -56,9 +50,9 @@ def test_hallucinations():
             assert chunk.get("content") == "22"
             break
 
-    code = """functions.execute({                                                                             
-    "language": "python",                                                        
-    "code": "10+12"                                                        
+    code = """functions.execute({
+    "language": "python",
+    "code": "10+12"
   })"""
 
     interpreter.messages = [
@@ -184,7 +178,7 @@ def test_authenticated_acknowledging_breaking_server():
                 if "error" in message_data:
                     raise Exception(str(message_data))
                 print("Received from WebSocket:", message_data)
-                if type(message_data.get("content")) == str:
+                if isinstance(message_data.get("content"), str):
                     poem += message_data.get("content")
                     print(message_data.get("content"), end="", flush=True)
                 if message_data == {
@@ -229,7 +223,7 @@ def test_authenticated_acknowledging_breaking_server():
                     "content": "complete",
                 }:
                     break
-                if type(message_data.get("content")) == str:
+                if isinstance(message_data.get("content"), str):
                     poem += message_data.get("content")
                     print(message_data.get("content"), end="", flush=True)
 
@@ -327,7 +321,7 @@ def test_server():
                 if "error" in message_data:
                     raise Exception(message_data["content"])
                 print("Received from WebSocket:", message_data)
-                if type(message_data.get("content")) == str:
+                if isinstance(message_data.get("content"), str):
                     accumulated_content += message_data.get("content")
                 if message_data == {
                     "role": "server",
@@ -483,7 +477,7 @@ def test_server():
                     raise Exception(message_data["content"])
                 print("Received from WebSocket:", message_data)
                 if message_data.get("content"):
-                    if type(message_data.get("content")) == str:
+                    if isinstance(message_data.get("content"), str):
                         accumulated_content += message_data.get("content")
                 if message_data == {
                     "role": "server",
@@ -553,7 +547,7 @@ def test_server():
                 if "error" in message_data:
                     raise Exception(message_data["content"])
                 print("Received from WebSocket:", message_data)
-                if type(message_data.get("content")) == str:
+                if isinstance(message_data.get("content"), str):
                     accumulated_content += message_data.get("content")
                 if message_data == {
                     "role": "server",
@@ -630,7 +624,7 @@ def test_server():
                 if "error" in message_data:
                     raise Exception(message_data["content"])
                 print("Received from WebSocket:", message_data)
-                if type(message_data.get("content")) == str:
+                if isinstance(message_data.get("content"), str):
                     accumulated_content += message_data.get("content")
                 if message_data == {
                     "role": "server",
@@ -1220,7 +1214,7 @@ def test_math():
 
     order_of_operations_message = f"""
     Please perform the calculation `{n1} + {n2} * ({n1} - {n2}) / ({n2} + {n1})` then reply with just the answer, nothing else. No confirmation. No explanation. No words. Do not use commas. Do not show your work. Just return the result of the calculation. Do not introduce the results with a phrase like \"The result of the calculation is...\" or \"The answer is...\"
-    
+
     Round to 2 decimal places.
     """.strip()
 
@@ -1237,20 +1231,20 @@ def test_break_execution():
     """
 
     code = r"""print("starting")
-import time                                                                                                                                
-import os                                                                                                                                  
-                                                                                                                                            
+import time
+import os
+
 # Always create a fresh file
 open('numbers.txt', 'w').close()
-                                                                                                                                            
-# Open the file in append mode                                                                                                             
-with open('numbers.txt', 'a+') as f:                                                                                                        
-    # Loop through the numbers 1 to 5                                                                                                      
-    for i in [1,2,3,4,5]:                                                                                                                  
-        # Print the number                                                                                                                 
-        print("adding", i, "to file")                                                                                                                           
-        # Append the number to the file                                                                                                    
-        f.write(str(i) + '\n')                                                                                                             
+
+# Open the file in append mode
+with open('numbers.txt', 'a+') as f:
+    # Loop through the numbers 1 to 5
+    for i in [1,2,3,4,5]:
+        # Print the number
+        print("adding", i, "to file")
+        # Append the number to the file
+        f.write(str(i) + '\n')
         # Wait for 0.5 second
         print("starting to sleep")
         time.sleep(1)

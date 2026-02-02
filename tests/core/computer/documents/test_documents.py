@@ -76,7 +76,9 @@ class TestParsedDocument(unittest.TestCase):
             ],
         )
         self.assertEqual(doc.get_section("Introduction"), "Intro content")
-        self.assertEqual(doc.get_section("introduction"), "Intro content")  # Case insensitive
+        self.assertEqual(
+            doc.get_section("introduction"), "Intro content"
+        )  # Case insensitive
         self.assertIsNone(doc.get_section("Nonexistent"))
 
     def test_to_dict(self):
@@ -184,7 +186,7 @@ class TestDocumentsFacade(unittest.TestCase):
 
         docs = Documents(self.mock_computer)
 
-        with mock.patch.object(docs, 'parse') as mock_parse:
+        with mock.patch.object(docs, "parse") as mock_parse:
             mock_parse.return_value = ParsedDocument(
                 text="Extracted text",
                 document_type=DocumentType.TEXT,
@@ -199,7 +201,7 @@ class TestDocumentsFacade(unittest.TestCase):
 
         docs = Documents(self.mock_computer)
 
-        with mock.patch.object(docs, 'parse') as mock_parse:
+        with mock.patch.object(docs, "parse") as mock_parse:
             mock_parse.return_value = ParsedDocument(
                 text="Word " * 500,  # Long text
                 document_type=DocumentType.TEXT,
@@ -252,14 +254,16 @@ class TestWebParser(unittest.TestCase):
         self.assertFalse(parser.can_parse("/local/file.html"))
         self.assertFalse(parser.can_parse("ftp://example.com"))
 
-    @mock.patch('interpreter.core.computer.documents.parsers.web_parser.requests')
+    @mock.patch("interpreter.core.computer.documents.parsers.web_parser.requests")
     def test_parse_web_page(self, mock_requests):
         """Test web page parsing with mocked requests."""
         from interpreter.core.computer.documents.parsers.web_parser import WebParser
 
         # Mock response
         mock_response = mock.Mock()
-        mock_response.text = "<html><head><title>Test</title></head><body>Content here</body></html>"
+        mock_response.text = (
+            "<html><head><title>Test</title></head><body>Content here</body></html>"
+        )
         mock_response.status_code = 200
         mock_response.headers = {"content-type": "text/html"}
         mock_requests.get.return_value = mock_response

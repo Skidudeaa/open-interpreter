@@ -53,7 +53,7 @@ Rules:
 
 User's System: {platform.system()}
 CWD: {os.getcwd()}
-{"Shell: " + os.environ.get('SHELL') if os.environ.get('SHELL') else ''}
+{"Shell: " + os.environ.get("SHELL") if os.environ.get("SHELL") else ""}
 
 """
 
@@ -77,7 +77,7 @@ Rules:
 
 User's System: {platform.system()}
 CWD: {os.getcwd()}
-{"Shell: " + os.environ.get('SHELL') if os.environ.get('SHELL') else ''}
+{"Shell: " + os.environ.get("SHELL") if os.environ.get("SHELL") else ""}
 
 """
 
@@ -106,7 +106,7 @@ chmod 644 config.yml
 
 User's System: {platform.system()}
 CWD: {os.getcwd()}
-{"Shell: " + os.environ.get('SHELL') if os.environ.get('SHELL') else ''}
+{"Shell: " + os.environ.get("SHELL") if os.environ.get("SHELL") else ""}
 
 Now, it's your turn:
 """
@@ -340,7 +340,7 @@ def main():
                 start_line = max(0, line_number - 3)  # Preceding lines
                 end_line = min(len(all_lines), line_number + 2)  # Following lines
                 for i in range(start_line, end_line + 1):
-                    lines.append(f"Line {i+1}: " + all_lines[i].rstrip())
+                    lines.append(f"Line {i + 1}: " + all_lines[i].rstrip())
         except Exception as e:
             lines.append(f"Error reading file: {e}")
         return lines

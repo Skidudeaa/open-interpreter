@@ -40,7 +40,7 @@ class Mouse:
         except Exception as e:
             raise RuntimeError(
                 f"An error occurred while retrieving the mouse position: {e}. "
-            )
+            ) from e
 
     def move(self, *args, x=None, y=None, icon=None, text=None, screenshot=None):
         """
@@ -112,7 +112,7 @@ class Mouse:
                     display(img_pil)
 
                 coordinates = [
-                    f"{i}: ({int(item['coordinates'][0]*self.computer.display.width)}, {int(item['coordinates'][1]*self.computer.display.height)}) "
+                    f"{i}: ({int(item['coordinates'][0] * self.computer.display.width)}, {int(item['coordinates'][1] * self.computer.display.height)}) "
                     + '"'
                     + item["text"]
                     + '"'
@@ -186,7 +186,7 @@ class Mouse:
                         plt.show()
 
                 coordinates = [
-                    f"{i}: {int(item[0]*self.computer.display.width)}, {int(item[1]*self.computer.display.height)}"
+                    f"{i}: {int(item[0] * self.computer.display.width)}, {int(item[1] * self.computer.display.height)}"
                     for i, item in enumerate(coordinates)
                 ]
                 error_message = (

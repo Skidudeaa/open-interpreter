@@ -60,9 +60,7 @@ class SearchResults:
 
     def top_n(self, n: int = 5) -> list[SourceResult]:
         """Get top N results by relevance score."""
-        return sorted(
-            self.results, key=lambda x: x.relevance_score, reverse=True
-        )[:n]
+        return sorted(self.results, key=lambda x: x.relevance_score, reverse=True)[:n]
 
     def by_type(self, source_type: str) -> list[SourceResult]:
         """Get results filtered by source type."""

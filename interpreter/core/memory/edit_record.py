@@ -194,14 +194,16 @@ class Edit:
             "new_content": self.new_content,
             "diff": self.diff,
             "edit_type": self.edit_type.value,
-            "primary_symbol": self.primary_symbol.to_dict()
-            if self.primary_symbol
-            else None,
+            "primary_symbol": (
+                self.primary_symbol.to_dict() if self.primary_symbol else None
+            ),
             "affected_symbols": [s.to_dict() for s in self.affected_symbols],
             "related_symbols": [s.to_dict() for s in self.related_symbols],
-            "conversation_context": self.conversation_context.to_dict()
-            if self.conversation_context
-            else None,
+            "conversation_context": (
+                self.conversation_context.to_dict()
+                if self.conversation_context
+                else None
+            ),
             "user_intent": self.user_intent,
             "result": self.result.to_dict() if self.result else None,
             "confidence": self.confidence,

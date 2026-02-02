@@ -205,9 +205,7 @@ Provide a detailed report:
 
 Use citations [1], [2], etc. throughout."""
 
-    def _fallback_synthesis(
-        self, query: str, contents: list[ExtractedContent]
-    ) -> str:
+    def _fallback_synthesis(self, query: str, contents: list[ExtractedContent]) -> str:
         """Create a basic synthesis without LLM."""
         lines = [f"Research findings for: {query}", ""]
 

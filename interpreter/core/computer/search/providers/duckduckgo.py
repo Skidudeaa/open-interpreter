@@ -96,6 +96,7 @@ class DuckDuckGoProvider(SearchProvider):
             return results
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).warning(f"DuckDuckGo search failed: {e}")
             return []
 

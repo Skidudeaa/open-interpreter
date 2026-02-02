@@ -247,7 +247,7 @@ class TraceContextGenerator:
         if slow:
             parts.append("")
             parts.append("Slowest functions:")
-            for name, total_time, count in slow:
+            for name, total_time, _count in slow:
                 short_name = name.split(".")[-1] if "." in name else name
                 avg_time = total_time / count if count else 0
                 parts.append(
@@ -376,7 +376,7 @@ class TraceContextGenerator:
 
         # Performance observations
         slow = trace.call_graph.get_slow_functions(top_n=3)
-        for name, total_time, count in slow:
+        for name, total_time, _count in slow:
             if total_time > 100:  # More than 100ms
                 observations.append(f"- Function `{name}` is slow ({total_time:.0f}ms)")
 

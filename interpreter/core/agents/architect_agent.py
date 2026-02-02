@@ -463,7 +463,7 @@ Always output structured plans that other agents can follow."""
 
 Task: {task}
 
-{f'Context from exploration:{chr(10)}{context}' if context else ''}
+{f"Context from exploration:{chr(10)}{context}" if context else ""}
 
 Please provide:
 1. A brief summary of what needs to be done

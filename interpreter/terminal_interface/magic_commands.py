@@ -44,7 +44,7 @@ def handle_undo(self, arguments):
                 self.display_message(f"**Removed code** ({lang}): `{code_preview}`")
             else:
                 self.display_message(
-                    f"**Removed message:** `\"{message['content'][:30]}...\"`"
+                    f'**Removed message:** `"{message["content"][:30]}..."`'
                 )
         elif "function_call" in message:
             self.display_message("**Removed function call**")

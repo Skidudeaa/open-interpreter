@@ -443,7 +443,7 @@ class TestEventBus:
 
     def test_clear(self):
         """Test clearing all pending events"""
-        for i in range(10):
+        for _i in range(10):
             self.bus.emit(UIEvent(type=EventType.MESSAGE_CHUNK, data={}))
 
         assert self.bus.pending_count == 10
@@ -983,7 +983,7 @@ class TestInputHandlerMocked:
         """Test InputHandler with no history file"""
         from interpreter.terminal_interface.components.input_handler import InputHandler
 
-        handler = InputHandler(self.mock_interpreter, self.state)
+        InputHandler(self.mock_interpreter, self.state)
 
         mock_memory_history.assert_called_once()
 
@@ -1128,12 +1128,12 @@ class TestFilePathCompleter:
 
         # Should activate on /
         doc = Document("/tmp/", cursor_position=5)
-        completions = list(completer.get_completions(doc, None))
+        list(completer.get_completions(doc, None))
         # May or may not have completions, but should not raise
 
         # Should activate on ~
         doc = Document("~/", cursor_position=2)
-        completions = list(completer.get_completions(doc, None))
+        list(completer.get_completions(doc, None))
 
     def test_activation_after_keyword(self):
         """Test completer activates after path keywords"""
@@ -1143,10 +1143,10 @@ class TestFilePathCompleter:
             FilePathCompleter,
         )
 
-        completer = FilePathCompleter()
+        FilePathCompleter()
 
         # "open" keyword
-        doc = Document("open file", cursor_position=9)
+        Document("open file", cursor_position=9)
         # Should activate
         # (actual completions depend on filesystem)
 
@@ -1331,7 +1331,7 @@ class TestIntegration:
 
     def test_chunk_to_event_to_state(self):
         """Test chunk conversion and state update pipeline"""
-        state = UIState()
+        UIState()
 
         # Simulate message chunks
         chunks = [

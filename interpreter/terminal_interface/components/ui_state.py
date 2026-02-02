@@ -126,9 +126,9 @@ class AgentState:
         if secs < 60:
             return f"{secs:.1f}s"
         elif secs < 3600:
-            return f"{secs/60:.1f}m"
+            return f"{secs / 60:.1f}m"
         else:
-            return f"{secs/3600:.1f}h"
+            return f"{secs / 3600:.1f}h"
 
     @property
     def status_icon(self) -> str:

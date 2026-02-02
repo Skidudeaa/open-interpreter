@@ -200,12 +200,16 @@ class SideBySideDiff(DiffBlock):
                 new_slice = new_lines[j1:j2] + [""] * (max_len - (j2 - j1))
                 for old, new in zip(old_slice, new_slice):
                     table.add_row(
-                        Text(old, style=f"{THEME['error']} on #3D1A1A")
-                        if old
-                        else Text(""),
-                        Text(new, style=f"{THEME['success']} on #0D3320")
-                        if new
-                        else Text(""),
+                        (
+                            Text(old, style=f"{THEME['error']} on #3D1A1A")
+                            if old
+                            else Text("")
+                        ),
+                        (
+                            Text(new, style=f"{THEME['success']} on #0D3320")
+                            if new
+                            else Text("")
+                        ),
                     )
             elif tag == "delete":
                 for old in old_lines[i1:i2]:

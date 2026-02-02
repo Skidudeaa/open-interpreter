@@ -74,4 +74,4 @@ with concurrent.futures.ThreadPoolExecutor() as executor:
                 f"Title: {url['title']}\nURL: {url['link']}\nText: {page_text[:500]}...\n"
             )  # Print the first 500 characters
         except Exception as exc:
-            print(f'{url["link"]} generated an exception: {exc}')
+            print(f"{url['link']} generated an exception: {exc}")

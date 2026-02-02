@@ -1,3 +1,4 @@
+import importlib.util
 import os
 from unittest import TestCase, mock
 
@@ -6,11 +7,7 @@ import pytest
 from interpreter.core.async_core import AsyncInterpreter, Server
 
 # Skip these tests if FastAPI is not installed
-try:
-    import fastapi
-    FASTAPI_AVAILABLE = True
-except ImportError:
-    FASTAPI_AVAILABLE = False
+FASTAPI_AVAILABLE = importlib.util.find_spec("fastapi") is not None
 
 
 @pytest.mark.skipif(not FASTAPI_AVAILABLE, reason="FastAPI not installed")

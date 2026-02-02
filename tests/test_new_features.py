@@ -4,6 +4,7 @@ Tests for the 3 new advanced features:
 2. Auto-test after edits
 3. Trace feedback to LLM
 """
+
 import os
 import sys
 import tempfile
@@ -36,7 +37,7 @@ class TestFileSnapshot:
             assert str(test_js) in states, "test.js should be captured"
 
             # Check state structure
-            for path, (mtime, content_hash, content) in states.items():
+            for _path, (mtime, content_hash, content) in states.items():
                 assert isinstance(mtime, float), "mtime should be float"
                 assert len(content_hash) == 32, "hash should be md5 (32 chars)"
                 assert isinstance(content, str), "content should be string"
@@ -154,8 +155,12 @@ class TestFileSnapshot:
             states = capture_source_file_states(tmpdir)
 
             assert len(states) == 1, f"Expected 1 file, got {len(states)}"
-            assert any("capture.py" in p for p in states), "capture.py should be captured"
-            assert not any("skip" in p for p in states), "skip files should not be captured"
+            assert any(
+                "capture.py" in p for p in states
+            ), "capture.py should be captured"
+            assert not any(
+                "skip" in p for p in states
+            ), "skip files should not be captured"
 
         print("✓ test_skip_directories passed")
 
@@ -168,12 +173,18 @@ class TestCoreFlags:
         from interpreter import interpreter
 
         assert hasattr(interpreter, "enable_auto_test"), "enable_auto_test should exist"
-        assert hasattr(interpreter, "enable_trace_feedback"), "enable_trace_feedback should exist"
+        assert hasattr(
+            interpreter, "enable_trace_feedback"
+        ), "enable_trace_feedback should exist"
 
         # Should be False by default (unless OI_ACTIVATE_ALL is set)
         # Just check they're boolean
-        assert isinstance(interpreter.enable_auto_test, bool), "enable_auto_test should be bool"
-        assert isinstance(interpreter.enable_trace_feedback, bool), "enable_trace_feedback should be bool"
+        assert isinstance(
+            interpreter.enable_auto_test, bool
+        ), "enable_auto_test should be bool"
+        assert isinstance(
+            interpreter.enable_trace_feedback, bool
+        ), "enable_trace_feedback should be bool"
 
         print("✓ test_flags_exist passed")
 
@@ -195,13 +206,13 @@ class TestCoreFlags:
             from interpreter.core.core import OpenInterpreter
 
             interp = OpenInterpreter()
-            assert interp.enable_auto_test == False, "Should start disabled"
-            assert interp.enable_trace_feedback == False, "Should start disabled"
+            assert not interp.enable_auto_test, "Should start disabled"
+            assert not interp.enable_trace_feedback, "Should start disabled"
 
             interp.activate_all_features()
 
-            assert interp.enable_auto_test == True, "Should be enabled after activate_all"
-            assert interp.enable_trace_feedback == True, "Should be enabled after activate_all"
+            assert interp.enable_auto_test, "Should be enabled after activate_all"
+            assert interp.enable_trace_feedback, "Should be enabled after activate_all"
 
             print("✓ test_activate_all_features passed")
         finally:

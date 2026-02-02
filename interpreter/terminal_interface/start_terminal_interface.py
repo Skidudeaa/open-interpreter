@@ -405,13 +405,13 @@ Use """ to write multi-line messages.
         action = arg.get("action", "store_true")
         nickname = arg.get("nickname")
 
-        name_or_flags = [f'--{arg["name"]}']
+        name_or_flags = [f"--{arg['name']}"]
         if nickname:
             name_or_flags.append(f"-{nickname}")
 
         # Construct argument name flags
         flags = (
-            [f"-{nickname}", f'--{arg["name"]}'] if nickname else [f'--{arg["name"]}']
+            [f"-{nickname}", f"--{arg['name']}"] if nickname else [f"--{arg['name']}"]
         )
 
         if arg["type"] is bool:

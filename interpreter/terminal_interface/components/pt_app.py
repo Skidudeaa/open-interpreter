@@ -172,22 +172,22 @@ class InterpreterApp:
         self.style = Style.from_dict(
             {
                 # Input area
-                "input-area": f'bg:{theme["bg_dark"]}',
-                "input-border": f'{theme["primary"]}',
+                "input-area": f"bg:{theme['bg_dark']}",
+                "input-border": f"{theme['primary']}",
                 # Output area
                 "output-area": "",
                 # Status bar
-                "status-bar": f'bg:{theme["bg_medium"]} {theme["secondary"]}',
-                "status-bar.key": f'{theme["primary"]} bold',
-                "status-bar.value": f'{theme["text_muted"]}',
+                "status-bar": f"bg:{theme['bg_medium']} {theme['secondary']}",
+                "status-bar.key": f"{theme['primary']} bold",
+                "status-bar.value": f"{theme['text_muted']}",
                 # Agent strip
-                "agent-strip": f'bg:{theme["bg_medium"]}',
-                "agent.pending": f'{theme["text_muted"]}',
-                "agent.running": f'{theme["warning"]}',
-                "agent.complete": f'{theme["success"]}',
-                "agent.error": f'{theme["error"]}',
+                "agent-strip": f"bg:{theme['bg_medium']}",
+                "agent.pending": f"{theme['text_muted']}",
+                "agent.running": f"{theme['warning']}",
+                "agent.complete": f"{theme['success']}",
+                "agent.error": f"{theme['error']}",
                 # Prompt
-                "prompt": f'{theme["primary"]} bold',
+                "prompt": f"{theme['primary']} bold",
             }
         )
 

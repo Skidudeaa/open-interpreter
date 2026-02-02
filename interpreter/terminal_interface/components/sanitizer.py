@@ -258,9 +258,11 @@ def get_sanitization_report(text: str) -> dict:
         report["osc_sequences"].append(
             {
                 "code": match.group(1),
-                "content": match.group(2)[:50] + "..."
-                if len(match.group(2)) > 50
-                else match.group(2),
+                "content": (
+                    match.group(2)[:50] + "..."
+                    if len(match.group(2)) > 50
+                    else match.group(2)
+                ),
             }
         )
         report["has_dangerous"] = True

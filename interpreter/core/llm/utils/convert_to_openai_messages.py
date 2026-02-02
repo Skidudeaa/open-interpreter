@@ -83,7 +83,7 @@ def convert_to_openai_messages(
                 new_message["name"] = "execute"
                 if "content" not in message:
                     print("What is this??", message)
-                if type(message["content"]) != str:
+                if not isinstance(message["content"], str):
                     if interpreter.debug:
                         print("\n\n\nStrange chunk found:", message, "\n\n\n")
                     message["content"] = str(message["content"])

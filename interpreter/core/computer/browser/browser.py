@@ -30,7 +30,7 @@ class Browser:
         Searches the web for the specified query and returns the results.
         """
         response = requests.get(
-            f'{self.computer.api_base.strip("/")}/browser/search',
+            f"{self.computer.api_base.strip('/')}/browser/search",
             params={"query": query},
         )
         return response.json()["result"]
@@ -46,7 +46,7 @@ class Browser:
                 threading.current_thread(),
                 "response",
                 requests.get(
-                    f'{self.computer.api_base.strip("/")}/browser/search',
+                    f"{self.computer.api_base.strip('/')}/browser/search",
                     params={"query": query},
                 ),
             )

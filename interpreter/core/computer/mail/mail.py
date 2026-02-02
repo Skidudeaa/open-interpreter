@@ -96,7 +96,7 @@ class Mail:
                 make new to recipient at end of to recipients with properties {{address:"{to}"}}
                 {attachment_clause}
             end tell
-            {f'delay {delay_seconds}' if attachments else ''}
+            {f"delay {delay_seconds}" if attachments else ""}
             send new_message
         end tell
         """

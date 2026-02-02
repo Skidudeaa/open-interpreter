@@ -147,3 +147,17 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # unused imports ok in __init__
 "tests/*" = ["B011"]      # assert False ok in tests
+# E402: Module imports not at top - intentional for lazy loading / startup performance
+"scripts/wtf.py" = ["E402"]  # spinner starts before imports
+"interpreter/terminal_interface/terminal_interface.py" = ["E402"]  # lazy imports for startup
+"interpreter/terminal_interface/components/pt_app.py" = ["E402"]  # lazy imports
+"interpreter/terminal_interface/components/interactive_menu.py" = ["E402"]  # lazy imports
+"interpreter/terminal_interface/components/live_agent_tracker.py" = ["E402"]  # lazy imports
+"interpreter/terminal_interface/components/live_output_panel.py" = ["E402"]  # lazy imports
+"interpreter/terminal_interface/components/spinner_block.py" = ["E402"]  # lazy imports
+"interpreter/terminal_interface/components/theme.py" = ["E402"]  # lazy imports
+"interpreter/terminal_interface/profiles/defaults/*.py" = ["E402"]  # profile config
+"interpreter/core/computer/display/point/point.py" = ["E402"]  # conditional import
+"interpreter/core/computer/utils/html_to_png_base64.py" = ["E402"]  # lazy import
+"interpreter/computer_use/unused_markdown.py" = ["E402"]  # test file
+"examples/*.ipynb" = ["E402", "F821"]  # notebooks have different import patterns

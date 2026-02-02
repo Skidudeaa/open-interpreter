@@ -465,7 +465,7 @@ Requirements/Task:
 {task}
 
 Changes/Context:
-{context or 'No changes provided'}
+{context or "No changes provided"}
 
 Please verify:
 1. Do the changes accomplish the stated goal?
@@ -505,7 +505,7 @@ Task:
 {task}
 
 Changes:
-{context or 'No changes provided'}
+{context or "No changes provided"}
 
 Provide specific feedback with line references where applicable."""
 
@@ -616,9 +616,9 @@ Provide specific feedback with line references where applicable."""
                 TestResult(
                     test_name=test_name,
                     passed=status == "PASSED",
-                    error_message=None
-                    if status == "PASSED"
-                    else f"Test {status.lower()}",
+                    error_message=(
+                        None if status == "PASSED" else f"Test {status.lower()}"
+                    ),
                 )
             )
 
@@ -629,7 +629,7 @@ Provide specific feedback with line references where applicable."""
                 match = re.search(r"(\d+) passed", output)
                 count = int(match.group(1)) if match else 1
                 for i in range(count):
-                    results.append(TestResult(test_name=f"test_{i+1}", passed=True))
+                    results.append(TestResult(test_name=f"test_{i + 1}", passed=True))
             elif "failed" in output.lower() or "error" in output.lower():
                 results.append(
                     TestResult(

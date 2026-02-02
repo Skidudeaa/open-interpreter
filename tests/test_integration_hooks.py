@@ -2,6 +2,7 @@
 Integration test for the new hooks in respond.py.
 Tests the actual execution flow with file detection and hooks.
 """
+
 import sys
 import tempfile
 from pathlib import Path
@@ -26,6 +27,7 @@ def test_file_detection_in_respond():
 
         # Capture pre-execution state
         from interpreter.core.utils.file_snapshot import capture_source_file_states
+
         before = capture_source_file_states(tmpdir)
         assert str(test_file) in before, "test.py should be captured"
 
@@ -34,6 +36,7 @@ def test_file_detection_in_respond():
 
         # Capture post-execution state
         from interpreter.core.utils.file_snapshot import diff_file_states
+
         after = capture_source_file_states(tmpdir)
         changed = diff_file_states(before, after)
 
@@ -51,10 +54,12 @@ def test_status_dict_includes_tested():
     respond_path = Path(__file__).parent.parent / "interpreter" / "core" / "respond.py"
     content = respond_path.read_text()
 
-    assert '"tested": False' in content or "'tested': False" in content, \
-        "Status dict should include 'tested' key"
-    assert "tested" in content and "status_parts" in content, \
-        "Status indicator should show 'tested'"
+    assert (
+        '"tested": False' in content or "'tested': False" in content
+    ), "Status dict should include 'tested' key"
+    assert (
+        "tested" in content and "status_parts" in content
+    ), "Status indicator should show 'tested'"
 
     print("✓ test_status_dict_includes_tested passed")
 

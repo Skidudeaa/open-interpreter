@@ -254,7 +254,7 @@ class Display:
 
                 try:
                     response = requests.post(
-                        f'{self.computer.api_base.strip("/")}/point/',
+                        f"{self.computer.api_base.strip('/')}/point/",
                         json={"query": description, "base64": screenshot_base64},
                     )
                     return response.json()
@@ -279,7 +279,7 @@ class Display:
 
             try:
                 response = requests.post(
-                    f'{self.computer.api_base.strip("/")}/point/text/',
+                    f"{self.computer.api_base.strip('/')}/point/text/",
                     json={"query": text, "base64": screenshot_base64},
                 )
                 response = response.json()
@@ -311,7 +311,7 @@ class Display:
 
             try:
                 response = requests.post(
-                    f'{self.computer.api_base.strip("/")}/text/',
+                    f"{self.computer.api_base.strip('/')}/text/",
                     json={"base64": screenshot_base64},
                 )
                 response = response.json()

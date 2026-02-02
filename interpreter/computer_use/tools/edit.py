@@ -20,7 +20,9 @@ SNIPPET_LINES: int = 4
 # Sensitive paths that require approval for modifications
 # Only critical system files that could break the system or compromise security
 SENSITIVE_PATHS = [
-    "/etc/passwd", "/etc/shadow", "/etc/sudoers",
+    "/etc/passwd",
+    "/etc/shadow",
+    "/etc/sudoers",
     "/etc/ssh/sshd_config",
     "/boot",
     "/home/*/.ssh/authorized_keys",
@@ -41,6 +43,7 @@ def is_sensitive_path(path: str) -> bool:
         if "*" in sensitive:
             # Simple glob matching
             import fnmatch
+
             if fnmatch.fnmatch(path_str, sensitive):
                 return True
         elif path_str.startswith(sensitive):
@@ -73,7 +76,9 @@ class EditTool(BaseAnthropicTool):
 
     def __init__(self, auto_approve: bool = False):
         self._file_history = defaultdict(list)
-        self.auto_approve = auto_approve or os.environ.get("OPEN_INTERPRETER_AUTO_APPROVE", "").lower() in ("1", "true", "yes")
+        self.auto_approve = auto_approve or os.environ.get(
+            "OPEN_INTERPRETER_AUTO_APPROVE", ""
+        ).lower() in ("1", "true", "yes")
         super().__init__()
 
     def to_params(self) -> BetaToolTextEditor20241022Param:
@@ -147,7 +152,7 @@ class EditTool(BaseAnthropicTool):
         elif command == "undo_edit":
             return self.undo_edit(_path)
         raise ToolError(
-            f'Unrecognized command {command}. The allowed commands for the {self.name} tool are: {", ".join(get_args(Command))}'
+            f"Unrecognized command {command}. The allowed commands for the {self.name} tool are: {', '.join(get_args(Command))}"
         )
 
     def validate_path(self, command: str, path: Path):

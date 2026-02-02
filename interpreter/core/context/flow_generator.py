@@ -139,9 +139,11 @@ class TechnicalFlowGenerator:
                             {
                                 "file": match,
                                 "action": "modified",
-                                "context": content[:200] + "..."
-                                if len(content) > 200
-                                else content,
+                                "context": (
+                                    content[:200] + "..."
+                                    if len(content) > 200
+                                    else content
+                                ),
                             }
                         )
 

@@ -353,9 +353,11 @@ class ScoutAgent(BaseAgent):
                 emit_activity(
                     "read",
                     f"Found {len(files_found)} relevant file(s)",
-                    files_found[0]
-                    if len(files_found) == 1
-                    else f"{files_found[0]} +{len(files_found) - 1} more",
+                    (
+                        files_found[0]
+                        if len(files_found) == 1
+                        else f"{files_found[0]} +{len(files_found) - 1} more"
+                    ),
                     agent="scout",
                 )
 

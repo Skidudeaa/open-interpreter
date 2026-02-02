@@ -12,10 +12,7 @@ Tests research functionality including:
 import unittest
 from unittest import mock
 
-from interpreter.core.agents.research.sources import (
-    SearchResults,
-    SourceResult,
-)
+from interpreter.core.agents.research.sources import SearchResults, SourceResult
 from interpreter.core.agents.research.synthesizer import (
     ExtractedContent,
     ResearchReport,
@@ -309,7 +306,7 @@ class TestResearchAgent(unittest.TestCase):
         """Test quick_research convenience method."""
         agent = ResearchAgent(self.mock_interpreter)
 
-        with mock.patch.object(agent, 'execute') as mock_execute:
+        with mock.patch.object(agent, "execute") as mock_execute:
             mock_execute.return_value = mock.Mock(content="Quick result")
             result = agent.quick_research("test query")
 
@@ -319,7 +316,7 @@ class TestResearchAgent(unittest.TestCase):
         """Test deep_research convenience method."""
         agent = ResearchAgent(self.mock_interpreter)
 
-        with mock.patch.object(agent, 'execute') as mock_execute:
+        with mock.patch.object(agent, "execute") as mock_execute:
             mock_execute.return_value = mock.Mock(content="Deep result")
             result = agent.deep_research("test query")
 
@@ -341,7 +338,7 @@ class TestResearchAgent(unittest.TestCase):
         agent = ResearchAgent(self.mock_interpreter)
 
         # Mock the internal methods
-        with mock.patch.object(agent, '_research_sync') as mock_research:
+        with mock.patch.object(agent, "_research_sync") as mock_research:
             mock_research.return_value = ResearchReport(
                 query="test",
                 summary="Test summary",

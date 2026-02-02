@@ -14,9 +14,7 @@ import unittest
 from unittest import mock
 
 from interpreter.core.computer.search.cache import SearchCache
-from interpreter.core.computer.search.providers.base import (
-    SearchResult,
-)
+from interpreter.core.computer.search.providers.base import SearchResult
 from interpreter.core.computer.search.rate_limiter import RateLimiter
 
 
@@ -232,7 +230,7 @@ class TestTavilyProvider(unittest.TestCase):
         provider = TavilyProvider(api_key="test_key")
         self.assertTrue(provider.is_available())
 
-    @mock.patch('interpreter.core.computer.search.providers.tavily.requests')
+    @mock.patch("interpreter.core.computer.search.providers.tavily.requests")
     def test_search_with_mock(self, mock_requests):
         """Test search with mocked requests."""
         from interpreter.core.computer.search.providers.tavily import TavilyProvider

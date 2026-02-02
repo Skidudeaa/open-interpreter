@@ -227,7 +227,7 @@ RULES:
             emit_activity(
                 "edit",
                 f"Proposed {len(valid_edits)} edit(s)",
-                files[0] if len(files) == 1 else f"{files[0]} +{len(files)-1} more",
+                files[0] if len(files) == 1 else f"{files[0]} +{len(files) - 1} more",
                 agent="surgeon",
             )
 

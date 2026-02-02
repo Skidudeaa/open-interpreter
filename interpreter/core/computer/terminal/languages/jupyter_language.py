@@ -567,7 +567,7 @@ def string_to_python(code_as_string):
     for func in functions:
         # Consolidating import statements and function definition
         function_content = "\n".join(import_statements) + "\n\n"
-        function_content += f"def {func['name']}():\n    \"\"\"{func['docstring']}\"\"\"\n    {func['body']}\n"
+        function_content += f'def {func["name"]}():\n    """{func["docstring"]}"""\n    {func["body"]}\n'
 
         # Adding to dictionary
         functions_dict[func["name"]] = function_content

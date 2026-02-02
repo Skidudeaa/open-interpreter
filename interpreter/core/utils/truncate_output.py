@@ -7,13 +7,15 @@ def truncate_output(data, max_output_chars=2800, add_scrollbars=False):
     # Calculate how much to show from start and end
     chars_per_end = max_output_chars // 2
 
-    message = (f"Output truncated ({len(data):,} characters total). "
-               f"Showing {chars_per_end:,} characters from start/end. "
-               "To handle large outputs, store result in python var first "
-               "`result = command()` then `computer.ai.summarize(result)` for "
-               "a summary, search with `result.find('text')`, "
-               "repeat shell commands with wc/grep/sed, etc. or break it down "
-               "into smaller steps.\n\n")
+    message = (
+        f"Output truncated ({len(data):,} characters total). "
+        f"Showing {chars_per_end:,} characters from start/end. "
+        "To handle large outputs, store result in python var first "
+        "`result = command()` then `computer.ai.summarize(result)` for "
+        "a summary, search with `result.find('text')`, "
+        "repeat shell commands with wc/grep/sed, etc. or break it down "
+        "into smaller steps.\n\n"
+    )
 
     # This won't work because truncated code is stored in interpreter.messages :/
     # If the full code was stored, we could do this:

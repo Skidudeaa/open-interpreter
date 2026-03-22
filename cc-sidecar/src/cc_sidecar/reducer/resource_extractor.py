@@ -120,7 +120,9 @@ def _extract_notebook_edit(p: dict) -> str:
 
 def _extract_todo_write(p: dict) -> str:
     todos = p.get("todos", [])
-    in_progress = [t for t in todos if isinstance(t, dict) and t.get("status") == "in_progress"]
+    in_progress = [
+        t for t in todos if isinstance(t, dict) and t.get("status") == "in_progress"
+    ]
     if in_progress:
         return _truncate(in_progress[0].get("content", "?"))
     return f"{len(todos)} items"

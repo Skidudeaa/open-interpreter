@@ -11,11 +11,14 @@ Design:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import socket
 import time
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Default paths
 DEFAULT_SOCKET_DIR = Path.home() / ".cc-sidecar"
@@ -27,6 +30,11 @@ NEWLINE = b"\n"
 
 # Socket timeout for non-blocking sends
 SEND_TIMEOUT = 0.5  # seconds
+
+# Maximum spool size before dropping events (50 MB)
+# WHY: On long daemon outages, spool can grow unbounded.
+# After this limit, new events are silently dropped to prevent disk exhaustion.
+MAX_SPOOL_BYTES = 50 * 1024 * 1024
 
 
 def get_socket_path() -> Path:
@@ -56,8 +64,9 @@ def send_event(event: dict[str, Any]) -> bool:
     except Exception:
         try:
             _spool_event(event)
+            logger.debug("Event spooled (daemon unreachable)")
         except Exception:
-            pass  # Last resort: silently drop
+            logger.debug("Event dropped — spool write failed", exc_info=True)
         return False
 
 
@@ -79,9 +88,18 @@ def _send_socket(event: dict[str, Any]) -> bool:
 
 
 def _spool_event(event: dict[str, Any]) -> None:
-    """Append event to spool file for later replay."""
+    """Append event to spool file for later replay.
+
+    Respects MAX_SPOOL_BYTES to prevent disk exhaustion on long outages.
+    """
     spool_dir = get_spool_dir()
     spool_dir.mkdir(parents=True, exist_ok=True)
+
+    # Check total spool size before writing
+    total_size = sum(f.stat().st_size for f in spool_dir.glob("events_*.jsonl"))
+    if total_size >= MAX_SPOOL_BYTES:
+        logger.debug("Spool size limit reached (%d bytes), dropping event", total_size)
+        return
 
     # One spool file per hour to keep file count manageable
     hour_key = time.strftime("%Y%m%d_%H", time.gmtime())

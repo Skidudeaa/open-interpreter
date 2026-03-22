@@ -9,11 +9,25 @@ description = "Passive, event-sourced observability sidecar for Claude Code"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
-dependencies = [
-    "rich>=13.0",
-    "textual>=0.40",
-    "websockets>=12.0",
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Debuggers",
+    "Topic :: System :: Monitoring",
 ]
+dependencies = [
+    "rich>=13.0,<15",
+    "textual>=0.40,<2",
+    "websockets>=12.0,<15",
+]
+
+[project.urls]
+Repository = "https://github.com/Skidudeaa/open-interpreter"
 
 [project.scripts]
 cc-sidecar = "cc_sidecar.cli:main"
@@ -22,6 +36,9 @@ cc-sidecar = "cc_sidecar.cli:main"
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
+    "pytest-cov>=4.0",
+    "ruff>=0.4",
+    "mypy>=1.8",
 ]
 
 [tool.setuptools.packages.find]
@@ -30,3 +47,15 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true

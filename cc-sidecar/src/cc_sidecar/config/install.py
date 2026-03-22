@@ -100,6 +100,69 @@ def run_install(scope: str = "project", dry_run: bool = False) -> int:
     print(f"Installed cc-sidecar hooks to {path}")
     print(f"  Scope: {scope}")
     print(f"  Events: {len(sidecar_settings['hooks'])} hook events")
-    print(f"  Statusline: enabled")
+    print("  Statusline: enabled")
 
+    return 0
+
+
+def _remove_sidecar_hooks(settings: dict[str, Any]) -> dict[str, Any]:
+    """Remove cc-sidecar hooks from settings, preserving everything else."""
+    cleaned = dict(settings)
+
+    if "hooks" in cleaned:
+        hooks = cleaned["hooks"]
+        for event_name in list(hooks.keys()):
+            # Filter out entries that contain cc-sidecar commands
+            filtered = []
+            for entry in hooks[event_name]:
+                entry_hooks = entry.get("hooks", [])
+                non_sidecar = [
+                    h for h in entry_hooks if "cc-sidecar" not in h.get("command", "")
+                ]
+                if non_sidecar:
+                    filtered.append({**entry, "hooks": non_sidecar})
+            if filtered:
+                hooks[event_name] = filtered
+            else:
+                del hooks[event_name]
+
+        if not hooks:
+            del cleaned["hooks"]
+
+    # Remove statusline if it references cc-sidecar
+    if "statusLine" in cleaned:
+        sl = cleaned["statusLine"]
+        if isinstance(sl, dict) and "cc-sidecar" in sl.get("command", ""):
+            del cleaned["statusLine"]
+
+    return cleaned
+
+
+def run_uninstall(scope: str = "project") -> int:
+    """Remove cc-sidecar hooks from Claude Code settings.
+
+    Args:
+        scope: "user", "project", or "local"
+
+    Returns:
+        Exit code (0 = success)
+    """
+    path = SCOPE_PATHS.get(scope)
+    if path is None:
+        print(f"Unknown scope: {scope}", file=sys.stderr)
+        return 1
+
+    if not path.exists():
+        print(f"No settings file found at {path}")
+        return 0
+
+    existing = _load_settings(path)
+    cleaned = _remove_sidecar_hooks(existing)
+
+    if cleaned == existing:
+        print(f"No cc-sidecar hooks found in {path}")
+        return 0
+
+    path.write_text(json.dumps(cleaned, indent=2) + "\n")
+    print(f"Removed cc-sidecar hooks from {path}")
     return 0

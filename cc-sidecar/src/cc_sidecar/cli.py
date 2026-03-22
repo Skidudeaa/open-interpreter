@@ -6,18 +6,40 @@ Subcommands:
     daemon      Run the long-lived sidecar daemon
     tui         Launch the terminal dashboard
     install     Install hooks into Claude Code settings
+    uninstall   Remove hooks from Claude Code settings
 """
 
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
+
+from . import __version__
+
+
+def _setup_logging(debug: bool = False) -> None:
+    """Configure logging for the CLI."""
+    level = logging.DEBUG if debug else logging.WARNING
+    log_format = "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
+    logging.basicConfig(level=level, format=log_format, force=True)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="cc-sidecar",
         description="Passive observability sidecar for Claude Code",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"cc-sidecar {__version__}",
+    )
+    parser.add_argument(
+        "--debug",
+        "-v",
+        action="store_true",
+        help="Enable debug logging",
     )
     sub = parser.add_subparsers(dest="command")
 
@@ -40,14 +62,18 @@ def main(argv: list[str] | None = None) -> int:
     # daemon
     daemon_p = sub.add_parser("daemon", help="Run the sidecar daemon")
     daemon_p.add_argument("--socket", default=None, help="Unix socket path")
-    daemon_p.add_argument("--port", type=int, default=9340, help="WebSocket port for UIs")
+    daemon_p.add_argument(
+        "--port", type=int, default=9340, help="WebSocket port for UIs"
+    )
     daemon_p.add_argument("--db", default=None, help="SQLite database path")
 
     # tui
     sub.add_parser("tui", help="Launch the terminal dashboard")
 
     # install
-    install_p = sub.add_parser("install", help="Install hooks into Claude Code settings")
+    install_p = sub.add_parser(
+        "install", help="Install hooks into Claude Code settings"
+    )
     install_p.add_argument(
         "--scope",
         choices=["user", "project", "local"],
@@ -60,7 +86,19 @@ def main(argv: list[str] | None = None) -> int:
         help="Print config without writing",
     )
 
+    # uninstall
+    uninstall_p = sub.add_parser(
+        "uninstall", help="Remove hooks from Claude Code settings"
+    )
+    uninstall_p.add_argument(
+        "--scope",
+        choices=["user", "project", "local"],
+        default="project",
+        help="Settings scope to uninstall from",
+    )
+
     args = parser.parse_args(argv)
+    _setup_logging(debug=getattr(args, "debug", False))
 
     if args.command == "emit":
         from cc_sidecar.ingest.emit import run_emit
@@ -90,6 +128,11 @@ def main(argv: list[str] | None = None) -> int:
         from cc_sidecar.config.install import run_install
 
         return run_install(scope=args.scope, dry_run=args.dry_run)
+
+    elif args.command == "uninstall":
+        from cc_sidecar.config.install import run_uninstall
+
+        return run_uninstall(scope=args.scope)
 
     else:
         parser.print_help()

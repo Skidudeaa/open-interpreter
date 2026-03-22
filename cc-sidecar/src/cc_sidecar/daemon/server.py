@@ -21,16 +21,12 @@ import signal
 import socket
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from ..db.store import DEFAULT_DB_PATH, EventStore
-from ..ingest.transport import (
-    DEFAULT_SOCKET_PATH,
-    clear_spool,
-    get_socket_path,
-    read_spool_files,
-)
+from ..db.store import EventStore
+from ..ingest.transport import clear_spool, get_socket_path, read_spool_files
 from ..reducer.state_machine import Reducer
 
 logger = logging.getLogger(__name__)
@@ -59,6 +55,11 @@ class SidecarDaemon:
         self._ws_clients: set[Any] = set()
         self._event_seq = 0
         self._seq_lock = threading.Lock()
+        # WHY: Bounded thread pool prevents resource exhaustion under sustained
+        # load from many concurrent socket connections
+        self._connection_pool = ThreadPoolExecutor(
+            max_workers=16, thread_name_prefix="sidecar-conn"
+        )
 
     def _next_seq(self) -> int:
         with self._seq_lock:
@@ -94,12 +95,14 @@ class SidecarDaemon:
             self._reducer.handle(event_name, session_id, payload, received_at_ms)
 
             # Push to WebSocket clients
-            self._broadcast_ws({
-                "type": "event",
-                "event_name": event_name,
-                "session_id": session_id,
-                "received_at_ms": received_at_ms,
-            })
+            self._broadcast_ws(
+                {
+                    "type": "event",
+                    "event_name": event_name,
+                    "session_id": session_id,
+                    "received_at_ms": received_at_ms,
+                }
+            )
 
         except Exception:
             logger.exception("Error processing event")
@@ -138,19 +141,15 @@ class SidecarDaemon:
         while self._running:
             try:
                 conn, _ = sock.accept()
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 if self._running:
                     logger.exception("Socket accept error")
                 break
 
-            # Handle connection in thread
-            threading.Thread(
-                target=self._handle_connection,
-                args=(conn,),
-                daemon=True,
-            ).start()
+            # Handle connection in bounded thread pool
+            self._connection_pool.submit(self._handle_connection, conn)
 
         sock.close()
         # Clean up socket file
@@ -178,7 +177,7 @@ class SidecarDaemon:
                             self.process_event(envelope)
                         except json.JSONDecodeError:
                             logger.debug("Invalid JSON from client")
-        except socket.timeout:
+        except TimeoutError:
             pass
         except Exception:
             logger.debug("Connection handler error", exc_info=True)
@@ -204,7 +203,9 @@ class SidecarDaemon:
             pass
         finally:
             self._ws_clients.discard(websocket)
-            logger.info("WebSocket client disconnected (%d remaining)", len(self._ws_clients))
+            logger.info(
+                "WebSocket client disconnected (%d remaining)", len(self._ws_clients)
+            )
 
     def _handle_ws_request(self, request: dict[str, Any]) -> dict[str, Any]:
         """Handle a WebSocket query request."""
@@ -215,7 +216,10 @@ class SidecarDaemon:
 
         elif req_type == "session_summary":
             session_id = request.get("session_id", "")
-            return {"type": "session_summary", "data": self._store.get_session_summary(session_id)}
+            return {
+                "type": "session_summary",
+                "data": self._store.get_session_summary(session_id),
+            }
 
         elif req_type == "agents":
             session_id = request.get("session_id", "")
@@ -223,7 +227,10 @@ class SidecarDaemon:
 
         elif req_type == "tool_calls":
             session_id = request.get("session_id", "")
-            return {"type": "tool_calls", "data": self._store.get_recent_tool_calls(session_id)}
+            return {
+                "type": "tool_calls",
+                "data": self._store.get_recent_tool_calls(session_id),
+            }
 
         elif req_type == "files":
             session_id = request.get("session_id", "")
@@ -239,16 +246,32 @@ class SidecarDaemon:
             event_filter = request.get("filter")
             return {
                 "type": "timeline",
-                "data": self._store.get_timeline(session_id, limit=limit, event_filter=event_filter),
+                "data": self._store.get_timeline(
+                    session_id, limit=limit, event_filter=event_filter
+                ),
             }
 
         elif req_type == "instructions":
             session_id = request.get("session_id", "")
-            return {"type": "instructions", "data": self._store.get_instructions(session_id)}
+            return {
+                "type": "instructions",
+                "data": self._store.get_instructions(session_id),
+            }
 
         elif req_type == "tasks":
             session_id = request.get("session_id", "")
             return {"type": "tasks", "data": self._store.get_tasks(session_id)}
+
+        elif req_type == "activities":
+            session_id = request.get("session_id", "")
+            agent_pk = request.get("agent_pk")
+            limit = request.get("limit", 100)
+            return {
+                "type": "activities",
+                "data": self._store.get_activities(
+                    session_id, agent_pk=agent_pk, limit=limit
+                ),
+            }
 
         return {"error": f"unknown request type: {req_type}"}
 
@@ -270,22 +293,67 @@ class SidecarDaemon:
     # --- Spool replay ---
 
     def _replay_spool(self) -> None:
-        """Replay spooled events from when daemon was down."""
+        """Replay spooled events from when daemon was down.
+
+        Uses hash-based dedup in insert_raw_event to handle partial replays
+        after daemon crash — duplicate events are silently skipped.
+        """
         events = read_spool_files()
         if not events:
             return
         logger.info("Replaying %d spooled events", len(events))
+        replayed = 0
         for event in events:
             self.process_event(event)
+            replayed += 1
         cleared = clear_spool()
-        logger.info("Cleared %d spool files", cleared)
+        logger.info("Replayed %d events, cleared %d spool files", replayed, cleared)
 
     # --- Main run loop ---
 
+    def _acquire_lock(self) -> bool:
+        """Acquire a lock file to prevent dual daemon instances.
+
+        Returns True if lock acquired, False if another daemon is running.
+        """
+        import fcntl
+
+        self._lock_path = self._socket_path.with_suffix(".lock")
+        try:
+            self._lock_file = open(self._lock_path, "w")
+            fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self._lock_file.write(str(os.getpid()))
+            self._lock_file.flush()
+            return True
+        except OSError:
+            logger.error(
+                "Another daemon is already running (lock: %s)", self._lock_path
+            )
+            return False
+
+    def _release_lock(self) -> None:
+        """Release the daemon lock file."""
+        import fcntl
+
+        if hasattr(self, "_lock_file") and self._lock_file:
+            try:
+                fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_UN)
+                self._lock_file.close()
+                self._lock_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
     def run(self) -> int:
         """Run the daemon (blocking)."""
+        if not self._acquire_lock():
+            return 1
+
         self._running = True
-        logger.info("cc-sidecar daemon starting (socket=%s, ws=%d)", self._socket_path, self._ws_port)
+        logger.info(
+            "cc-sidecar daemon starting (socket=%s, ws=%d)",
+            self._socket_path,
+            self._ws_port,
+        )
 
         # Replay spooled events
         self._replay_spool()
@@ -305,7 +373,9 @@ class SidecarDaemon:
             logger.info("Shutting down...")
         finally:
             self._running = False
+            self._connection_pool.shutdown(wait=False)
             self._store.close()
+            self._release_lock()
             logger.info("Daemon stopped")
 
         return 0
@@ -345,10 +415,15 @@ def run_daemon(
     db_path: str | None = None,
 ) -> int:
     """Entry point for cc-sidecar daemon."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    )
+    # Ensure at least INFO for daemon (CLI may have set DEBUG already)
+    root = logging.getLogger()
+    if root.level > logging.INFO:
+        root.setLevel(logging.INFO)
+        if not root.handlers:
+            logging.basicConfig(
+                level=logging.INFO,
+                format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+            )
     daemon = SidecarDaemon(
         socket_path=socket_path,
         ws_port=ws_port,

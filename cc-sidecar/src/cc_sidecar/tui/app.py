@@ -214,10 +214,14 @@ class SidecarDashboard(App):
             return
         try:
             asyncio.run_coroutine_threadsafe(
-                self._ws.send(json.dumps({
-                    "type": "session_summary",
-                    "session_id": self._current_session_id,
-                })),
+                self._ws.send(
+                    json.dumps(
+                        {
+                            "type": "session_summary",
+                            "session_id": self._current_session_id,
+                        }
+                    )
+                ),
                 asyncio.get_event_loop(),
             )
         except Exception:

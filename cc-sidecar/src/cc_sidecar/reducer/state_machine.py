@@ -49,7 +49,13 @@ class Reducer:
         # Track pending compaction alerts by session
         self._compaction_alerts: dict[str, int] = {}  # session_id -> alert_id
 
-    def handle(self, event_name: str, session_id: str, payload: dict[str, Any], received_at_ms: int) -> None:
+    def handle(
+        self,
+        event_name: str,
+        session_id: str,
+        payload: dict[str, Any],
+        received_at_ms: int,
+    ) -> None:
         """Dispatch an event to the appropriate handler.
 
         This is the main entry point. Called by the daemon after storing the raw event.
@@ -59,13 +65,17 @@ class Reducer:
             try:
                 handler(self, event_name, session_id, payload, received_at_ms)
             except Exception:
-                logger.exception("Reducer error handling %s for session %s", event_name, session_id)
+                logger.exception(
+                    "Reducer error handling %s for session %s", event_name, session_id
+                )
         else:
             logger.debug("No handler for event: %s", event_name)
 
     # --- Event handlers ---
 
-    def _handle_session_start(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_session_start(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         session_data = payload.get("session", payload)
         self._store.upsert_session(
             session_id,
@@ -80,7 +90,8 @@ class Reducer:
         # Create synthetic main agent
         main_pk = f"main:{session_id}"
         self._store.upsert_agent(
-            main_pk, session_id,
+            main_pk,
+            session_id,
             agent_type="main",
             state="idle",
             state_source="observed",
@@ -90,7 +101,9 @@ class Reducer:
         )
         self._active_agent[session_id] = main_pk
 
-    def _handle_session_end(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_session_end(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         self._store.upsert_session(
             session_id,
             ended_at_ms=ts,
@@ -100,27 +113,35 @@ class Reducer:
         # Mark main agent finished
         main_pk = f"main:{session_id}"
         self._store.upsert_agent(
-            main_pk, session_id,
+            main_pk,
+            session_id,
             state="finished",
             state_source="observed",
             stopped_at_ms=ts,
             last_event_at_ms=ts,
         )
 
-    def _handle_user_prompt_submit(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_user_prompt_submit(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         prompt = payload.get("prompt", payload.get("message", ""))
-        self._store.upsert_session(session_id, current_user_ask=prompt, last_seen_at_ms=ts)
+        self._store.upsert_session(
+            session_id, current_user_ask=prompt, last_seen_at_ms=ts
+        )
         # Main agent is now active
         main_pk = f"main:{session_id}"
         self._store.upsert_agent(
-            main_pk, session_id,
+            main_pk,
+            session_id,
             state="idle",
             state_source="observed",
             last_event_at_ms=ts,
         )
         self._active_agent[session_id] = main_pk
 
-    def _handle_pre_tool_use(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_pre_tool_use(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         tool_name = payload.get("tool_name", payload.get("tool", "unknown"))
         tool_use_id = payload.get("tool_use_id", f"synth-{ts}")
         tool_input = payload.get("input", payload.get("tool_input", {}))
@@ -141,7 +162,8 @@ class Reducer:
         )
 
         self._store.upsert_agent(
-            agent_pk, session_id,
+            agent_pk,
+            session_id,
             state="running_tool",
             state_source="observed",
             last_tool_name=tool_name,
@@ -154,7 +176,8 @@ class Reducer:
             path = tool_input.get("file_path", tool_input.get("path"))
             if path:
                 self._store.upsert_file(
-                    session_id, path,
+                    session_id,
+                    path,
                     last_writer_agent_pk=agent_pk,
                     ownership_source="observed",
                     last_changed_at_ms=ts,
@@ -162,10 +185,13 @@ class Reducer:
 
         self._store.upsert_session(session_id, last_seen_at_ms=ts)
 
-    def _handle_permission_request(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_permission_request(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         agent_pk = self._active_agent.get(session_id, f"main:{session_id}")
         self._store.upsert_agent(
-            agent_pk, session_id,
+            agent_pk,
+            session_id,
             state="awaiting_perm",
             state_source="observed",
             last_event_at_ms=ts,
@@ -179,9 +205,10 @@ class Reducer:
             created_at_ms=ts,
         )
 
-    def _handle_post_tool_use(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_post_tool_use(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         tool_use_id = payload.get("tool_use_id", "")
-        tool_name = payload.get("tool_name", payload.get("tool", ""))
         output = payload.get("output", payload.get("result", ""))
 
         if tool_use_id:
@@ -193,7 +220,8 @@ class Reducer:
         agent_pk = self._active_agent.get(session_id, f"main:{session_id}")
         summary = str(output)[:200] if output else None
         self._store.upsert_agent(
-            agent_pk, session_id,
+            agent_pk,
+            session_id,
             state="idle",
             state_source="observed",
             last_summary=summary,
@@ -201,7 +229,9 @@ class Reducer:
         )
         self._store.upsert_session(session_id, last_seen_at_ms=ts)
 
-    def _handle_post_tool_use_failure(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_post_tool_use_failure(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         tool_use_id = payload.get("tool_use_id", "")
         error = payload.get("error", payload.get("message", "unknown error"))
 
@@ -229,13 +259,16 @@ class Reducer:
             state = "idle"  # back to idle after non-fatal error
 
         self._store.upsert_agent(
-            agent_pk, session_id,
+            agent_pk,
+            session_id,
             state=state,
             state_source="observed",
             last_event_at_ms=ts,
         )
 
-    def _handle_notification(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_notification(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         notification_type = payload.get("type", payload.get("notification_type", ""))
         message = payload.get("message", payload.get("text", ""))
 
@@ -256,13 +289,16 @@ class Reducer:
             created_at_ms=ts,
         )
 
-    def _handle_subagent_start(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_subagent_start(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         agent_id = payload.get("agent_id", payload.get("id", f"sub-{ts}"))
         agent_type = payload.get("agent_type", payload.get("type", "subagent"))
         agent_pk = f"sub:{agent_id}"
 
         self._store.upsert_agent(
-            agent_pk, session_id,
+            agent_pk,
+            session_id,
             agent_id=agent_id,
             agent_type=agent_type,
             state="idle",
@@ -273,7 +309,9 @@ class Reducer:
             visibility_mode="lifecycle_only",
         )
 
-    def _handle_subagent_stop(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_subagent_stop(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         agent_id = payload.get("agent_id", payload.get("id", ""))
         agent_pk = f"sub:{agent_id}"
         summary = payload.get("last_assistant_message", payload.get("summary", ""))
@@ -288,7 +326,8 @@ class Reducer:
             state = "finished"
 
         self._store.upsert_agent(
-            agent_pk, session_id,
+            agent_pk,
+            session_id,
             state=state,
             state_source="observed",
             stopped_at_ms=ts,
@@ -296,24 +335,30 @@ class Reducer:
             last_summary=str(summary)[:500] if summary else None,
         )
 
-    def _handle_task_completed(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_task_completed(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         task_id = payload.get("task_id", payload.get("id", f"task-{ts}"))
         subject = payload.get("subject", payload.get("title", "unknown"))
 
         self._store.upsert_task(
-            task_id, session_id,
+            task_id,
+            session_id,
             subject=subject,
             status="completed",
             status_source="observed",
             completed_at_ms=ts,
         )
 
-    def _handle_pre_compact(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_pre_compact(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         # Mark all active agents as compacting
         agents = self._store.get_active_agents(session_id)
         for agent in agents:
             self._store.upsert_agent(
-                agent["agent_pk"], session_id,
+                agent["agent_pk"],
+                session_id,
                 state="compacting",
                 state_source="observed",
                 last_event_at_ms=ts,
@@ -327,7 +372,9 @@ class Reducer:
         )
         self._compaction_alerts[session_id] = alert_id
 
-    def _handle_post_compact(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_post_compact(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         # Increment compaction counter
         session = self._store.get_session(session_id)
         count = (session.get("compaction_count", 0) if session else 0) + 1
@@ -340,7 +387,8 @@ class Reducer:
         # Restore main agent to idle
         main_pk = f"main:{session_id}"
         self._store.upsert_agent(
-            main_pk, session_id,
+            main_pk,
+            session_id,
             state="idle",
             state_source="observed",
             last_event_at_ms=ts,
@@ -350,7 +398,9 @@ class Reducer:
         if alert_id:
             self._store.resolve_alert(alert_id, ts)
 
-    def _handle_config_change(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_config_change(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         change_type = payload.get("type", "settings")
         detail = payload.get("detail", payload.get("message", ""))
         self._store.insert_alert(
@@ -361,13 +411,16 @@ class Reducer:
             created_at_ms=ts,
         )
 
-    def _handle_instructions_loaded(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_instructions_loaded(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         file_path = payload.get("file_path", payload.get("path", ""))
         scope = payload.get("scope")
         load_reason = payload.get("load_reason", payload.get("reason"))
         if file_path:
             self._store.upsert_instruction(
-                session_id, file_path,
+                session_id,
+                file_path,
                 scope=scope,
                 load_reason=load_reason,
                 loaded_at_ms=ts,
@@ -378,9 +431,13 @@ class Reducer:
         self._store.upsert_session(session_id, last_seen_at_ms=ts)
         summary = payload.get("last_assistant_message", "")
         if summary:
-            self._store.upsert_session(session_id, last_assistant_summary=str(summary)[:1000])
+            self._store.upsert_session(
+                session_id, last_assistant_summary=str(summary)[:1000]
+            )
 
-    def _handle_statusline(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_statusline(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         """Handle statusline heartbeat (JSON from statusline script)."""
         updates: dict[str, Any] = {"last_seen_at_ms": ts}
 
@@ -420,12 +477,15 @@ class Reducer:
 
     # --- EventBus bridge events (from fork's internal event system) ---
 
-    def _handle_eventbus_agent_spawn(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_eventbus_agent_spawn(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         agent_id = payload.get("agent_id", payload.get("id", f"fork-{ts}"))
         role = payload.get("role", "custom")
         agent_pk = f"sub:{agent_id}"
         self._store.upsert_agent(
-            agent_pk, session_id,
+            agent_pk,
+            session_id,
             agent_id=agent_id,
             agent_type=role,
             state="idle",
@@ -435,12 +495,15 @@ class Reducer:
             visibility_mode="full",  # Fork bridge gives full visibility
         )
 
-    def _handle_eventbus_agent_complete(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_eventbus_agent_complete(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         agent_id = payload.get("agent_id", payload.get("id", ""))
         agent_pk = f"sub:{agent_id}"
         output = payload.get("output", "")
         self._store.upsert_agent(
-            agent_pk, session_id,
+            agent_pk,
+            session_id,
             state="finished",
             state_source="observed",
             stopped_at_ms=ts,
@@ -448,12 +511,15 @@ class Reducer:
             last_summary=str(output)[:500] if output else None,
         )
 
-    def _handle_eventbus_agent_error(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_eventbus_agent_error(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         agent_id = payload.get("agent_id", payload.get("id", ""))
         agent_pk = f"sub:{agent_id}"
         error = payload.get("error", "")
         self._store.upsert_agent(
-            agent_pk, session_id,
+            agent_pk,
+            session_id,
             state="finished_error",
             state_source="observed",
             stopped_at_ms=ts,
@@ -461,23 +527,39 @@ class Reducer:
             last_summary=str(error)[:500],
         )
 
-    def _handle_eventbus_activity(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_eventbus_activity(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         agent_pk = self._active_agent.get(session_id, f"main:{session_id}")
         activity_type = payload.get("activity_type", payload.get("type", ""))
-        message = payload.get("message", "")
+        message = str(payload.get("message", ""))[:200]
+        # Update current activity on agent (live state)
         self._store.upsert_agent(
-            agent_pk, session_id,
+            agent_pk,
+            session_id,
             current_activity_type=activity_type,
-            current_activity_message=str(message)[:200],
+            current_activity_message=message,
             last_event_at_ms=ts,
         )
+        # Append to activity history (durable timeline)
+        if activity_type:
+            self._store.insert_activity(
+                session_id=session_id,
+                agent_pk=agent_pk,
+                activity_type=activity_type,
+                started_at_ms=ts,
+                message=message or None,
+            )
 
-    def _handle_eventbus_file_change(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_eventbus_file_change(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         path = payload.get("path", payload.get("file_path", ""))
         if path:
             agent_pk = self._active_agent.get(session_id, f"main:{session_id}")
             self._store.upsert_file(
-                session_id, path,
+                session_id,
+                path,
                 last_writer_agent_pk=agent_pk,
                 ownership_source="observed",
                 added_lines=payload.get("added_lines"),
@@ -485,7 +567,9 @@ class Reducer:
                 last_changed_at_ms=ts,
             )
 
-    def _handle_eventbus_token_update(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_eventbus_token_update(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         updates = {"last_seen_at_ms": ts}
         if "context_used_pct" in payload:
             updates["context_used_pct"] = payload["context_used_pct"]
@@ -493,7 +577,9 @@ class Reducer:
             updates["context_remaining_pct"] = payload["context_remaining_pct"]
         self._store.upsert_session(session_id, **updates)
 
-    def _handle_eventbus_test(self, _name: str, session_id: str, payload: dict, ts: int) -> None:
+    def _handle_eventbus_test(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
         """Handle TEST_START/TEST_END from fork EventBus."""
         status = payload.get("status", "running")
         if status in ("failed", "error"):
@@ -522,7 +608,8 @@ class Reducer:
             if state == "compacting" and elapsed > ORPHAN_THRESHOLD_MS:
                 # Survived compaction too long → orphaned
                 self._store.upsert_agent(
-                    agent["agent_pk"], session_id,
+                    agent["agent_pk"],
+                    session_id,
                     state="orphaned",
                     state_source="inferred",
                     last_event_at_ms=now_ms,
@@ -534,9 +621,13 @@ class Reducer:
                     message=f"Agent {agent['agent_pk']} orphaned after compaction",
                     created_at_ms=now_ms,
                 )
-            elif state in ("running_tool", "awaiting_perm", "idle") and elapsed > STUCK_THRESHOLD_MS:
+            elif (
+                state in ("running_tool", "awaiting_perm", "idle")
+                and elapsed > STUCK_THRESHOLD_MS
+            ):
                 self._store.upsert_agent(
-                    agent["agent_pk"], session_id,
+                    agent["agent_pk"],
+                    session_id,
                     state="blocked",
                     state_source="inferred",
                     last_event_at_ms=now_ms,

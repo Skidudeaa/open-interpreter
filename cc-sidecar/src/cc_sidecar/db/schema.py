@@ -15,7 +15,7 @@ All derived tables are rebuildable from raw_events via reducer replay.
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_SQL = """
 PRAGMA journal_mode=WAL;
@@ -76,7 +76,9 @@ CREATE TABLE IF NOT EXISTS agents (
     session_id TEXT NOT NULL,
     agent_id TEXT,
     agent_type TEXT NOT NULL,
-    state TEXT NOT NULL,                -- idle | running_tool | awaiting_perm | blocked | retrying | compacting | finished | finished_warn | finished_error | orphaned
+    state TEXT NOT NULL,                -- idle | running_tool | awaiting_perm
+                                       -- | blocked | retrying | compacting
+                                       -- | finished[_warn|_error] | orphaned
     state_source TEXT NOT NULL,         -- observed | inferred
     started_at_ms INTEGER,
     last_event_at_ms INTEGER,
@@ -85,13 +87,16 @@ CREATE TABLE IF NOT EXISTS agents (
     last_resource TEXT,
     last_summary TEXT,
     visibility_mode TEXT NOT NULL DEFAULT 'lifecycle_only',  -- full | lifecycle_only
-    current_activity_type TEXT,         -- think | search | read | plan | edit | execute | validate | wait
+    current_activity_type TEXT,         -- think | search | read | plan
+                                       -- | edit | execute | validate | wait
     current_activity_message TEXT,
     FOREIGN KEY (session_id) REFERENCES sessions(session_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_agents_session
     ON agents(session_id, state);
+CREATE INDEX IF NOT EXISTS idx_agents_agent_id
+    ON agents(agent_id);
 
 -- Tool call lifecycle
 CREATE TABLE IF NOT EXISTS tool_calls (
@@ -111,6 +116,8 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 
 CREATE INDEX IF NOT EXISTS idx_tool_calls_agent
     ON tool_calls(agent_pk, started_at_ms);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_session
+    ON tool_calls(session_id, started_at_ms);
 
 -- Task/plan items
 CREATE TABLE IF NOT EXISTS tasks (
@@ -126,6 +133,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     FOREIGN KEY (session_id) REFERENCES sessions(session_id)
 );
 
+CREATE INDEX IF NOT EXISTS idx_tasks_session
+    ON tasks(session_id, created_at_ms);
+
 -- Changed files with ownership attribution
 CREATE TABLE IF NOT EXISTS files (
     session_id TEXT NOT NULL,
@@ -139,12 +149,34 @@ CREATE TABLE IF NOT EXISTS files (
     PRIMARY KEY (session_id, path)
 );
 
+-- Activity history (append-only timeline of agent activities)
+-- WHY: current_activity_type on agents is overwritten on each update,
+-- losing the think→search→read→edit→validate chain. This table preserves
+-- the full sequence for post-session analysis and timeline display.
+CREATE TABLE IF NOT EXISTS activities (
+    id INTEGER PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    agent_pk TEXT NOT NULL,
+    activity_type TEXT NOT NULL,         -- think | search | read | plan
+                                       -- | edit | execute | validate | wait
+    message TEXT,
+    started_at_ms INTEGER NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id),
+    FOREIGN KEY (agent_pk) REFERENCES agents(agent_pk)
+);
+
+CREATE INDEX IF NOT EXISTS idx_activities_agent
+    ON activities(agent_pk, started_at_ms);
+CREATE INDEX IF NOT EXISTS idx_activities_session
+    ON activities(session_id, started_at_ms);
+
 -- Alerts
 CREATE TABLE IF NOT EXISTS alerts (
     id INTEGER PRIMARY KEY,
     session_id TEXT NOT NULL,
     severity TEXT NOT NULL,             -- info | warn | error
-    kind TEXT NOT NULL,                 -- permission_denied | stuck | orphaned | compaction | config_change | skill_change | test_failure
+    kind TEXT NOT NULL,                 -- permission_denied | stuck | orphaned
+                                       -- | compaction | config_change | test_failure
     message TEXT NOT NULL,
     created_at_ms INTEGER NOT NULL,
     resolved_at_ms INTEGER,
@@ -159,7 +191,8 @@ CREATE TABLE IF NOT EXISTS instructions (
     session_id TEXT NOT NULL,
     file_path TEXT NOT NULL,
     scope TEXT,                         -- user | project | local | managed
-    load_reason TEXT,                   -- session_start | nested_traversal | path_glob | include | compact
+    load_reason TEXT,                   -- session_start | nested_traversal
+                                       -- | path_glob | include | compact
     loaded_at_ms INTEGER,
     PRIMARY KEY (session_id, file_path)
 );

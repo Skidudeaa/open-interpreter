@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING, Any
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from ..terminal_interface.components.ui_events import EventType, UIEvent
+    from ..terminal_interface.components.ui_events import UIEvent
 
 
 # Event type name → sidecar event name mapping
@@ -97,8 +97,17 @@ class ObservabilityBridge:
             logger.debug("ObservabilityBridge: EventBus not available", exc_info=True)
 
     def stop(self) -> None:
-        """Mark bridge as stopped."""
+        """Stop bridge and unsubscribe from EventBus."""
+        if not self._started:
+            return
         self._started = False
+        try:
+            from ..terminal_interface.components.ui_events import get_event_bus
+
+            bus = get_event_bus()
+            bus.unsubscribe_all(self._on_event)
+        except Exception:
+            pass  # Best-effort cleanup
 
     @property
     def session_id(self) -> str:
@@ -161,22 +170,32 @@ class ObservabilityBridge:
                 self._send(sidecar_event, event.data, event.timestamp)
                 return
 
-            # Check activity mapping
+            # Check activity mapping — only send type + message, not raw payloads
+            # WHY: event.data can contain large code blocks / console output
+            # that would bloat the sidecar's SQLite store unnecessarily
             activity_type = _ACTIVITY_EVENTS.get(event_type_name)
             if activity_type:
-                self._send("eventbus.ACTIVITY", {
-                    "activity_type": activity_type,
-                    "message": event.data.get("message", event_type_name),
-                    **event.data,
-                }, event.timestamp)
+                self._send(
+                    "eventbus.ACTIVITY",
+                    {
+                        "activity_type": activity_type,
+                        "message": str(event.data.get("message", event_type_name))[
+                            :200
+                        ],
+                        "agent_id": event.data.get("agent_id"),
+                    },
+                    event.timestamp,
+                )
                 return
 
         except Exception:
             pass  # Never disrupt the fork's event flow
 
-    def _send(self, event_name: str, data: dict[str, Any], timestamp: float | None = None) -> None:
+    def _send(
+        self, event_name: str, data: dict[str, Any], timestamp: float | None = None
+    ) -> None:
         """Send an event to the sidecar daemon."""
-        ts_ms = int((timestamp or time.time()) * 1000)
+        ts_ms = round((timestamp or time.time()) * 1000)
         envelope = {
             "received_at_ms": ts_ms,
             "seq": 0,  # daemon assigns sequence

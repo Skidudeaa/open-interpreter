@@ -15,6 +15,7 @@ Hard rules (from spec):
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 import time
@@ -22,6 +23,8 @@ from typing import Any
 
 from .. import __version__
 from .transport import send_event
+
+logger = logging.getLogger(__name__)
 
 # Monotonic sequence counter (per-process)
 _seq_counter = 0
@@ -128,6 +131,6 @@ def run_emit(subagent: bool = False, event_name_override: str | None = None) -> 
         send_event(envelope)
 
     except Exception:
-        pass  # Never fail, never write to stdout
+        logger.debug("emit failed", exc_info=True)
 
     return 0

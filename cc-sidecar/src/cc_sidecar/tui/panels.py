@@ -194,9 +194,13 @@ class ContextPanel(Static):
         ctx_used = session.get("context_used_pct")
         if ctx_used is not None:
             if ctx_used > 90:
-                lines.append(f"  [red bold]⚠ context {ctx_used:.0f}% — compaction imminent[/red bold]")
+                lines.append(
+                    f"  [red bold]⚠ context {ctx_used:.0f}% — compaction imminent[/red bold]"
+                )
             elif ctx_used > 75:
-                lines.append(f"  [yellow]context {ctx_used:.0f}% — compaction possible[/yellow]")
+                lines.append(
+                    f"  [yellow]context {ctx_used:.0f}% — compaction possible[/yellow]"
+                )
 
         last_compact = session.get("last_compaction_at_ms")
         if last_compact:
@@ -232,10 +236,18 @@ class FilesPanel(Static):
             badge = _source_badge(f.get("ownership_source"))
             git_st = f.get("git_status") or ""
 
-            writer_short = writer.split(":", 1)[-1][:10] if ":" in writer else writer[:10]
-            stat = f"[green]+{added}[/green] [red]-{removed}[/red]" if (added or removed) else ""
+            writer_short = (
+                writer.split(":", 1)[-1][:10] if ":" in writer else writer[:10]
+            )
+            stat = (
+                f"[green]+{added}[/green] [red]-{removed}[/red]"
+                if (added or removed)
+                else ""
+            )
 
-            lines.append(f"  {path}  {stat}  [dim]{writer_short}[/dim] {badge} {git_st}")
+            lines.append(
+                f"  {path}  {stat}  [dim]{writer_short}[/dim] {badge} {git_st}"
+            )
 
         if len(files) > 30:
             lines.append(f"  [dim]...and {len(files) - 30} more[/dim]")
@@ -258,7 +270,9 @@ class AlertsPanel(Static):
             style = ALERT_SEVERITY_STYLES.get(severity, "")
             age = _elapsed(alert.get("created_at_ms"))
 
-            lines.append(f"  [{style}]{severity.upper()}[/{style}] [{kind}] {message[:100]}  [dim]{age} ago[/dim]")
+            lines.append(
+                f"  [{style}]{severity.upper()}[/{style}] [{kind}] {message[:100]}  [dim]{age} ago[/dim]"
+            )
 
         return "\n".join(lines)
 
@@ -276,8 +290,14 @@ class TimelinePanel(Static):
             name = ev.get("event_name", "?")
             source = ev.get("source_kind", "?")
             session = ev.get("session_id", "?")[:8]
-            time_str = time.strftime("%H:%M:%S", time.localtime(ts / 1000)) if ts else "??:??:??"
+            time_str = (
+                time.strftime("%H:%M:%S", time.localtime(ts / 1000))
+                if ts
+                else "??:??:??"
+            )
 
-            lines.append(f"  [dim]{time_str}[/dim] [{source}] {name}  [dim]{session}[/dim]")
+            lines.append(
+                f"  [dim]{time_str}[/dim] [{source}] {name}  [dim]{session}[/dim]"
+            )
 
         return "\n".join(lines)

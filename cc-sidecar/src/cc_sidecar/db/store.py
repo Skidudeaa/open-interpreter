@@ -81,9 +81,19 @@ class EventStore:
             try:
                 cur = self._conn.execute(
                     """INSERT INTO raw_events
-                       (received_at_ms, seq, session_id, source_kind, event_name, payload_json, payload_hash)
+                       (received_at_ms, seq, session_id,
+                        source_kind, event_name,
+                        payload_json, payload_hash)
                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (received_at_ms, seq, session_id, source_kind, event_name, payload_json, payload_hash),
+                    (
+                        received_at_ms,
+                        seq,
+                        session_id,
+                        source_kind,
+                        event_name,
+                        payload_json,
+                        payload_hash,
+                    ),
                 )
                 self._conn.commit()
                 return cur.lastrowid
@@ -199,9 +209,18 @@ class EventStore:
         with self._lock:
             self._conn.execute(
                 """INSERT OR IGNORE INTO tool_calls
-                   (tool_use_id, session_id, agent_pk, tool_name, status, started_at_ms, input_preview)
+                   (tool_use_id, session_id, agent_pk,
+                    tool_name, status, started_at_ms,
+                    input_preview)
                    VALUES (?, ?, ?, ?, 'started', ?, ?)""",
-                (tool_use_id, session_id, agent_pk, tool_name, started_at_ms, input_preview),
+                (
+                    tool_use_id,
+                    session_id,
+                    agent_pk,
+                    tool_name,
+                    started_at_ms,
+                    input_preview,
+                ),
             )
             self._conn.commit()
 
@@ -309,6 +328,48 @@ class EventStore:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    # --- Activities ---
+
+    def insert_activity(
+        self,
+        session_id: str,
+        agent_pk: str,
+        activity_type: str,
+        started_at_ms: int,
+        message: str | None = None,
+    ) -> int:
+        """Insert an activity record (append-only)."""
+        with self._lock:
+            cur = self._conn.execute(
+                """INSERT INTO activities
+                   (session_id, agent_pk, activity_type, message, started_at_ms)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (session_id, agent_pk, activity_type, message, started_at_ms),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def get_activities(
+        self, session_id: str, agent_pk: str | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        """Get activity history, optionally filtered by agent."""
+        with self._lock:
+            if agent_pk:
+                rows = self._conn.execute(
+                    """SELECT * FROM activities
+                       WHERE session_id = ? AND agent_pk = ?
+                       ORDER BY started_at_ms DESC LIMIT ?""",
+                    (session_id, agent_pk, limit),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    """SELECT * FROM activities
+                       WHERE session_id = ?
+                       ORDER BY started_at_ms DESC LIMIT ?""",
+                    (session_id, limit),
+                ).fetchall()
+            return [dict(r) for r in rows]
+
     # --- Alerts ---
 
     def insert_alert(
@@ -405,18 +466,70 @@ class EventStore:
                 ).fetchall()
             return [dict(r) for r in rows]
 
+    # --- Session cleanup ---
+
+    def cleanup_old_sessions(self, max_age_days: int = 30) -> int:
+        """Delete sessions older than max_age_days and their dependent data.
+
+        WHY: Without TTL, the SQLite store grows unbounded. This removes
+        stale sessions while preserving recent history.
+
+        Returns count of sessions removed.
+        """
+        import time
+
+        cutoff_ms = round((time.time() - max_age_days * 86400) * 1000)
+        with self._lock:
+            # Find sessions to clean up
+            rows = self._conn.execute(
+                """SELECT session_id FROM sessions
+                   WHERE last_seen_at_ms < ?
+                     AND last_seen_at_ms IS NOT NULL""",
+                (cutoff_ms,),
+            ).fetchall()
+            session_ids = [r["session_id"] for r in rows]
+            if not session_ids:
+                return 0
+
+            placeholders = ", ".join("?" for _ in session_ids)
+            # Delete in dependency order (foreign keys)
+            for table in (
+                "activities",
+                "tool_calls",
+                "alerts",
+                "tasks",
+                "files",
+                "instructions",
+                "agents",
+                "raw_events",
+            ):
+                self._conn.execute(
+                    f"DELETE FROM {table} WHERE session_id IN ({placeholders})",
+                    session_ids,
+                )
+            self._conn.execute(
+                f"DELETE FROM sessions WHERE session_id IN ({placeholders})",
+                session_ids,
+            )
+            self._conn.commit()
+            return len(session_ids)
+
     # --- Aggregate queries ---
 
     def get_session_summary(self, session_id: str) -> dict[str, Any]:
         """Get a summary of session state for the dashboard."""
         session = self.get_session(session_id) or {}
         agents = self.get_agents(session_id)
-        active_agents = [a for a in agents if a["state"] not in (
-            "finished", "finished_warn", "finished_error", "orphaned"
-        )]
+        active_agents = [
+            a
+            for a in agents
+            if a["state"]
+            not in ("finished", "finished_warn", "finished_error", "orphaned")
+        ]
         alerts = self.get_active_alerts(session_id)
         files = self.get_files(session_id)
         instructions = self.get_instructions(session_id)
+        activities = self.get_activities(session_id, limit=50)
 
         return {
             "session": session,
@@ -426,4 +539,5 @@ class EventStore:
             "files_changed": len(files),
             "files": files,
             "instructions": instructions,
+            "recent_activities": activities,
         }

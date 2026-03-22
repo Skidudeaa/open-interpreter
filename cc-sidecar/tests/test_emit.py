@@ -9,7 +9,6 @@ from io import StringIO
 from unittest.mock import patch
 
 import pytest
-
 from cc_sidecar.ingest.emit import _detect_event_name, _extract_session_id, run_emit
 from cc_sidecar.ingest.transport import _spool_event, get_spool_dir, read_spool_files
 
@@ -94,7 +93,9 @@ class TestRunEmit:
     def test_exit_0_on_transport_failure(self):
         payload = json.dumps({"event": "PreToolUse", "session_id": "s1"})
         with patch("sys.stdin", StringIO(payload)):
-            with patch("cc_sidecar.ingest.emit.send_event", side_effect=Exception("boom")):
+            with patch(
+                "cc_sidecar.ingest.emit.send_event", side_effect=Exception("boom")
+            ):
                 result = run_emit()
         assert result == 0
 

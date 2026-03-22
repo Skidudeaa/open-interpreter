@@ -279,3 +279,46 @@ class FeaturesBanner:
 def display_features_banner(interpreter, console: Console | None = None):
     """Convenience function to display the features banner."""
     FeaturesBanner(interpreter, console).display()
+
+
+class KeybindingsStrip:
+    """
+    Compact keybindings display shown once at launch.
+
+    WHY: Users on Mac/iPad can't rely on F-keys (system-mapped) and need
+    to see what actually works at a glance. One-line strip avoids clutter.
+
+    Layout:
+    ┌──────────────────────────────────────────────────────────────────────┐
+    │ ⌨  Ctrl+D exit  Ctrl+C cancel  Alt+P mode  Alt+H panel  Alt+? help │
+    └──────────────────────────────────────────────────────────────────────┘
+    """
+
+    # WHY: Only show bindings the user will actually need right away.
+    # Completions, newline, history search are in Alt+? help.
+    BINDINGS = [
+        ("^D", "exit"),
+        ("^C", "stop"),
+        ("^L", "clear"),
+        ("Alt+P", "mode"),
+        ("Alt+H", "panel"),
+        ("Alt+?", "help"),
+    ]
+
+    def __init__(self, console: Console | None = None):
+        self.console = console or Console()
+
+    def render(self) -> Text:
+        """Render the keybindings as a compact styled line."""
+        parts = []
+        for key, action in self.BINDINGS:
+            parts.append(
+                f"[{THEME['secondary']}]{key}[/{THEME['secondary']}]"
+                f"[{THEME['text_muted']}] {action}[/{THEME['text_muted']}]"
+            )
+
+        return Text.from_markup("  ".join(parts))
+
+    def display(self):
+        """Print the keybindings as a compact line."""
+        self.console.print(self.render())

@@ -39,7 +39,7 @@ class ContextPanel:
     Visibility:
     - POWER/DEBUG mode: Always visible
     - Other modes: Visible when variables/functions exist
-    - Can be toggled with Alt+H or F3
+    - Can be toggled with Alt+H
     """
 
     # Type icons for common Python types

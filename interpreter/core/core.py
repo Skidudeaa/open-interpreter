@@ -710,6 +710,11 @@ class OpenInterpreter:
 
     def chat(self, message=None, display=True, stream=False, blocking=True):
         try:
+            # WHY: Accessing the property triggers lazy init + EventBus subscription.
+            # The bridge is passive — it listens and forwards, never blocks.
+            if self.enable_observability:
+                _ = self.observability_bridge
+
             self.responding = True
             if self.anonymous_telemetry:
                 message_type = type(

@@ -32,6 +32,9 @@ echo "list files" | poetry run interpreter
 
 # Debug logging
 OI_UI_DEBUG=true poetry run interpreter
+
+# Experimental full-screen Textual TUI
+poetry run interpreter --tui
 ```
 
 ## Dev Commands
@@ -116,7 +119,8 @@ interpreter.enable_agents = True
 OI_ACTIVATE_ALL=true              # Enable all advanced features
 OPEN_INTERPRETER_APPROVAL=dangerous  # Risk-based approval (off/dangerous/all)
 OI_UI_DEBUG=true                  # Debug logging to ~/.open-interpreter/logs/
-OI_NO_TUI=true                    # Disable interactive mode
+OI_NO_TUI=true                    # Disable interactive mode (Rich streaming only)
+OI_TEXTUAL_TUI=true              # Opt-in to experimental Textual full-screen TUI
 ```
 
 ## Key Patterns
@@ -136,11 +140,11 @@ OI_NO_TUI=true                    # Disable interactive mode
 | `Ctrl+L` | Clear screen |
 | `Ctrl+R` | Search history |
 | `Ctrl+D` | Exit (empty buffer) |
-| `Alt+P` / `F2` | Cycle UI mode |
-| `Alt+H` / `F3` | Toggle context panel |
-| `Alt+A` / `F4` | Focus agent strip |
+| `Alt+P` | Cycle UI mode (Option+P on Mac) |
+| `Alt+H` | Toggle context panel (Option+H on Mac) |
+| `Alt+A` | Focus agent strip (Option+A on Mac) |
+| `Alt+?` | Show help overlay (Option+? on Mac) |
 | `Esc` | Cancel operation |
-| `F1` | Show help overlay |
 
 ### Event Types (ui_events.py)
 

@@ -342,9 +342,17 @@ def start_terminal_interface(interpreter):
             "default": False,
         },
         {
+            "name": "tui",
+            "nickname": "t",
+            "help_text": "Use experimental Textual TUI (full-screen app with mouse support)",
+            "type": bool,
+            "action": "store_true",
+            "default": False,
+        },
+        {
             "name": "legacy_tui",
             "nickname": "lt",
-            "help_text": "Use legacy prompt_toolkit TUI instead of Textual (default)",
+            "help_text": "(Deprecated, now the default) Use prompt_toolkit TUI",
             "type": bool,
             "action": "store_true",
             "default": False,
@@ -628,16 +636,18 @@ Use """ to write multi-line messages.
     ui_state = UIState()
 
     # Determine backend type based on CLI flags
-    # Default: Textual (if available)
-    # --no-tui: Rich streaming (no interactive features)
-    # --legacy-tui: prompt_toolkit (legacy interactive TUI)
+    # Default: prompt_toolkit (reliable across Mac/iPad/SSH)
+    # --tui: Experimental Textual full-screen TUI
+    # --no-tui: Rich streaming (no interactive features, for pipes/CI)
     if args.no_tui or interpreter.plain_text_display:
         backend_type = BackendType.RICH_STREAM
-    elif args.legacy_tui:
-        backend_type = BackendType.PROMPT_TOOLKIT
+    elif getattr(args, "tui", False):
+        # WHY: Textual is opt-in because it requires full terminal control
+        # and may not render on all terminals (iPad, some SSH clients).
+        backend_type = BackendType.TEXTUAL
     else:
-        # Default to Textual (auto-detect will try Textual first)
-        backend_type = None
+        # Default to prompt_toolkit — works reliably everywhere
+        backend_type = BackendType.PROMPT_TOOLKIT
 
     backend = create_backend(interpreter, ui_state, force_type=backend_type)
     backend.start()

@@ -93,8 +93,7 @@ DEFAULT_BINDINGS: dict[KeyAction, KeyBinding] = {
     ),
     KeyAction.MODE_TOGGLE: KeyBinding(
         action=KeyAction.MODE_TOGGLE,
-        primary="escape p",  # Alt+P
-        fallback="f2",
+        primary="escape p",  # Alt+P (Option+P on Mac)
         description="Toggle UI mode",
     ),
     KeyAction.HISTORY_SEARCH: KeyBinding(
@@ -108,18 +107,18 @@ DEFAULT_BINDINGS: dict[KeyAction, KeyBinding] = {
     ),
     KeyAction.AGENT_FOCUS: KeyBinding(
         action=KeyAction.AGENT_FOCUS,
-        primary="escape a",  # Alt+A
-        fallback="f4",
+        primary="escape a",  # Alt+A (Option+A on Mac)
         description="Focus agent strip",
     ),
     KeyAction.PANEL_TOGGLE: KeyBinding(
         action=KeyAction.PANEL_TOGGLE,
-        primary="escape h",  # Alt+H
-        fallback="f3",
+        primary="escape h",  # Alt+H (Option+H on Mac)
         description="Toggle context panel",
     ),
     KeyAction.HELP: KeyBinding(
-        action=KeyAction.HELP, primary="f1", description="Show help"
+        action=KeyAction.HELP,
+        primary="escape ?",  # Alt+? (Option+? on Mac)
+        description="Show help",
     ),
 }
 
@@ -286,15 +285,13 @@ class InputHandler:
             if not event.current_buffer.text.strip():
                 event.app.exit(exception=EOFError())
 
-        # Mode toggle - Alt+P (as escape sequence) and F2
+        # Mode toggle - Alt+P (Option+P on Mac)
         @kb.add("escape", "p")
-        @kb.add("f2")
         def toggle_mode(event):
             self._cycle_mode()
 
-        # Agent focus - Alt+A and F4
+        # Agent focus - Alt+A (Option+A on Mac)
         @kb.add("escape", "a")
-        @kb.add("f4")
         def focus_agents(event):
             self.event_bus.emit(
                 UIEvent(
@@ -304,9 +301,8 @@ class InputHandler:
                 )
             )
 
-        # Panel toggle - Alt+H and F3
+        # Panel toggle - Alt+H (Option+H on Mac)
         @kb.add("escape", "h")
-        @kb.add("f3")
         def toggle_panel(event):
             if "context" in self.state.panels_visible:
                 self.state.panels_visible.remove("context")
@@ -324,10 +320,9 @@ class InputHandler:
             )
             event.app.invalidate()
 
-        # Help
-        @kb.add("f1")
+        # Help - Alt+? (Option+? on Mac)
+        @kb.add("escape", "?")
         def show_help(event):
-            # Show help overlay
             self._show_help_overlay(event)
 
         return kb
@@ -384,7 +379,7 @@ class InputHandler:
         ):
             help_text.append("🤖 Agent Controls\n", style="bold yellow")
             agent_commands = [
-                ("Alt+A / F4", "Focus agent strip"),
+                ("Alt+A", "Focus agent strip"),
                 ("Esc", "Cancel current agent"),
                 ("%agents", "List active agents"),
                 ("%agent <name>", "Run specific agent"),
@@ -395,7 +390,7 @@ class InputHandler:
             help_text.append("\n")
 
         # UI Modes section
-        help_text.append("🎨 UI Modes (Alt+P / F2 to cycle)\n", style="bold yellow")
+        help_text.append("🎨 UI Modes (Alt+P to cycle)\n", style="bold yellow")
         modes = [
             ("ZEN", "Minimal, distraction-free"),
             ("STANDARD", "Default balanced view"),
@@ -414,7 +409,7 @@ class InputHandler:
         panel = Panel(
             help_text,
             title="[bold white]Help[/bold white]",
-            subtitle="[dim]F1 to toggle[/dim]",
+            subtitle="[dim]Alt+? to toggle[/dim]",
             border_style="blue",
             padding=(1, 2),
         )

@@ -385,12 +385,14 @@ class InterpreterTUI(App):
     TITLE = "Open Interpreter"
     CSS_PATH = Path(__file__).parent / "interpreter.tcss"
 
+    # WHY: Alt+key combos instead of F-keys — F-keys are system keys on Mac
+    # (brightness, Mission Control) and unavailable on iPad keyboards.
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=True),
-        Binding("f2", "cycle_mode", "Mode", show=True),
-        Binding("f3", "toggle_panel", "Panel", show=True),
-        Binding("f4", "toggle_agents", "Agents", show=True),
-        Binding("f5", "cycle_theme", "Theme", show=False),
+        Binding("ctrl+p", "cycle_mode", "Mode", show=True),
+        Binding("ctrl+b", "toggle_panel", "Panel", show=True),
+        Binding("ctrl+g", "toggle_agents", "Agents", show=True),
+        Binding("ctrl+t", "cycle_theme", "Theme", show=False),
         Binding("ctrl+l", "clear_output", "Clear", show=True),
         Binding("ctrl+d", "quit", "Exit", show=True),
         Binding("ctrl+r", "search_history", "History", show=False),

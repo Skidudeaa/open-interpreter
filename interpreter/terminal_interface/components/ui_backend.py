@@ -274,7 +274,7 @@ class PromptToolkitBackend(UIBackend):
     Features:
     - prompt_toolkit owns the screen
     - Rich renders to ANSI, displayed in PT windows
-    - Full key bindings (Esc, Ctrl+R, Alt+P, F2, etc.)
+    - Full key bindings (Esc, Ctrl+R, Alt+P, etc.)
     - Multiline input with syntax highlighting
     - History with auto-suggestions
     - Magic command completion
@@ -419,7 +419,7 @@ class PromptToolkitBackend(UIBackend):
         - History with search (Ctrl+R)
         - Auto-suggestions
         - Syntax highlighting
-        - Key bindings (Esc, F2, etc.)
+        - Key bindings (Esc, Alt+P, etc.)
         """
         if not self._input_handler:
             # Fallback if not started
@@ -519,9 +519,9 @@ def create_backend(
     1. If force_type specified, use that
     2. If not a TTY (pipe/CI), use RichStream
     3. If OI_NO_TUI env var set, use RichStream
-    4. If OI_LEGACY_TUI env var set, use prompt_toolkit
-    5. If textual available, use Textual (DEFAULT)
-    6. If prompt_toolkit available, use it
+    4. If OI_TEXTUAL_TUI env var set, use Textual (opt-in)
+    5. If prompt_toolkit available, use it (DEFAULT)
+    6. If Textual available, use it as fallback
     7. Otherwise, fall back to RichStream
 
     Args:
@@ -559,20 +559,23 @@ def create_backend(
     if not is_tty():
         return RichStreamBackend(interpreter, state)
 
-    # Check for OI_LEGACY_TUI env var (opt-in to legacy prompt_toolkit)
-    if os.environ.get("OI_LEGACY_TUI", "").lower() in ("1", "true", "yes"):
-        if prompt_toolkit_available():
-            return PromptToolkitBackend(interpreter, state)
+    # Check for OI_TEXTUAL_TUI env var (opt-in to Textual)
+    if os.environ.get("OI_TEXTUAL_TUI", "").lower() in ("1", "true", "yes"):
+        if textual_available():
+            from ..textual_backend import TextualBackend
 
-    # DEFAULT: Use Textual backend if available
+            return TextualBackend(interpreter, state)
+
+    # WHY: prompt_toolkit is the default — it works reliably on Mac, iPad,
+    # SSH, and standard terminals without taking over the full screen.
+    if prompt_toolkit_available():
+        return PromptToolkitBackend(interpreter, state)
+
+    # Fallback to Textual if prompt_toolkit not available
     if textual_available():
         from ..textual_backend import TextualBackend
 
         return TextualBackend(interpreter, state)
-
-    # Fallback to prompt_toolkit if available
-    if prompt_toolkit_available():
-        return PromptToolkitBackend(interpreter, state)
 
     # Final fallback to Rich streaming
     return RichStreamBackend(interpreter, state)

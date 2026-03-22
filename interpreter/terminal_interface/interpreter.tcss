@@ -330,7 +330,7 @@ Toast.-error {
 
 .mode-standard #context-panel,
 .mode-standard #agent-tree {
-    /* Hidden by default, shown via .visible class when toggled with F3/F4 */
+    /* Hidden by default, shown via .visible class when toggled with Ctrl+B/Ctrl+G */
     display: none;
 }
 

@@ -31,6 +31,32 @@ if "ipykernel_launcher" in sys.argv:
     app.launch_new_instance()
     sys.exit(0)
 
+    # WHY: When interpreter is invoked via direct path (e.g. /root/.../venv/bin/interpreter),
+    # its venv gets prepended to PATH. The Jupyter kernel spec uses bare "python", so it
+    # would resolve to interpreter's venv python — not the user's project python. We save
+    # the original PATH at import time (before any venv manipulation) and restore it for
+    # the kernel so that `python` resolves to whatever the user had in their shell.
+_INTERPRETER_VENV = os.path.join(sys.prefix, "bin")
+
+
+def _build_kernel_env() -> dict[str, str]:
+    """Build an env dict for the Jupyter kernel that uses the user's python, not ours.
+
+    Strips the interpreter's own venv/bin from PATH so `python` in the kernel spec
+    resolves to the user's active python (their project venv, system python, etc.).
+    """
+    env = os.environ.copy()
+    path_parts = env.get("PATH", "").split(os.pathsep)
+    # Remove interpreter's venv bin — keep everything else (user's venv, system, etc.)
+    cleaned = [
+        p
+        for p in path_parts
+        if os.path.normpath(p) != os.path.normpath(_INTERPRETER_VENV)
+    ]
+    env["PATH"] = os.pathsep.join(cleaned)
+    env["PYTHONIOENCODING"] = "utf-8"
+    return env
+
 
 class JupyterLanguage(BaseLanguage):
     file_extension = "py"
@@ -41,7 +67,7 @@ class JupyterLanguage(BaseLanguage):
         self.computer = computer
 
         self.km = KernelManager(kernel_name="python3")
-        self.km.start_kernel()
+        self.km.start_kernel(env=_build_kernel_env())
         self.kc = self.km.client()
         self.kc.start_channels()
         while not self.kc.is_alive():

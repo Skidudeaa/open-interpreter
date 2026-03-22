@@ -343,7 +343,7 @@ def start_terminal_interface(interpreter):
         },
         {
             "name": "tui",
-            "nickname": "t",
+            "nickname": "tu",
             "help_text": "Use experimental Textual TUI (full-screen app with mouse support)",
             "type": bool,
             "action": "store_true",

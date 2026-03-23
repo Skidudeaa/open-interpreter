@@ -16,12 +16,26 @@ from typing import Any
 
 from .hooks import generate_full_settings
 
-# Settings file paths by scope
-SCOPE_PATHS = {
-    "user": Path.home() / ".claude" / "settings.json",
-    "project": Path.cwd() / ".claude" / "settings.json",
-    "local": Path.cwd() / ".claude" / "settings.local.json",
-}
+# WHY: Path.cwd() must be evaluated at call time, not import time. If the
+# working directory changes between import and invocation (common when used
+# as a library), project/local scope would target the wrong directory.
+_USER_SETTINGS = ".claude/settings.json"
+_PROJECT_SETTINGS = ".claude/settings.json"
+_LOCAL_SETTINGS = ".claude/settings.local.json"
+
+
+def _get_scope_path(scope: str) -> Path | None:
+    """Resolve settings file path for the given scope.
+
+    Computed lazily so Path.cwd() reflects the actual cwd at call time.
+    """
+    if scope == "user":
+        return Path.home() / _USER_SETTINGS
+    elif scope == "project":
+        return Path.cwd() / _PROJECT_SETTINGS
+    elif scope == "local":
+        return Path.cwd() / _LOCAL_SETTINGS
+    return None
 
 
 def _load_settings(path: Path) -> dict[str, Any]:
@@ -76,7 +90,7 @@ def run_install(scope: str = "project", dry_run: bool = False) -> int:
     Returns:
         Exit code (0 = success)
     """
-    path = SCOPE_PATHS.get(scope)
+    path = _get_scope_path(scope)
     if path is None:
         print(f"Unknown scope: {scope}", file=sys.stderr)
         return 1
@@ -147,7 +161,7 @@ def run_uninstall(scope: str = "project") -> int:
     Returns:
         Exit code (0 = success)
     """
-    path = SCOPE_PATHS.get(scope)
+    path = _get_scope_path(scope)
     if path is None:
         print(f"Unknown scope: {scope}", file=sys.stderr)
         return 1

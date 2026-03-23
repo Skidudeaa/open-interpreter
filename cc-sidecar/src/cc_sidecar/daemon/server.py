@@ -19,6 +19,7 @@ import logging
 import os
 import signal
 import socket
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -53,6 +54,16 @@ class SidecarDaemon:
         self._reducer = Reducer(self._store)
         self._running = False
         self._ws_clients: set[Any] = set()
+        # WHY: _ws_clients is mutated from both the asyncio event loop thread
+        # (_ws_handler add/discard) and from the socket listener thread pool
+        # (_broadcast_ws iteration). A plain set is not thread-safe for
+        # concurrent iteration + mutation.
+        self._ws_lock = threading.Lock()
+        # WHY: Store the asyncio loop reference set during _run_ws_server so
+        # _broadcast_ws (called from thread pool) can safely schedule coroutines.
+        # asyncio.get_event_loop() is deprecated from non-main threads in 3.10+
+        # and raises RuntimeError in 3.12+.
+        self._ws_loop: asyncio.AbstractEventLoop | None = None
         self._event_seq = 0
         self._seq_lock = threading.Lock()
         # WHY: Bounded thread pool prevents resource exhaustion under sustained
@@ -108,19 +119,23 @@ class SidecarDaemon:
             logger.exception("Error processing event")
 
     def _broadcast_ws(self, message: dict[str, Any]) -> None:
-        """Broadcast a message to all WebSocket clients."""
-        if not self._ws_clients:
+        """Broadcast a message to all WebSocket clients.
+
+        Thread-safe: uses _ws_lock to snapshot clients and schedules sends
+        on the stored asyncio loop rather than calling get_event_loop().
+        """
+        loop = self._ws_loop
+        if loop is None or not self._ws_clients:
             return
         data = json.dumps(message)
-        dead = set()
-        for ws in self._ws_clients:
+        with self._ws_lock:
+            clients = list(self._ws_clients)
+        for ws in clients:
             try:
-                asyncio.get_event_loop().call_soon_threadsafe(
-                    asyncio.ensure_future, ws.send(data)
-                )
+                loop.call_soon_threadsafe(asyncio.ensure_future, ws.send(data))
             except Exception:
-                dead.add(ws)
-        self._ws_clients -= dead
+                with self._ws_lock:
+                    self._ws_clients.discard(ws)
 
     # --- Unix socket listener ---
 
@@ -188,8 +203,10 @@ class SidecarDaemon:
 
     async def _ws_handler(self, websocket: Any) -> None:
         """Handle a WebSocket client connection."""
-        self._ws_clients.add(websocket)
-        logger.info("WebSocket client connected (%d total)", len(self._ws_clients))
+        with self._ws_lock:
+            self._ws_clients.add(websocket)
+            count = len(self._ws_clients)
+        logger.info("WebSocket client connected (%d total)", count)
         try:
             async for message in websocket:
                 # Handle client requests (e.g., query state)
@@ -202,10 +219,10 @@ class SidecarDaemon:
         except Exception:
             pass
         finally:
-            self._ws_clients.discard(websocket)
-            logger.info(
-                "WebSocket client disconnected (%d remaining)", len(self._ws_clients)
-            )
+            with self._ws_lock:
+                self._ws_clients.discard(websocket)
+                remaining = len(self._ws_clients)
+            logger.info("WebSocket client disconnected (%d remaining)", remaining)
 
     def _handle_ws_request(self, request: dict[str, Any]) -> dict[str, Any]:
         """Handle a WebSocket query request."""
@@ -344,7 +361,13 @@ class SidecarDaemon:
                 pass
 
     def run(self) -> int:
-        """Run the daemon (blocking)."""
+        """Run the daemon (blocking). Requires Unix (macOS/Linux)."""
+        if sys.platform == "win32":
+            logger.error(
+                "cc-sidecar daemon requires Unix domain sockets (macOS/Linux). "
+                "Windows is not supported."
+            )
+            return 1
         if not self._acquire_lock():
             return 1
 
@@ -382,19 +405,20 @@ class SidecarDaemon:
 
     async def _run_ws_server(self) -> None:
         """Run the WebSocket server."""
+        # Store loop reference for cross-thread use by _broadcast_ws
+        self._ws_loop = asyncio.get_running_loop()
         try:
             import websockets
 
             async with websockets.serve(self._ws_handler, "127.0.0.1", self._ws_port):
                 logger.info("WebSocket server on ws://127.0.0.1:%d", self._ws_port)
-                # Run until cancelled
-                stop = asyncio.get_event_loop().create_future()
+                loop = asyncio.get_running_loop()
+                stop = loop.create_future()
 
                 def handle_signal():
                     if not stop.done():
                         stop.set_result(None)
 
-                loop = asyncio.get_event_loop()
                 for sig in (signal.SIGINT, signal.SIGTERM):
                     try:
                         loop.add_signal_handler(sig, handle_signal)

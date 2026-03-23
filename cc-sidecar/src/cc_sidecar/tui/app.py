@@ -13,14 +13,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 from typing import Any
 
-from textual import on, work
+from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.timer import Timer
+from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Footer, Header, Static
 
 from .panels import (
@@ -122,6 +120,9 @@ class SidecarDashboard(App):
         self._ws = None
         self._current_session_id: str | None = None
         self._connected = False
+        # WHY: Store the WebSocket worker's asyncio loop so _request_full_refresh
+        # (called from Textual's main thread) can schedule sends on the correct loop.
+        self._ws_loop: asyncio.AbstractEventLoop | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -143,11 +144,33 @@ class SidecarDashboard(App):
         self._connect_ws()
 
     @work(thread=True)
-    async def _connect_ws(self) -> None:
-        """Connect to daemon WebSocket."""
+    def _connect_ws(self) -> None:
+        """Connect to daemon WebSocket in a worker thread.
+
+        WHY: Textual's @work(thread=True) expects a synchronous function.
+        The previous async def here would run without an event loop, causing
+        await calls to fail. We run the async logic via asyncio.run() and
+        store the loop reference for cross-thread send scheduling.
+        """
+        try:
+            asyncio.run(self._connect_ws_async())
+        except Exception as e:
+            self._connected = False
+            self._ws_loop = None
+            self.call_from_thread(self._update_status, f"Disconnected: {e}")
+            self.call_from_thread(self._load_direct)
+
+    async def _connect_ws_async(self) -> None:
+        """Async WebSocket connection logic."""
         try:
             import websockets
+        except ImportError:
+            self.call_from_thread(self._update_status, "websockets not installed")
+            self.call_from_thread(self._load_direct)
+            return
 
+        self._ws_loop = asyncio.get_running_loop()
+        try:
             async with websockets.connect(self._ws_url) as ws:
                 self._ws = ws
                 self._connected = True
@@ -174,14 +197,9 @@ class SidecarDashboard(App):
                                 self.call_from_thread(self._request_full_refresh)
                     except json.JSONDecodeError:
                         pass
-
-        except ImportError:
-            self.call_from_thread(self._update_status, "websockets not installed")
-            self.call_from_thread(self._load_direct)
-        except Exception as e:
+        finally:
             self._connected = False
-            self.call_from_thread(self._update_status, f"Disconnected: {e}")
-            self.call_from_thread(self._load_direct)
+            self._ws_loop = None
 
     def _load_direct(self) -> None:
         """Load data directly from SQLite when WebSocket is unavailable."""
@@ -209,8 +227,14 @@ class SidecarDashboard(App):
             self._load_direct()
 
     def _request_full_refresh(self) -> None:
-        """Request full state refresh from daemon."""
-        if not self._ws or not self._current_session_id:
+        """Request full state refresh from daemon.
+
+        WHY: This is called from Textual's main thread, but the WebSocket
+        lives on the worker thread's asyncio loop. We must schedule the send
+        on _ws_loop (the worker's loop), not on Textual's loop.
+        """
+        loop = self._ws_loop
+        if not self._ws or not self._current_session_id or loop is None:
             return
         try:
             asyncio.run_coroutine_threadsafe(
@@ -222,7 +246,7 @@ class SidecarDashboard(App):
                         }
                     )
                 ),
-                asyncio.get_event_loop(),
+                loop,
             )
         except Exception:
             pass

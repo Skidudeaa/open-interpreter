@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import socket
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -72,6 +73,11 @@ def send_event(event: dict[str, Any]) -> bool:
 
 def _send_socket(event: dict[str, Any]) -> bool:
     """Send event via Unix domain socket."""
+    if sys.platform == "win32":
+        raise ConnectionError(
+            "Unix domain sockets are not available on Windows. "
+            "cc-sidecar daemon requires macOS or Linux."
+        )
     sock_path = get_socket_path()
     if not sock_path.exists():
         raise ConnectionError("Daemon socket not found")

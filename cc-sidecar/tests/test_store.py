@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import tempfile
-
 import pytest
+
 from cc_sidecar.db.store import EventStore
 
 
@@ -178,3 +177,72 @@ class TestSessionSummary:
         assert summary["active_agent_count"] == 1
         assert summary["files_changed"] == 1
         assert len(summary["active_alerts"]) == 1
+
+
+class TestColumnAllowlist:
+    """Verify that upsert methods reject unknown column names."""
+
+    def test_session_rejects_bad_column(self, store):
+        with pytest.raises(ValueError, match="Invalid column names for sessions"):
+            store.upsert_session("s1", bad_col="oops")
+
+    def test_session_rejects_injection_attempt(self, store):
+        with pytest.raises(ValueError, match="Invalid column names for sessions"):
+            store.upsert_session("s1", **{"x = 1; DROP TABLE sessions; --": "pwned"})
+
+    def test_agent_rejects_bad_column(self, store):
+        with pytest.raises(ValueError, match="Invalid column names for agents"):
+            store.upsert_agent("a1", "s1", bogus_field="nope")
+
+    def test_file_rejects_bad_column(self, store):
+        with pytest.raises(ValueError, match="Invalid column names for files"):
+            store.upsert_file("s1", "/tmp/f.py", not_a_column=42)
+
+    def test_task_rejects_bad_column(self, store):
+        with pytest.raises(ValueError, match="Invalid column names for tasks"):
+            store.upsert_task("t1", "s1", sneaky="value")
+
+    def test_session_allows_valid_columns(self, store):
+        """All known columns should be accepted without error."""
+        store.upsert_session("s1", model="opus", cwd="/tmp", source="startup")
+        session = store.get_session("s1")
+        assert session["model"] == "opus"
+        assert session["cwd"] == "/tmp"
+
+    def test_agent_allows_valid_columns(self, store):
+        store.upsert_session("s1")
+        store.upsert_agent(
+            "main:s1",
+            "s1",
+            agent_type="main",
+            state="running_tool",
+            state_source="observed",
+            last_tool_name="Read",
+        )
+        agents = store.get_agents("s1")
+        assert agents[0]["state"] == "running_tool"
+        assert agents[0]["last_tool_name"] == "Read"
+
+    def test_file_allows_valid_columns(self, store):
+        store.upsert_session("s1")
+        store.upsert_file(
+            "s1",
+            "/tmp/f.py",
+            ownership_source="observed",
+            added_lines=10,
+            removed_lines=3,
+        )
+        files = store.get_files("s1")
+        assert files[0]["added_lines"] == 10
+
+    def test_task_allows_valid_columns(self, store):
+        store.upsert_session("s1")
+        store.upsert_task(
+            "t1",
+            "s1",
+            subject="Fix bug",
+            status="running",
+            status_source="observed",
+        )
+        tasks = store.get_tasks("s1")
+        assert tasks[0]["subject"] == "Fix bug"

@@ -23,6 +23,85 @@ from .schema import SCHEMA_VERSION, get_schema_sql
 DEFAULT_DB_DIR = Path.home() / ".cc-sidecar"
 DEFAULT_DB_PATH = DEFAULT_DB_DIR / "sidecar.db"
 
+# WHY: Column-name allowlists prevent SQL injection via **kwargs keys.
+# The upsert methods interpolate column names into SQL (values are parameterized),
+# so we must ensure only known schema columns are accepted.
+_SESSION_COLUMNS = frozenset(
+    {
+        "cwd",
+        "project_dir",
+        "model",
+        "claude_version",
+        "source",
+        "started_at_ms",
+        "last_seen_at_ms",
+        "ended_at_ms",
+        "end_reason",
+        "context_used_pct",
+        "context_remaining_pct",
+        "total_cost_usd",
+        "total_duration_ms",
+        "total_lines_added",
+        "total_lines_removed",
+        "worktree_path",
+        "worktree_branch",
+        "compaction_count",
+        "last_compaction_at_ms",
+        "current_user_ask",
+        "last_assistant_summary",
+    }
+)
+
+_AGENT_COLUMNS = frozenset(
+    {
+        "agent_id",
+        "agent_type",
+        "state",
+        "state_source",
+        "started_at_ms",
+        "last_event_at_ms",
+        "stopped_at_ms",
+        "last_tool_name",
+        "last_resource",
+        "last_summary",
+        "visibility_mode",
+        "current_activity_type",
+        "current_activity_message",
+    }
+)
+
+_FILE_COLUMNS = frozenset(
+    {
+        "last_writer_agent_pk",
+        "ownership_source",
+        "added_lines",
+        "removed_lines",
+        "git_status",
+        "last_changed_at_ms",
+    }
+)
+
+_TASK_COLUMNS = frozenset(
+    {
+        "subject",
+        "description",
+        "owner_agent_pk",
+        "status",
+        "status_source",
+        "created_at_ms",
+        "completed_at_ms",
+    }
+)
+
+
+def _validate_columns(
+    fields: dict[str, Any], allowed: frozenset[str], table: str
+) -> None:
+    """Validate that all field keys are known schema columns."""
+    invalid = set(fields) - allowed
+    if invalid:
+        raise ValueError(f"Invalid column names for {table}: {sorted(invalid)}")
+
 
 class EventStore:
     """Thread-safe SQLite store for sidecar events and state."""
@@ -105,6 +184,7 @@ class EventStore:
 
     def upsert_session(self, session_id: str, **fields: Any) -> None:
         """Upsert session state. Only provided fields are updated."""
+        _validate_columns(fields, _SESSION_COLUMNS, "sessions")
         with self._lock:
             existing = self._conn.execute(
                 "SELECT 1 FROM sessions WHERE session_id = ?", (session_id,)
@@ -147,6 +227,7 @@ class EventStore:
 
     def upsert_agent(self, agent_pk: str, session_id: str, **fields: Any) -> None:
         """Upsert agent state."""
+        _validate_columns(fields, _AGENT_COLUMNS, "agents")
         with self._lock:
             existing = self._conn.execute(
                 "SELECT 1 FROM agents WHERE agent_pk = ?", (agent_pk,)
@@ -259,6 +340,7 @@ class EventStore:
 
     def upsert_file(self, session_id: str, path: str, **fields: Any) -> None:
         """Upsert file change record."""
+        _validate_columns(fields, _FILE_COLUMNS, "files")
         with self._lock:
             existing = self._conn.execute(
                 "SELECT 1 FROM files WHERE session_id = ? AND path = ?",
@@ -295,6 +377,7 @@ class EventStore:
 
     def upsert_task(self, task_id: str, session_id: str, **fields: Any) -> None:
         """Upsert task/plan item."""
+        _validate_columns(fields, _TASK_COLUMNS, "tasks")
         with self._lock:
             existing = self._conn.execute(
                 "SELECT 1 FROM tasks WHERE task_id = ?", (task_id,)

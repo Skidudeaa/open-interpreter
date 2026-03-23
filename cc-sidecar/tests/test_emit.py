@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 from io import StringIO
 from unittest.mock import patch
 
-import pytest
 from cc_sidecar.ingest.emit import _detect_event_name, _extract_session_id, run_emit
-from cc_sidecar.ingest.transport import _spool_event, get_spool_dir, read_spool_files
+from cc_sidecar.ingest.transport import _spool_event, read_spool_files
 
 
 class TestEventDetection:

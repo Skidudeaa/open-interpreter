@@ -17,7 +17,6 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from rich.text import Text
 from textual.widgets import Static
 
 

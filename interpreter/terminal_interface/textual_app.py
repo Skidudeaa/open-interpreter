@@ -455,13 +455,15 @@ class InterpreterTUI(App):
     TITLE = "Open Interpreter"
     CSS_PATH = Path(__file__).parent / "interpreter.tcss"
 
+    # WHY: Alt+key combos instead of F-keys — F-keys are system keys on Mac
+    # (brightness, Mission Control) and unavailable on iPad keyboards.
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=True),
-        Binding("f2", "cycle_mode", "Mode", show=True),
-        Binding("f3", "toggle_panel", "Panel", show=True),
-        Binding("f4", "toggle_agents", "Agents", show=True),
-        Binding("f5", "cycle_theme", "Theme", show=False),
-        Binding("f6", "toggle_selection_mode", "Select", show=True),
+        Binding("ctrl+p", "cycle_mode", "Mode", show=True),
+        Binding("ctrl+b", "toggle_panel", "Panel", show=True),
+        Binding("ctrl+g", "toggle_agents", "Agents", show=True),
+        Binding("ctrl+t", "cycle_theme", "Theme", show=False),
+        Binding("ctrl+s", "toggle_selection_mode", "Select", show=True),
         Binding("ctrl+l", "clear_output", "Clear", show=True),
         Binding("ctrl+d", "quit", "Exit", show=True),
         Binding("ctrl+r", "search_history", "History", show=False),
@@ -477,7 +479,9 @@ class InterpreterTUI(App):
     ui_theme: reactive[str] = reactive("theme-dark")
     is_responding: reactive[bool] = reactive(False)
     is_streaming: reactive[bool] = reactive(False)
-    selection_mode: reactive[bool] = reactive(False)  # Disables mouse capture for text selection
+    selection_mode: reactive[bool] = reactive(
+        False
+    )  # Disables mouse capture for text selection
 
     def __init__(
         self,
@@ -767,7 +771,9 @@ class InterpreterTUI(App):
         try:
             import pyperclip
         except ImportError:
-            self.notify("pyperclip not installed - use Shift+drag to select", severity="warning")
+            self.notify(
+                "pyperclip not installed - use Shift+drag to select", severity="warning"
+            )
             return
 
         # Prefer code if we have it, otherwise use message

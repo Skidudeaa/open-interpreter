@@ -400,6 +400,12 @@ class OpenInterpreter:
         self.enable_context_compaction = True  # Enabled by default
         self.context_preserve_recent = 8  # Messages to keep verbatim
 
+        # Observability sidecar (lazy-initialized)
+        # WHY: Bridges EventBus to cc-sidecar daemon for persistent,
+        # externally-queryable session state. Passive — never blocks execution.
+        self._observability_bridge = None
+        self.enable_observability = False  # Disabled by default, opt-in
+
         # Intent refinement ("Un-Steering" architecture)
         # Uses Mistral Small Creative to strip safety-trigger phrasing
         # before sending to main LLM (Gemini/Claude/etc)
@@ -420,6 +426,7 @@ class OpenInterpreter:
             self.enable_trace_feedback = True
             self.enable_plugins = True
             self.auto_commit = True
+            self.enable_observability = True
             # NOTE: intent_refiner deliberately NOT enabled here - it causes
             # workflow misrouting by transforming simple commands into complex ones
 
@@ -446,6 +453,7 @@ class OpenInterpreter:
             "enable_context_compaction",
             "context_preserve_recent",
             "enable_intent_refiner",
+            "enable_observability",
         ]
 
         for flag in feature_flags:
@@ -476,6 +484,7 @@ class OpenInterpreter:
             "auto_commit": self.auto_commit,
             "enable_context_compaction": self.enable_context_compaction,
             "context_preserve_recent": self.context_preserve_recent,
+            "enable_observability": self.enable_observability,
         }
         return save_settings(settings)
 
@@ -635,10 +644,33 @@ class OpenInterpreter:
                         pass  # SDK not available
         return self._mcp_bridge
 
+    @property
+    def observability_bridge(self):
+        """
+        Lazy-initialized observability bridge for cc-sidecar integration.
+        Thread-safe with double-checked locking.
+
+        WHY: Taps into EventBus to forward events to sidecar daemon for
+        persistent, externally-queryable session state. Passive — never
+        blocks the execution loop.
+        """
+        if self._observability_bridge is None and self.enable_observability:
+            with self._property_lock:
+                if self._observability_bridge is None and self.enable_observability:
+                    try:
+                        from .observability import get_observability_bridge
+
+                        self._observability_bridge = get_observability_bridge()
+                        self._observability_bridge.start()
+                    except ImportError:
+                        pass  # cc-sidecar not available
+        return self._observability_bridge
+
     def activate_all_features(self):
         """
         Enable all advanced features: semantic memory, validation, tracing, agents,
-        auto-test, trace feedback, plugins, auto-commit, and context compaction.
+        auto-test, trace feedback, plugins, auto-commit, context compaction, and
+        observability.
         Returns self for method chaining.
         """
         self.enable_semantic_memory = True
@@ -650,6 +682,7 @@ class OpenInterpreter:
         self.enable_plugins = True
         self.auto_commit = True
         self.enable_context_compaction = True
+        self.enable_observability = True
         return self
 
     def local_setup(self):
@@ -677,6 +710,11 @@ class OpenInterpreter:
 
     def chat(self, message=None, display=True, stream=False, blocking=True):
         try:
+            # WHY: Accessing the property triggers lazy init + EventBus subscription.
+            # The bridge is passive — it listens and forwards, never blocks.
+            if self.enable_observability:
+                _ = self.observability_bridge
+
             self.responding = True
             if self.anonymous_telemetry:
                 message_type = type(

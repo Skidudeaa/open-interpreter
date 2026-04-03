@@ -35,7 +35,7 @@ from .components.interactive_menu import interactive_choice, interactive_confirm
 from .components.message_block import MessageBlock
 from .components.prompt_block import PromptBlock
 from .components.spinner_block import ThinkingSpinner
-from .components.status_bar import FeaturesBanner, StatusBar
+from .components.status_bar import FeaturesBanner, KeybindingsStrip, StatusBar
 from .components.toast import ToastLevel, ToastManager
 from .components.ui_events import EventType, UIEvent, chunk_to_event, get_event_bus
 from .components.ui_mode_manager import UIModeManager
@@ -250,6 +250,11 @@ def terminal_interface(interpreter, message):
         with UIErrorContext("FeaturesBanner", "display"):
             features_banner = FeaturesBanner(interpreter)
             features_banner.display()
+
+        # Display keybindings strip so users know what's available
+        with UIErrorContext("KeybindingsStrip", "display"):
+            keybindings_strip = KeybindingsStrip()
+            keybindings_strip.display()
 
     if message:
         interactive = False

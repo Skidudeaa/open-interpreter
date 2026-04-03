@@ -237,15 +237,13 @@ class InterpreterApp:
             if not self.input_buffer.text.strip():
                 event.app.exit(exception=EOFError())
 
-        # Toggle power mode (Alt+P or F2)
-        @self.kb.add("escape", "p")  # Alt+P as escape sequence
-        @self.kb.add("f2")
+        # Toggle power mode - Alt+P (Option+P on Mac)
+        @self.kb.add("escape", "p")
         def _(event):
             self._toggle_mode()
 
-        # Focus agent strip (Alt+A or F4)
-        @self.kb.add("escape", "a")  # Alt+A as escape sequence
-        @self.kb.add("f4")
+        # Focus agent strip - Alt+A (Option+A on Mac)
+        @self.kb.add("escape", "a")
         def _(event):
             self._focus_agents()
 
@@ -323,7 +321,7 @@ class InterpreterApp:
                 lambda: [
                     ("class:status-bar.key", " Esc "),
                     ("class:status-bar.value", "Cancel "),
-                    ("class:status-bar.key", " F2 "),
+                    ("class:status-bar.key", " Alt+P "),
                     ("class:status-bar.value", "Mode "),
                     ("class:status-bar.key", " Ctrl+L "),
                     ("class:status-bar.value", "Clear "),

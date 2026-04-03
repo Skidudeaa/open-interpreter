@@ -337,7 +337,7 @@ class TestEventBus:
 **Async Testing:**
 ```python
 async def test_fastapi_server():
-    async with websockets.connect("ws://localhost:8000/") as websocket:
+    async with websockets.connect("ws://localhost:8123/") as websocket:
         await websocket.send(json.dumps({"auth": "testing"}))
         message = await websocket.recv()
         assert "crunk" in accumulated_content

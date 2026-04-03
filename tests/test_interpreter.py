@@ -110,7 +110,7 @@ def test_authenticated_acknowledging_breaking_server():
     import websockets
 
     async def test_fastapi_server():
-        async with websockets.connect("ws://localhost:8000/") as websocket:
+        async with websockets.connect("ws://localhost:8123/") as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
 
@@ -118,7 +118,7 @@ def test_authenticated_acknowledging_breaking_server():
             await websocket.send(json.dumps({"auth": "testing"}))
 
             # Sending POST request
-            post_url = "http://localhost:8000/settings"
+            post_url = "http://localhost:8123/settings"
             settings = {
                 "llm": {
                     "model": "gpt-4o",
@@ -188,7 +188,7 @@ def test_authenticated_acknowledging_breaking_server():
         # Now let's hilariously keep going
         print("RESUMING")
 
-        async with websockets.connect("ws://localhost:8000/") as websocket:
+        async with websockets.connect("ws://localhost:8123/") as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
 
@@ -256,7 +256,7 @@ def test_server():
     import websockets
 
     async def test_fastapi_server():
-        async with websockets.connect("ws://localhost:8000/") as websocket:
+        async with websockets.connect("ws://localhost:8123/") as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
 
@@ -264,7 +264,7 @@ def test_server():
             await websocket.send(json.dumps({"auth": "dummy-api-key"}))
 
             # Sending POST request
-            post_url = "http://localhost:8000/settings"
+            post_url = "http://localhost:8123/settings"
             settings = {
                 "llm": {"model": "gpt-4o-mini"},
                 "messages": [
@@ -320,7 +320,7 @@ def test_server():
             assert "crunk" in accumulated_content
 
             # Send another POST request
-            post_url = "http://localhost:8000/settings"
+            post_url = "http://localhost:8123/settings"
             settings = {
                 "llm": {"model": "gpt-4o-mini"},
                 "messages": [
@@ -376,7 +376,7 @@ def test_server():
             assert "barloney" in accumulated_content
 
             # Send another POST request
-            post_url = "http://localhost:8000/settings"
+            post_url = "http://localhost:8123/settings"
             settings = {
                 "messages": [],
                 "custom_instructions": "",
@@ -425,7 +425,7 @@ def test_server():
             time.sleep(5)
 
             # Send a GET request to /settings/messages
-            get_url = "http://localhost:8000/settings/messages"
+            get_url = "http://localhost:8123/settings/messages"
             response = requests.get(get_url)
             print("GET request sent, response:", response.json())
 
@@ -478,7 +478,7 @@ def test_server():
             #### TEST FILE ####
 
             # Send another POST request
-            post_url = "http://localhost:8000/settings"
+            post_url = "http://localhost:8123/settings"
             settings = {"messages": [], "auto_run": True}
             response = requests.post(post_url, json=settings)
             print("POST request sent, response:", response.json())
@@ -544,7 +544,7 @@ def test_server():
                     break
 
             # Get messages
-            get_url = "http://localhost:8000/settings/messages"
+            get_url = "http://localhost:8123/settings/messages"
             response_json = requests.get(get_url).json()
             print("GET request sent, response:", response_json)
             if isinstance(response_json, str):
@@ -560,7 +560,7 @@ def test_server():
             #### TEST IMAGES ####
 
             # Send another POST request
-            post_url = "http://localhost:8000/settings"
+            post_url = "http://localhost:8123/settings"
             settings = {"messages": [], "auto_run": True}
             response = requests.post(post_url, json=settings)
             print("POST request sent, response:", response.json())
@@ -621,7 +621,7 @@ def test_server():
                     break
 
             # Get messages
-            get_url = "http://localhost:8000/settings/messages"
+            get_url = "http://localhost:8123/settings/messages"
             response_json = requests.get(get_url).json()
             print("GET request sent, response:", response_json)
             if isinstance(response_json, str):
@@ -636,7 +636,7 @@ def test_server():
 
             # Sending POST request to /run endpoint with code to kill a thread in Python
             # actually wait i dont think this will work..? will just kill the python interpreter
-            post_url = "http://localhost:8000/run"
+            post_url = "http://localhost:8123/run"
             code_data = {
                 "code": "import os, signal; os.kill(os.getpid(), signal.SIGINT)",
                 "language": "python",
@@ -969,7 +969,7 @@ def test_websocket_server():
     time.sleep(3)
 
     # Connect to the server
-    ws = create_connection("ws://localhost:8000/")
+    ws = create_connection("ws://localhost:8123/")
 
     # Send the first message
     ws.send(
@@ -996,7 +996,7 @@ def test_websocket_server():
 def test_i():
     import requests
 
-    url = "http://localhost:8000/"
+    url = "http://localhost:8123/"
     data = "Hello, interpreter! What operating system are you on? Also, what time is it in Seattle?"
     headers = {"Content-Type": "text/plain"}
 

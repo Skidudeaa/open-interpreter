@@ -133,16 +133,19 @@ OI_TEXTUAL_TUI=true              # Opt-in to experimental Textual full-screen TU
 
 ## Terminal UI Architecture
 
-### Key Bindings (prompt_toolkit)
+### Key Bindings (unified across both backends)
 
 | Key | Action |
 |-----|--------|
 | `Ctrl+L` | Clear screen |
 | `Ctrl+R` | Search history |
 | `Ctrl+D` | Exit (empty buffer) |
+| `Ctrl+Shift+C` | Copy last response |
 | `Alt+P` | Cycle UI mode (Option+P on Mac) |
 | `Alt+H` | Toggle context panel (Option+H on Mac) |
 | `Alt+A` | Focus agent strip (Option+A on Mac) |
+| `Alt+S` | Toggle selection mode (Option+S on Mac) |
+| `Alt+C` | Copy last response (Option+C on Mac) |
 | `Alt+?` | Show help overlay (Option+? on Mac) |
 | `Esc` | Cancel operation |
 
@@ -175,6 +178,12 @@ Scoring: Agent spawn +10, error +5, code exec +3, long run +3. Decays 1 pt/30s.
 - Black formatter (88 char line limit, target Python 3.11)
 - isort (black profile)
 - Pre-commit hooks auto-format on commit
+
+## Common Errors to Avoid
+
+- Never bind the server or tests to port 8000 — it's reserved for another project on this machine. Use port 8123 (or a random free port) instead.
+- Don't use F-keys for TUI bindings — they're system keys on Mac (brightness, Mission Control) and unavailable on iPad keyboards. Use Ctrl+key or Alt+key combos.
+- Check for argparse flag conflicts when adding new CLI arguments (e.g., `-t` was already taken by `--temperature` when `--tui` was added).
 
 ## License
 

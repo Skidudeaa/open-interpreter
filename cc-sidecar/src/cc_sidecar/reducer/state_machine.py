@@ -477,9 +477,39 @@ class Reducer:
 
     # --- EventBus bridge events (from fork's internal event system) ---
 
+    def _ensure_session(self, session_id: str, ts: int) -> None:
+        """Ensure session and main agent exist before processing eventbus events.
+
+        WHY: EventBus events may arrive before (or without) a SessionStart event,
+        especially when replaying spooled events. Without the session row, agent
+        upserts fail the FK constraint.
+        """
+        session = self._store.get_session(session_id)
+        if session:
+            return
+        self._store.upsert_session(
+            session_id,
+            source="eventbus",
+            started_at_ms=ts,
+            last_seen_at_ms=ts,
+        )
+        main_pk = f"main:{session_id}"
+        self._store.upsert_agent(
+            main_pk,
+            session_id,
+            agent_type="main",
+            state="idle",
+            state_source="inferred",
+            started_at_ms=ts,
+            last_event_at_ms=ts,
+            visibility_mode="full",
+        )
+        self._active_agent[session_id] = main_pk
+
     def _handle_eventbus_agent_spawn(
         self, _name: str, session_id: str, payload: dict, ts: int
     ) -> None:
+        self._ensure_session(session_id, ts)
         agent_id = payload.get("agent_id", payload.get("id", f"fork-{ts}"))
         role = payload.get("role", "custom")
         agent_pk = f"sub:{agent_id}"
@@ -498,6 +528,7 @@ class Reducer:
     def _handle_eventbus_agent_complete(
         self, _name: str, session_id: str, payload: dict, ts: int
     ) -> None:
+        self._ensure_session(session_id, ts)
         agent_id = payload.get("agent_id", payload.get("id", ""))
         agent_pk = f"sub:{agent_id}"
         output = payload.get("output", "")
@@ -514,6 +545,7 @@ class Reducer:
     def _handle_eventbus_agent_error(
         self, _name: str, session_id: str, payload: dict, ts: int
     ) -> None:
+        self._ensure_session(session_id, ts)
         agent_id = payload.get("agent_id", payload.get("id", ""))
         agent_pk = f"sub:{agent_id}"
         error = payload.get("error", "")
@@ -530,6 +562,7 @@ class Reducer:
     def _handle_eventbus_activity(
         self, _name: str, session_id: str, payload: dict, ts: int
     ) -> None:
+        self._ensure_session(session_id, ts)
         agent_pk = self._active_agent.get(session_id, f"main:{session_id}")
         activity_type = payload.get("activity_type", payload.get("type", ""))
         message = str(payload.get("message", ""))[:200]
@@ -554,6 +587,7 @@ class Reducer:
     def _handle_eventbus_file_change(
         self, _name: str, session_id: str, payload: dict, ts: int
     ) -> None:
+        self._ensure_session(session_id, ts)
         path = payload.get("path", payload.get("file_path", ""))
         if path:
             agent_pk = self._active_agent.get(session_id, f"main:{session_id}")
@@ -570,6 +604,7 @@ class Reducer:
     def _handle_eventbus_token_update(
         self, _name: str, session_id: str, payload: dict, ts: int
     ) -> None:
+        self._ensure_session(session_id, ts)
         updates = {"last_seen_at_ms": ts}
         if "context_used_pct" in payload:
             updates["context_used_pct"] = payload["context_used_pct"]
@@ -581,6 +616,7 @@ class Reducer:
         self, _name: str, session_id: str, payload: dict, ts: int
     ) -> None:
         """Handle TEST_START/TEST_END from fork EventBus."""
+        self._ensure_session(session_id, ts)
         status = payload.get("status", "running")
         if status in ("failed", "error"):
             self._store.insert_alert(

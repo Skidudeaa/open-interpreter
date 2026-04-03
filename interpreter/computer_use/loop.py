@@ -579,7 +579,7 @@ def run_async_main() -> None:
         # Start uvicorn server directly without asyncio.run()
         app = asyncio.run(main())
         if app is not None:
-            uvicorn.run(app, host="0.0.0.0", port=8000)
+            uvicorn.run(app, host="0.0.0.0", port=8123)
     else:
         asyncio.run(main())
 

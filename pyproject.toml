@@ -144,6 +144,12 @@ ignore = [
     "B905",   # zip without strict= (py3.10+)
 ]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# WHY: cc-sidecar is a separate package with its own deps — run its tests
+# from cc-sidecar/ directly or after pip install -e cc-sidecar/
+addopts = "--ignore=cc-sidecar"
+
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # unused imports ok in __init__
-"tests/*" = ["B011"]      # assert False ok in tests
+"tests/*" = ["B011", "E402", "E721", "F401", "W291", "W293"]  # pre-existing: import order, type comparisons, whitespace in string literals

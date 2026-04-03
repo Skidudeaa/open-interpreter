@@ -1165,7 +1165,7 @@ def create_router(async_interpreter):
 
 class Server:
     DEFAULT_HOST = "127.0.0.1"
-    DEFAULT_PORT = 8000  # Standard port for test compatibility
+    DEFAULT_PORT = 8123  # Avoid 8000 — commonly occupied by other services
 
     def __init__(self, async_interpreter, host=None, port=None):
         # WHY: Guard against missing FastAPI dependency with clear error message.

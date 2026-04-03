@@ -1,5 +1,5 @@
 ###########################################################################################
-# This Dockerfile runs an LMC-compatible websocket server at / on port 8000.              #
+# This Dockerfile runs an LMC-compatible websocket server at / on port 8123.              #
 # To learn more about LMC, visit https://docs.openinterpreter.com/protocols/lmc-messages. #
 ###########################################################################################
 
@@ -17,8 +17,8 @@ COPY interpreter/ interpreter/
 COPY scripts/ scripts/
 COPY poetry.lock pyproject.toml README.md ./
 
-# Expose port 8000
-EXPOSE 8000
+# Expose port 8123
+EXPOSE 8123
 
 # Install server dependencies
 RUN pip install ".[server]"

@@ -455,20 +455,26 @@ class InterpreterTUI(App):
     TITLE = "Open Interpreter"
     CSS_PATH = Path(__file__).parent / "interpreter.tcss"
 
-    # WHY: Alt+key combos instead of F-keys — F-keys are system keys on Mac
-    # (brightness, Mission Control) and unavailable on iPad keyboards.
+    # WHY: Alt+key for app actions, Ctrl+key only for universal terminal conventions.
+    # This matches the prompt_toolkit backend so both UIs share the same keys.
+    # ARCHITECTURE: Alt+key avoids F-key conflicts (Mac system keys, iPad),
+    # Textual command palette conflicts (ctrl+p in >= 0.77), and XOFF (ctrl+s).
+    COMMAND_PALETTE_BINDING = "ctrl+backslash"
+
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=True),
-        Binding("ctrl+p", "cycle_mode", "Mode", show=True),
-        Binding("ctrl+b", "toggle_panel", "Panel", show=True),
-        Binding("ctrl+g", "toggle_agents", "Agents", show=True),
-        Binding("ctrl+t", "cycle_theme", "Theme", show=False),
-        Binding("ctrl+s", "toggle_selection_mode", "Select", show=True),
+        # App actions — Alt+key (consistent with prompt_toolkit backend)
+        Binding("alt+p", "cycle_mode", "Mode", show=True),
+        Binding("alt+h", "toggle_panel", "Panel", show=True),
+        Binding("alt+a", "toggle_agents", "Agents", show=True),
+        Binding("alt+t", "cycle_theme", "Theme", show=False),
+        Binding("alt+s", "toggle_selection_mode", "Select", show=True),
+        Binding("alt+question_mark", "show_help", "Help", show=False),
+        # Universal terminal conventions — Ctrl+key
         Binding("ctrl+l", "clear_output", "Clear", show=True),
         Binding("ctrl+d", "quit", "Exit", show=True),
         Binding("ctrl+r", "search_history", "History", show=False),
-        Binding("c", "copy_last", "Copy", show=True, priority=True),
-        Binding("ctrl+shift+c", "copy_last", "Copy", show=False),
+        Binding("ctrl+shift+c", "copy_last", "Copy", show=True),
     ]
 
     # Available themes (CSS classes)
@@ -751,8 +757,22 @@ class InterpreterTUI(App):
 
     def action_search_history(self) -> None:
         """Show history search."""
-        # History search implementation
         self.notify("History search (Ctrl+R) - not yet implemented")
+
+    def action_show_help(self) -> None:
+        """Display key binding help overlay."""
+        help_lines = [
+            "Alt+P  Cycle UI mode",
+            "Alt+H  Toggle context panel",
+            "Alt+A  Focus agent strip",
+            "Alt+S  Toggle selection mode",
+            "Alt+T  Cycle theme",
+            "Ctrl+L Clear output",
+            "Ctrl+R Search history",
+            "Ctrl+D Exit",
+            "Ctrl+Shift+C  Copy last response",
+        ]
+        self.notify("\n".join(help_lines), title="Key Bindings", timeout=10)
 
     def action_toggle_selection_mode(self) -> None:
         """Toggle selection mode hint - guides users on text selection."""
@@ -760,7 +780,7 @@ class InterpreterTUI(App):
         if self.selection_mode:
             # Guide user on how to select text
             self.notify(
-                "📋 Selection: Hold SHIFT + drag mouse | Press 'c' to copy last response",
+                "Selection: Hold SHIFT+drag mouse | Ctrl+Shift+C to copy last response",
                 timeout=8,
             )
         else:

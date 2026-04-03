@@ -342,6 +342,14 @@ def start_terminal_interface(interpreter):
             "default": False,
         },
         {
+            "name": "observability",
+            "nickname": "ob",
+            "help_text": "Enable cc-sidecar observability bridge (event logging to SQLite)",
+            "type": bool,
+            "action": "store_true",
+            "default": False,
+        },
+        {
             "name": "tui",
             "nickname": "tu",
             "help_text": "Use experimental Textual TUI (full-screen app with mouse support)",
@@ -629,6 +637,10 @@ Use """ to write multi-line messages.
 
     interpreter.in_terminal_interface = True
 
+    # --observability flag: enable cc-sidecar bridge without OI_ACTIVATE_ALL
+    if getattr(args, "observability", False):
+        interpreter.enable_observability = True
+
     # Initialize UI backend
     from .components.ui_backend import BackendType, create_backend
     from .components.ui_state import UIState
@@ -655,6 +667,15 @@ Use """ to write multi-line messages.
     # Store backend on interpreter for terminal_interface to use
     interpreter._ui_backend = backend
     interpreter._ui_state = ui_state
+
+    # WHY: Initialize the observability bridge early so it captures SYSTEM_START
+    # and other events emitted before chat() is called. Without this, the bridge
+    # only subscribes inside chat(), missing all pre-first-message events.
+    if getattr(interpreter, "enable_observability", False):
+        try:
+            _ = interpreter.observability_bridge
+        except Exception:
+            pass  # Non-blocking — bridge is optional
 
     contribute_conversation_launch_logic(interpreter)
 

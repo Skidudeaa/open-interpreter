@@ -3,10 +3,7 @@ ObservabilityBridge — bridges the fork's EventBus to cc-sidecar.
 
 Subscribes to the fork's internal EventBus (UIEvent/EventType) and
 translates events into cc-sidecar format, sending them via the
-sidecar's local transport.
-
-Also implements AgentPlugin for ON_TOOL_CALL and ON_ERROR hooks,
-giving the sidecar full per-tool visibility inside fork agents.
+sidecar's local transport (Unix domain socket, fire-and-forget).
 
 Activation:
     interpreter.enable_observability = True
@@ -15,22 +12,26 @@ Activation:
 Architecture:
     Fork EventBus (ui_events.py)
         │
+        ├─ SYSTEM_START                →  UserPromptSubmit (session lifecycle)
+        ├─ SYSTEM_END                  →  eventbus.ACTIVITY (session end)
+        ├─ SYSTEM_ERROR                →  eventbus.AGENT_ERROR
         ├─ AGENT_SPAWN/COMPLETE/ERROR  →  eventbus.AGENT_SPAWN/COMPLETE/ERROR
-        ├─ CODE_START/END              →  (mapped to tool lifecycle)
+        ├─ CODE_START/END              →  eventbus.ACTIVITY (execute)
         ├─ ACTIVITY                    →  eventbus.ACTIVITY
-        ├─ FILE_CHANGE                 →  eventbus.FILE_CHANGE
+        ├─ FILE_CHANGE / GIT_COMMIT    →  eventbus.FILE_CHANGE
         ├─ SYSTEM_TOKEN_UPDATE         →  eventbus.SYSTEM_TOKEN_UPDATE
         ├─ TEST_START/END              →  eventbus.TEST_START/END
-        ├─ VALIDATION_START/END        →  (mapped to activity)
-        └─ GIT_COMMIT                  →  eventbus.FILE_CHANGE
+        ├─ VALIDATION_START/END        →  eventbus.ACTIVITY (validate)
+        └─ MEMORY_RECORD / PLUGIN_HOOK →  eventbus.ACTIVITY
                 │
-                └──→  cc-sidecar transport  →  daemon
+                └──→  cc-sidecar transport  →  daemon (or spool)
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -50,9 +51,14 @@ _EVENTBUS_MAP: dict[str, str] = {
     "FILE_CHANGE": "eventbus.FILE_CHANGE",
     "GIT_COMMIT": "eventbus.FILE_CHANGE",
     "SYSTEM_TOKEN_UPDATE": "eventbus.SYSTEM_TOKEN_UPDATE",
+    "SYSTEM_ERROR": "eventbus.AGENT_ERROR",
     "TEST_START": "eventbus.TEST_START",
     "TEST_END": "eventbus.TEST_END",
 }
+
+# Events handled with special-case logic in _on_event (not in the map above)
+# SYSTEM_START → UserPromptSubmit (session lifecycle marker)
+# SYSTEM_END   → eventbus.ACTIVITY with activity_type=end
 
 # Events that generate activity updates instead of direct mappings
 _ACTIVITY_EVENTS: dict[str, str] = {
@@ -63,6 +69,8 @@ _ACTIVITY_EVENTS: dict[str, str] = {
     "TRACING_START": "execute",
     "TRACING_END": "execute",
     "MESSAGE_START": "think",
+    "MEMORY_RECORD": "memory",
+    "PLUGIN_HOOK": "plugin",
 }
 
 
@@ -82,7 +90,7 @@ class ObservabilityBridge:
         self._transport = None
 
     def start(self) -> None:
-        """Subscribe to the fork's EventBus."""
+        """Subscribe to the fork's EventBus and announce session to sidecar."""
         if self._started:
             return
 
@@ -93,6 +101,20 @@ class ObservabilityBridge:
             bus.subscribe_all(self._on_event)
             self._started = True
             logger.debug("ObservabilityBridge started for session %s", self._session_id)
+
+            # WHY: Announce session to the reducer so it creates the session row.
+            # Without this, events arrive before the reducer knows the session exists.
+            self._send(
+                "SessionStart",
+                {
+                    "session": {
+                        "id": self._session_id,
+                        "source": "open-interpreter",
+                        "model": os.environ.get("OI_MODEL", ""),
+                    }
+                },
+                time.time(),
+            )
         except Exception:
             logger.debug("ObservabilityBridge: EventBus not available", exc_info=True)
 
@@ -164,6 +186,26 @@ class ObservabilityBridge:
         try:
             event_type_name = event.type.name  # e.g. "AGENT_SPAWN"
 
+            # WHY: SYSTEM_START/END are session lifecycle markers that need
+            # special payloads the reducer expects, not generic activity events.
+            if event_type_name == "SYSTEM_START":
+                self._send(
+                    "UserPromptSubmit",
+                    {
+                        "prompt": event.data.get("message", ""),
+                        "session_id": self._session_id,
+                    },
+                    event.timestamp,
+                )
+                return
+            if event_type_name == "SYSTEM_END":
+                self._send(
+                    "eventbus.ACTIVITY",
+                    {"activity_type": "end", "message": "session_end"},
+                    event.timestamp,
+                )
+                return
+
             # Check direct mapping first
             sidecar_event = _EVENTBUS_MAP.get(event_type_name)
             if sidecar_event:
@@ -209,8 +251,6 @@ class ObservabilityBridge:
 
 
 # --- Lazy-loaded singleton (follows fork's pattern from core.py) ---
-
-import threading
 
 _bridge_lock = threading.Lock()
 _bridge_instance: ObservabilityBridge | None = None

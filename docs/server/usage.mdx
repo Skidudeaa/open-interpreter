@@ -16,13 +16,13 @@ To start the server from within a Python script:
 from interpreter import AsyncInterpreter
 
 async_interpreter = AsyncInterpreter()
-async_interpreter.server.run(port=8000)  # Default port is 8000, but you can customize it
+async_interpreter.server.run(port=8123)  # Default port is 8123, but you can customize it
 ```
 
 ## WebSocket API
 
 ### Establishing a Connection
-Connect to the WebSocket server at `ws://localhost:8000/`.
+Connect to the WebSocket server at `ws://localhost:8123/`.
 
 ### Message Format
 Open Interpreter uses an extended version of OpenAI's message format called [LMC messages](https://docs.openinterpreter.com/protocols/lmc-messages) that allow for rich, multi-part messages. **Messages must be sent between start and end flags.** Here's the basic structure:
@@ -126,7 +126,7 @@ import json
 import asyncio
 
 async def websocket_interaction():
-    async with websockets.connect("ws://localhost:8000/") as websocket:
+    async with websockets.connect("ws://localhost:8123/") as websocket:
         # Send a multi-part user message
         await websocket.send(json.dumps({"role": "user", "start": True}))
         await websocket.send(json.dumps({"role": "user", "type": "message", "content": "Analyze this image:"}))
@@ -154,7 +154,7 @@ asyncio.run(websocket_interaction())
 ## HTTP API
 
 ### Modifying Settings
-To change server settings, send a POST request to `http://localhost:8000/settings`. The payload should conform to [the interpreter object's settings](https://docs.openinterpreter.com/settings/all-settings).
+To change server settings, send a POST request to `http://localhost:8123/settings`. The payload should conform to [the interpreter object's settings](https://docs.openinterpreter.com/settings/all-settings).
 
 Example:
 ```python
@@ -165,16 +165,16 @@ settings = {
     "custom_instructions": "You only write Python code.",
     "auto_run": True,
 }
-response = requests.post("http://localhost:8000/settings", json=settings)
+response = requests.post("http://localhost:8123/settings", json=settings)
 print(response.status_code)
 ```
 
 ### Retrieving Settings
-To get current settings, send a GET request to `http://localhost:8000/settings/{property}`.
+To get current settings, send a GET request to `http://localhost:8123/settings/{property}`.
 
 Example:
 ```python
-response = requests.get("http://localhost:8000/settings/custom_instructions")
+response = requests.get("http://localhost:8123/settings/custom_instructions")
 print(response.json())
 # Output: {"custom_instructions": "You only write Python code."}
 ```
@@ -196,7 +196,7 @@ To use this endpoint, set the `api_base` in your OpenAI client or configuration 
 ```python
 import openai
 
-openai.api_base = "http://localhost:8000/openai"  # Replace with your server URL if different
+openai.api_base = "http://localhost:8123/openai"  # Replace with your server URL if different
 openai.api_key = "dummy"  # The key is not used but required by the OpenAI library
 
 response = openai.ChatCompletion.create(
@@ -227,10 +227,10 @@ docker build -t open-interpreter .
 Then, run the container:
 
 ```bash
-docker run -p 8000:8000 open-interpreter
+docker run -p 8123:8123 open-interpreter
 ```
 
-This will expose the server on port 8000 of your host machine.
+This will expose the server on port 8123 of your host machine.
 
 ## Acknowledgment Feature
 
@@ -271,7 +271,7 @@ async def handle_messages(websocket):
             print(f"Sent acknowledgment for message {data['id']}")
 
 async def main():
-    uri = "ws://localhost:8000"
+    uri = "ws://localhost:8123"
     async with websockets.connect(uri) as websocket:
         await handle_messages(websocket)
 
@@ -324,7 +324,7 @@ async def custom_route():
     return {"message": "This is a custom route"}
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8123)
 ```
 
 ## Best Practices

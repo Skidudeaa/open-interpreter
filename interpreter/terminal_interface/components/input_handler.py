@@ -54,6 +54,8 @@ class KeyAction(Enum):
     AGENT_FOCUS = auto()  # Focus agent strip
     PANEL_TOGGLE = auto()  # Toggle context panel
     HELP = auto()  # Show help
+    SELECTION_TOGGLE = auto()  # Toggle selection mode hint
+    COPY_LAST = auto()  # Copy last assistant response
 
 
 @dataclass
@@ -119,6 +121,16 @@ DEFAULT_BINDINGS: dict[KeyAction, KeyBinding] = {
         action=KeyAction.HELP,
         primary="escape ?",  # Alt+? (Option+? on Mac)
         description="Show help",
+    ),
+    KeyAction.SELECTION_TOGGLE: KeyBinding(
+        action=KeyAction.SELECTION_TOGGLE,
+        primary="escape s",  # Alt+S (Option+S on Mac)
+        description="Toggle selection mode",
+    ),
+    KeyAction.COPY_LAST: KeyBinding(
+        action=KeyAction.COPY_LAST,
+        primary="escape c",  # Alt+C (Option+C on Mac)
+        description="Copy last response",
     ),
 }
 
@@ -325,6 +337,16 @@ class InputHandler:
         def show_help(event):
             self._show_help_overlay(event)
 
+        # Selection mode toggle - Alt+S (Option+S on Mac)
+        @kb.add("escape", "s")
+        def toggle_selection(event):
+            self._toggle_selection_mode()
+
+        # Copy last response - Alt+C (Option+C on Mac)
+        @kb.add("escape", "c")
+        def copy_last(event):
+            self._copy_last_response()
+
         return kb
 
     def _show_help_overlay(self, event) -> None:
@@ -344,7 +366,7 @@ class InputHandler:
 
         # Key Bindings section
         help_text.append("⌨️  Key Bindings\n", style="bold yellow")
-        for action, binding in self.bindings.items():
+        for _action, binding in self.bindings.items():
             key_str = binding.primary
             if binding.fallback:
                 key_str += f" / {binding.fallback}"
@@ -440,6 +462,51 @@ class InputHandler:
             )
         )
 
+    def _toggle_selection_mode(self) -> None:
+        """Toggle selection mode and print hint."""
+        from rich.console import Console
+
+        console = Console()
+        # WHY: prompt_toolkit terminals generally allow mouse selection natively.
+        # This just prints a reminder of how to copy.
+        console.print(
+            "[dim]Tip: Select text with mouse, Alt+C to copy last response[/dim]"
+        )
+
+    def _copy_last_response(self) -> None:
+        """Copy the last assistant response to clipboard."""
+        try:
+            import pyperclip
+        except ImportError:
+            from rich.console import Console
+
+            Console().print(
+                "[yellow]pyperclip not installed — use mouse selection to copy[/yellow]"
+            )
+            return
+
+        # Get last assistant message from interpreter's message history
+        last_content = ""
+        if hasattr(self.interpreter, "messages"):
+            for msg in reversed(self.interpreter.messages):
+                if msg.get("role") == "assistant":
+                    last_content = msg.get("content", "")
+                    break
+
+        if not last_content:
+            from rich.console import Console
+
+            Console().print("[dim]Nothing to copy[/dim]")
+            return
+
+        pyperclip.copy(last_content)
+        preview = last_content[:50].replace("\n", " ")
+        if len(last_content) > 50:
+            preview += "..."
+        from rich.console import Console
+
+        Console().print(f"[green]Copied:[/green] {preview}")
+
     def create_prompt_session(self) -> PromptSession:
         """
         Create a prompt_toolkit PromptSession for input.
@@ -504,7 +571,7 @@ class InputHandler:
     def get_binding_help(self) -> str:
         """Get help text for all key bindings"""
         lines = ["Key Bindings:", ""]
-        for action, binding in self.bindings.items():
+        for _action, binding in self.bindings.items():
             key_str = binding.primary
             if binding.fallback:
                 key_str += f" / {binding.fallback}"

@@ -649,6 +649,30 @@ class Reducer:
                 created_at_ms=ts,
             )
 
+    def _handle_eventbus_file_include(
+        self, _name: str, session_id: str, payload: dict, ts: int
+    ) -> None:
+        """Handle FILE_INCLUDE from fork EventBus.
+
+        Records which files were injected into LLM context via @path references,
+        including full size, included size, and truncation status.
+        WHY: Provides a queryable audit trail of context budget consumption.
+        """
+        self._ensure_session(session_id, ts)
+        path = payload.get("path", "")
+        if not path:
+            return
+        self._store.insert_file_include(
+            session_id=session_id,
+            path=path,
+            abs_path=payload.get("abs_path", path),
+            raw_bytes=int(payload.get("raw_bytes", 0)),
+            included_chars=int(payload.get("included_chars", 0)),
+            truncated=bool(payload.get("truncated", False)),
+            included_at_ms=ts,
+        )
+        self._store.upsert_session(session_id, last_seen_at_ms=ts)
+
     # --- Stuck/orphan detection ---
 
     def check_stuck_and_orphaned(self, session_id: str) -> None:
@@ -733,4 +757,5 @@ Reducer._HANDLERS = {
     "eventbus.SYSTEM_TOKEN_UPDATE": Reducer._handle_eventbus_token_update,
     "eventbus.TEST_START": Reducer._handle_eventbus_test,
     "eventbus.TEST_END": Reducer._handle_eventbus_test,
+    "eventbus.FILE_INCLUDE": Reducer._handle_eventbus_file_include,
 }

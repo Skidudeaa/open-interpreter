@@ -458,6 +458,56 @@ class EventStore:
                 ).fetchall()
             return [dict(r) for r in rows]
 
+    # --- File includes (@file context injections) ---
+
+    def insert_file_include(
+        self,
+        session_id: str,
+        path: str,
+        abs_path: str,
+        raw_bytes: int,
+        included_chars: int,
+        truncated: bool,
+        included_at_ms: int,
+    ) -> int:
+        """Insert a file-include record (append-only).
+
+        WHY: Separate append-only table so callers can audit context budget usage
+        (how much of the context window was consumed by @file references) without
+        scanning raw_events payloads.
+        """
+        with self._lock:
+            cur = self._conn.execute(
+                """INSERT INTO file_includes
+                   (session_id, path, abs_path, raw_bytes,
+                    included_chars, truncated, included_at_ms)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    session_id,
+                    path,
+                    abs_path,
+                    raw_bytes,
+                    included_chars,
+                    int(truncated),
+                    included_at_ms,
+                ),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def get_file_includes(
+        self, session_id: str, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        """Get file inclusions for a session, newest first."""
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT * FROM file_includes
+                   WHERE session_id = ?
+                   ORDER BY included_at_ms DESC LIMIT ?""",
+                (session_id, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     # --- Alerts ---
 
     def insert_alert(

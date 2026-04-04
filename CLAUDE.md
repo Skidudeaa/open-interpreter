@@ -94,7 +94,7 @@ EventBus → ObservabilityBridge → cc-sidecar daemon (if enabled)
 - `ui_events.py` - `EventBus` pub/sub with `EventType` enum (`AGENT_SPAWN`, `CODE_START`, etc.)
 - `ui_mode_manager.py` - Auto-escalation scoring (agent spawn +10, error +5, long exec +3)
 - `input_handler.py` - prompt_toolkit key bindings (Alt+P mode, Alt+H panel, Ctrl+R history)
-- `completers.py` - `MagicCommandCompleter`, `ConversationCompleter`, `AtFileCompleter`
+- `completers.py` - `MagicCommandCompleter`, `ConversationCompleter`, `AtFileCompleter` (auto-dropdown with file size/icon on `@`)
 - `command_palette.py` - Fuzzy `/` command search with recent prioritization
 - `pt_app.py` - Full-screen prompt_toolkit `Application` with layout
 - `agent_strip.py` - Bottom bar: `[Scout: ✓ 2.3s] [Surgeon: ⏳ running]`
@@ -110,7 +110,7 @@ EventBus → ObservabilityBridge → cc-sidecar daemon (if enabled)
 **`cc-sidecar/`** (Observability Daemon — separate src-layout package)
 - `daemon/server.py` - Unix socket listener + WebSocket server for real-time event streaming
 - `reducer/state_machine.py` - Event-sourced reducer: raw events → materialized session/agent/file state
-- `db/store.py` - Thread-safe SQLite store (WAL mode, owner-only permissions)
+- `db/store.py` - Thread-safe SQLite store (WAL mode, owner-only permissions); schema v3 adds `file_includes` table
 - `ingest/transport.py` - Fire-and-forget transport with spool-to-disk fallback
 - Data flow: `EventBus → ObservabilityBridge → transport → daemon → reducer → SQLite`
 
@@ -161,6 +161,7 @@ CC_SIDECAR_SPOOL_DIR=/path/to/dir # Override spool directory
 5. **Exit via Exception** - Ctrl+C/D use `event.app.exit(exception=EOFError())` so prompt_toolkit raises instead of returning empty string
 6. **Payload Sanitization** - ObservabilityBridge uses per-event-type field allowlists to prevent leaking secrets into sidecar DB
 7. **Owner-Only Permissions** - Sidecar DB (0o600), spool files (0o600), directories (0o700)
+8. **@file Context Injection** - Type `@` to get an auto-completing file picker; selected files are read, injected into the LLM message with size/truncation metadata, and recorded in the sidecar `file_includes` table. Files >100KB prompt the user to choose full vs truncated. The LLM always sees the absolute path and truncation status so it can read more via code if needed.
 
 ## Terminal UI Architecture
 
@@ -189,6 +190,9 @@ AGENT_SPAWN, AGENT_COMPLETE, AGENT_ERROR, AGENT_OUTPUT
 
 # Code execution
 CODE_START, CODE_END, CONSOLE_OUTPUT, CONSOLE_ERROR
+
+# File context (@file references)
+FILE_INCLUDE  # emitted per file after expand_at_references(); routed to sidecar file_includes table
 
 # System
 SYSTEM_START, SYSTEM_END, SYSTEM_TOKEN_UPDATE, SYSTEM_ERROR, UI_MODE_CHANGE, UI_CANCEL

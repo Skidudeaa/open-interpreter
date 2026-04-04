@@ -15,6 +15,7 @@ import re
 import subprocess
 import tempfile
 import time
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -106,50 +107,108 @@ def _fuzzy_find_file(filename: str, search_dir: str = ".") -> tuple[str | None, 
     return best_match, best_score
 
 
-def expand_at_references(message):
+# Threshold above which we prompt the user (or agent) before including a full file.
+# WHY: Files above this size can eat a significant fraction of a model's context window.
+# TRADEOFF: Too low = annoying prompts; too high = silent context blowout.
+_AT_FILE_TRUNCATE_THRESHOLD = 100_000  # characters (~25K tokens)
+
+
+@dataclass
+class IncludedFile:
+    """Metadata for a single @file reference that was resolved and included."""
+
+    path: str  # Display path as the user typed it
+    abs_path: str  # Absolute path on disk (for LLM code-based fallback)
+    raw_size: int  # File size in bytes
+    included_chars: int  # Characters actually injected into the message
+    truncated: bool  # Whether content was cut off
+
+
+def _fmt_size(n_bytes: int) -> str:
+    if n_bytes < 1024:
+        return f"{n_bytes}B"
+    if n_bytes < 1_048_576:
+        return f"{n_bytes / 1024:.1f}KB"
+    return f"{n_bytes / 1_048_576:.1f}MB"
+
+
+def _prompt_load_full(path: str, raw_size: int) -> bool:
+    """
+    Ask the user interactively whether to include a large file in full.
+
+    Returns True if the user wants the full file, False for truncated.
+    WHY: Large files can silently burn context budget; users should opt in explicitly.
+    TRADEOFF: Adds an extra confirmation step, but only for files above the threshold.
+    """
+    from rich.console import Console
+    from rich.prompt import Confirm
+
+    threshold_str = _fmt_size(_AT_FILE_TRUNCATE_THRESHOLD)
+    full_str = _fmt_size(raw_size)
+    pct = int(_AT_FILE_TRUNCATE_THRESHOLD * 100 / raw_size)
+
+    console = Console()
+    console.print(
+        f"\n  [yellow bold]⚠  Large file:[/yellow bold] [bold]{path}[/bold] "
+        f"[dim]({full_str})[/dim]"
+    )
+    console.print(
+        f"     Truncated: first {threshold_str} ({pct}% of file) — "
+        f"fits in context, recommended"
+    )
+    console.print(f"     Full file: {full_str} — uses more context window")
+    try:
+        return Confirm.ask("     Include full file?", default=False)
+    except (KeyboardInterrupt, EOFError):
+        return False
+
+
+def expand_at_references(message, interactive: bool = True):
     """
     Expand @path references by prepending file contents.
 
-    Finds @filepath patterns and prepends the file contents as context.
-    The original @filepath stays in the message for reference.
-    Uses fuzzy matching to recover from typos (95%+ auto-subs, 85%+ suggests).
+    For files above _AT_FILE_TRUNCATE_THRESHOLD characters:
+    - If interactive=True, prompts the user to choose full vs truncated.
+    - If interactive=False (piped/non-TTY), defaults to truncated.
+    In both cases the LLM receives explicit metadata: full size, included size,
+    absolute path, and instructions for reading the rest via code if needed.
 
     Args:
-        message: User message (string) or LMC format messages (list/dict)
+        message: User message string, or LMC format (list/dict) passed through unchanged.
+        interactive: Whether to prompt the user for large-file inclusion choices.
 
     Returns:
-        Message with file contents prepended as context blocks (strings only)
+        (expanded_message, included_files) where included_files is a list of
+        IncludedFile objects for every successfully resolved reference.
 
     WHY: File references give users a quick way to include file context without copy-paste.
-    TRADEOFF: Silent failure on missing files was confusing; now we report unresolved refs.
+    TRADEOFF: Prompting for large files adds a step, but prevents silent context blowout.
     """
-    # Only process string messages - LMC format (list/dict) passes through unchanged
     if not isinstance(message, str):
-        return message
+        return message, []
 
     # Pattern: @ followed by path chars, not preceded by non-whitespace (skip emails)
     pattern = r"(?<!\S)@([\w./_~-]+)"
     matches = re.findall(pattern, message)
 
     if not matches:
-        return message
+        return message, []
 
     context_parts = []
+    included_files: list[IncludedFile] = []
     unresolved_paths = []
     fuzzy_suggestions = []
-    seen_paths = set()
+    seen_paths: set[str] = set()
 
     for path in matches:
         if path in seen_paths:
             continue
         seen_paths.add(path)
 
-        # Try multiple path resolutions
         candidates = [
-            os.path.expanduser(path),  # Handle ~/path
-            os.path.abspath(path),  # Handle relative paths
+            os.path.expanduser(path),
+            os.path.abspath(path),
         ]
-        # If path starts with ./ or ../, also try from home
         if path.startswith(("./", "../")):
             candidates.append(os.path.join(os.path.expanduser("~"), path))
 
@@ -159,56 +218,87 @@ def expand_at_references(message):
                 resolved = candidate
                 break
 
-        # Fuzzy matching fallback
         if not resolved:
             search_dir = os.path.dirname(path) if os.path.dirname(path) else "."
             fuzzy_match, score = _fuzzy_find_file(path, search_dir)
-
             if fuzzy_match and score >= 95:
-                # High confidence - auto-substitute
                 resolved = fuzzy_match
                 fuzzy_suggestions.append(
                     f"@{path} → @{os.path.basename(fuzzy_match)} (auto-corrected, {score:.0f}%)"
                 )
             elif fuzzy_match and score >= 85:
-                # Medium confidence - suggest but don't substitute
                 fuzzy_suggestions.append(
                     f"@{path}: did you mean @{os.path.basename(fuzzy_match)}? ({score:.0f}%)"
                 )
 
-        if resolved:
-            try:
-                with open(resolved, encoding="utf-8") as f:
-                    content = f.read()
-                # Truncate very large files
-                if len(content) > 100000:
-                    content = content[:100000] + "\n... (truncated)"
-                context_parts.append(f"--- {path} ---\n{content}\n--- end {path} ---")
-            except (OSError, UnicodeDecodeError) as e:
-                # Report read errors
-                unresolved_paths.append(f"@{path} (error: {e})")
-        else:
+        if not resolved:
             unresolved_paths.append(f"@{path} (not found)")
+            continue
+
+        try:
+            with open(resolved, encoding="utf-8") as f:
+                content = f.read()
+
+            raw_size = os.path.getsize(resolved)
+            abs_path = os.path.abspath(resolved)
+
+            truncated = False
+            if len(content) > _AT_FILE_TRUNCATE_THRESHOLD:
+                # Ask the user (or default to truncated in non-interactive mode).
+                include_full = interactive and _prompt_load_full(path, raw_size)
+                if not include_full:
+                    content = content[:_AT_FILE_TRUNCATE_THRESHOLD]
+                    truncated = True
+
+            included_chars = len(content)
+
+            # Build the block injected into the LLM message.
+            # WHY: Explicit metadata lets the LLM decide whether it needs more context
+            # and gives it the absolute path so it can read the rest via code.
+            full_str = _fmt_size(raw_size)
+            incl_str = _fmt_size(included_chars)
+            if truncated:
+                pct = int(included_chars * 100 / max(raw_size, 1))
+                header = (
+                    f"--- {path} | {full_str} total | "
+                    f"TRUNCATED: first {incl_str} ({pct}%) included ---"
+                )
+                footer = (
+                    f"--- end {path} ---\n"
+                    f"[TRUNCATION NOTE: {_fmt_size(raw_size - included_chars)} "
+                    f"not shown. Absolute path: {abs_path}\n"
+                    f"To access the rest: write code to open('{abs_path}').read(), "
+                    f"or ask the user to resend with the full file.]"
+                )
+            else:
+                header = f"--- {path} | {full_str} | FULL ---"
+                footer = f"--- end {path} ---"
+
+            context_parts.append(f"{header}\n{content}\n{footer}")
+            included_files.append(
+                IncludedFile(
+                    path=path,
+                    abs_path=abs_path,
+                    raw_size=raw_size,
+                    included_chars=included_chars,
+                    truncated=truncated,
+                )
+            )
+
+        except (OSError, UnicodeDecodeError) as e:
+            unresolved_paths.append(f"@{path} (error: {e})")
 
     result_parts = []
-
-    # Report fuzzy matches/suggestions first
     if fuzzy_suggestions:
         result_parts.append("[Fuzzy matching: " + "; ".join(fuzzy_suggestions) + "]")
-
-    # Report unresolved references
     if unresolved_paths:
-        warning = "[File references not resolved: " + ", ".join(unresolved_paths) + "]"
-        result_parts.append(warning)
-
-    # Add resolved file contents
-    if context_parts:
-        result_parts.extend(context_parts)
-
-    # Add original message
+        result_parts.append(
+            "[File references not resolved: " + ", ".join(unresolved_paths) + "]"
+        )
+    result_parts.extend(context_parts)
     result_parts.append(message)
 
-    return "\n\n".join(result_parts)
+    return "\n\n".join(result_parts), included_files
 
 
 def terminal_interface(interpreter, message):
@@ -622,6 +712,52 @@ def terminal_interface(interpreter, message):
         )
 
         try:
+            # Expand @file references before starting spinner to avoid Rich Live conflicts.
+            # WHY: ThinkingSpinner uses Rich Live; printing inside a Live context causes
+            # display corruption, so we resolve files and show the summary first.
+            # _prompt_load_full() needs an interactive TTY, same condition as plain_text_display.
+            message, included_files = expand_at_references(
+                message, interactive=not interpreter.plain_text_display
+            )
+            if included_files:
+                if not interpreter.plain_text_display:
+                    from rich.console import Console as _Console
+
+                    _con = _Console()
+                    for _f in included_files:
+                        full_str = _fmt_size(_f.raw_size)
+                        incl_str = _fmt_size(_f.included_chars)
+                        if _f.truncated:
+                            pct = int(_f.included_chars * 100 / max(_f.raw_size, 1))
+                            _con.print(
+                                f"  📎 [bold]{_f.path}[/bold] "
+                                f"[dim]({full_str} total)[/dim]  "
+                                f"[yellow]✂ truncated — {incl_str} ({pct}%) included[/yellow]"
+                            )
+                        else:
+                            _con.print(
+                                f"  📎 [bold]{_f.path}[/bold] "
+                                f"[dim]({full_str})[/dim]  "
+                                f"[green]✓ full file included[/green]"
+                            )
+                # Emit FILE_INCLUDE events for observability/sidecar regardless of display mode.
+                # WHY: Sidecar needs a durable record of what context was injected per session,
+                # separate from the raw event log, so queries can audit context budget usage.
+                for _f in included_files:
+                    event_bus.emit(
+                        UIEvent(
+                            type=EventType.FILE_INCLUDE,
+                            data={
+                                "path": _f.path,
+                                "abs_path": _f.abs_path,
+                                "raw_bytes": _f.raw_size,
+                                "included_chars": _f.included_chars,
+                                "truncated": _f.truncated,
+                            },
+                            source="terminal_interface",
+                        )
+                    )
+
             # Start thinking spinner (only in styled mode)
             thinking_spinner = None
             if not interpreter.plain_text_display:
@@ -632,9 +768,6 @@ def terminal_interface(interpreter, message):
                     except Exception as e:
                         logger.debug(f"ThinkingSpinner failed to start: {e}")
                         thinking_spinner = None  # Continue without spinner
-
-            # Expand @file references to include file contents
-            message = expand_at_references(message)
 
             for chunk in interpreter.chat(message, display=False, stream=True):
                 yield chunk

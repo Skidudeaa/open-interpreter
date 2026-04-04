@@ -430,10 +430,29 @@ class PromptToolkitBackend(UIBackend):
         try:
             from prompt_toolkit import PromptSession
             from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+            from prompt_toolkit.filters import Condition
             from prompt_toolkit.formatted_text import FormattedText
 
             # Create session with completer
             completer = create_completer(self.interpreter)
+
+            # WHY: Auto-trigger completions only when the user has typed an @ reference.
+            # For all other input, complete_while_typing stays False to avoid noise.
+            # TRADEOFF: Using get_app() inside Condition ties this to an active PT app;
+            # the try/except guard makes it safe outside that context.
+            @Condition
+            def _complete_while_typing_at() -> bool:
+                from prompt_toolkit.application import get_app
+
+                try:
+                    text = get_app().current_buffer.document.text_before_cursor
+                    at_pos = text.rfind("@")
+                    if at_pos == -1:
+                        return False
+                    # Skip email-like patterns (user@host)
+                    return at_pos == 0 or text[at_pos - 1].isspace()
+                except Exception:
+                    return False
 
             # IMPORTANT:
             # - multiline=False lets custom key bindings handle smart multiline detection.
@@ -449,7 +468,7 @@ class PromptToolkitBackend(UIBackend):
                 multiline=False,
                 key_bindings=self._input_handler.create_key_bindings(),
                 enable_history_search=True,
-                complete_while_typing=False,
+                complete_while_typing=_complete_while_typing_at,
             )
 
             # Format prompt with styling

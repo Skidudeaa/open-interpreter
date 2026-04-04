@@ -50,6 +50,7 @@ _EVENTBUS_MAP: dict[str, str] = {
     "ACTIVITY": "eventbus.ACTIVITY",
     "FILE_CHANGE": "eventbus.FILE_CHANGE",
     "GIT_COMMIT": "eventbus.FILE_CHANGE",
+    "FILE_INCLUDE": "eventbus.FILE_INCLUDE",
     "SYSTEM_TOKEN_UPDATE": "eventbus.SYSTEM_TOKEN_UPDATE",
     # WHY: SYSTEM_ERROR is system-level (e.g. LLM connection failure), not agent-level.
     # Routing to ACTIVITY avoids creating phantom agent rows with empty IDs.
@@ -87,6 +88,7 @@ _PAYLOAD_ALLOWLISTS: dict[str, list[str]] = {
     "ACTIVITY": ["activity_type", "type", "message", "agent_id"],
     "FILE_CHANGE": ["path", "file_path", "added_lines", "removed_lines"],
     "GIT_COMMIT": ["path", "file_path", "sha", "message"],
+    "FILE_INCLUDE": ["path", "abs_path", "raw_bytes", "included_chars", "truncated"],
     "SYSTEM_TOKEN_UPDATE": ["total_tokens", "prompt_tokens", "completion_tokens"],
     "SYSTEM_ERROR": ["error", "message", "activity_type"],
     "TEST_START": ["test_name", "test_file", "agent_id"],

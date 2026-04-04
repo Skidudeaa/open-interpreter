@@ -142,6 +142,32 @@ class ConversationCompleter(Completer):
                 )
 
 
+def _file_meta(partial_path: str, completion_text: str, start_position: int) -> str:
+    """
+    Return a short display_meta string (size or 'dir') for a path completion.
+
+    WHY: Users need at-a-glance context (size, type) when picking from the @file
+    dropdown so they can distinguish large files before including them.
+    """
+    replaced_chars = abs(start_position)
+    path_prefix = partial_path[: len(partial_path) - replaced_chars]
+    candidate = (
+        os.path.join(path_prefix, completion_text) if path_prefix else completion_text
+    )
+    try:
+        candidate = os.path.expanduser(candidate)
+        if os.path.isdir(candidate):
+            return "dir"
+        size = os.path.getsize(candidate)
+        if size < 1024:
+            return f"{size}B"
+        if size < 1024 * 1024:
+            return f"{size // 1024}KB"
+        return f"{size // (1024 * 1024)}MB"
+    except OSError:
+        return "file"
+
+
 class AtFileCompleter(Completer):
     """
     Complete file paths after @ symbol.
@@ -185,12 +211,15 @@ class AtFileCompleter(Completer):
         for completion in self._path_completer.get_completions(
             path_doc, complete_event
         ):
-            # Adjust start position relative to full document
+            display_name = completion.display or completion.text
+            is_dir = display_name.endswith("/")
+            icon = "📁" if is_dir else "📄"
+            meta = _file_meta(partial_path, completion.text, completion.start_position)
             yield Completion(
                 text=completion.text,
                 start_position=completion.start_position,
-                display=f"@{completion.display or completion.text}",
-                display_meta="file reference",
+                display=f"{icon} {display_name}",
+                display_meta=meta,
             )
 
 

@@ -15,7 +15,7 @@ All derived tables are rebuildable from raw_events via reducer replay.
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA_SQL = """
 PRAGMA journal_mode=WAL;
@@ -185,6 +185,24 @@ CREATE TABLE IF NOT EXISTS alerts (
 
 CREATE INDEX IF NOT EXISTS idx_alerts_session
     ON alerts(session_id, resolved_at_ms);
+
+-- @file references injected into LLM context
+-- WHY: Separate from raw_events so queries can audit per-session context budget
+-- usage without scanning event payloads. One row per file per inclusion.
+CREATE TABLE IF NOT EXISTS file_includes (
+    id INTEGER PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    path TEXT NOT NULL,              -- display path as the user typed it
+    abs_path TEXT NOT NULL,          -- absolute resolved path on disk
+    raw_bytes INTEGER NOT NULL,      -- file size in bytes at inclusion time
+    included_chars INTEGER NOT NULL, -- characters actually injected into context
+    truncated INTEGER NOT NULL DEFAULT 0,  -- 1 if content was cut off
+    included_at_ms INTEGER NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_file_includes_session
+    ON file_includes(session_id, included_at_ms);
 
 -- Instruction/rule sources loaded into context
 CREATE TABLE IF NOT EXISTS instructions (

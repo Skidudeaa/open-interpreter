@@ -94,6 +94,9 @@ class EventType(Enum):
     FILE_CHANGE = auto()  # File modified by code execution
     GIT_COMMIT = auto()  # Auto-commit completed
 
+    # @file reference events (for context inclusion tracking)
+    FILE_INCLUDE = auto()  # File injected into LLM context via @path reference
+
     # Activity stream events (visibility into what agent is doing)
     ACTIVITY = auto()  # Current activity update (what/why)
 

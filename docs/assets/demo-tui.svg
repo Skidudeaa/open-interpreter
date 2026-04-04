@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="850" height="520" viewBox="0 0 850 520">
+  <style>
+    .bg { fill: #1a1b26; }
+    .titlebar { fill: #24283b; }
+    .text { font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace; font-size: 13px; }
+    .dim { fill: #565f89; }
+    .white { fill: #c0caf5; }
+    .green { fill: #9ece6a; }
+    .blue { fill: #7aa2f7; }
+    .cyan { fill: #7dcfff; }
+    .yellow { fill: #e0af68; }
+    .red { fill: #f7768e; }
+    .magenta { fill: #bb9af7; }
+    .orange { fill: #ff9e64; }
+    .statusbar { fill: #1f2335; }
+    .input-bg { fill: #24283b; stroke: #3d59a1; stroke-width: 1; rx: 4; }
+    .badge { rx: 3; ry: 3; }
+  </style>
+
+  <!-- Background -->
+  <rect class="bg" width="850" height="520" rx="8"/>
+
+  <!-- Title bar -->
+  <rect class="titlebar" width="850" height="32" rx="8"/>
+  <rect class="titlebar" y="16" width="850" height="16"/>
+  <circle cx="20" cy="16" r="6" fill="#ff5f56"/>
+  <circle cx="40" cy="16" r="6" fill="#ffbd2e"/>
+  <circle cx="60" cy="16" r="6" fill="#27c93f"/>
+  <text x="425" y="20" class="text dim" text-anchor="middle" font-size="12">Open Interpreter</text>
+
+  <!-- Status bar -->
+  <rect class="statusbar" y="32" width="850" height="22"/>
+  <text x="12" y="47" class="text blue" font-size="11">gemini-3.1-pro</text>
+  <text x="120" y="47" class="text dim" font-size="11">|</text>
+  <text x="132" y="47" class="text yellow" font-size="11">POWER</text>
+  <text x="186" y="47" class="text dim" font-size="11">|</text>
+  <text x="198" y="47" class="text dim" font-size="11">ctx</text>
+  <rect x="222" y="39" width="80" height="8" fill="#1a1b26" rx="2"/>
+  <rect x="222" y="39" width="28" height="8" fill="#9ece6a" rx="2"/>
+  <text x="308" y="47" class="text dim" font-size="11">34%</text>
+
+  <!-- User message -->
+  <text x="12" y="76" class="text magenta" font-size="12">You</text>
+  <text x="12" y="94" class="text white">Find and fix the authentication bug in the login handler</text>
+
+  <!-- Agent strip -->
+  <rect x="12" y="110" width="826" height="26" fill="#1f2335" rx="4"/>
+  <rect x="16" y="113" width="120" height="20" fill="#1a3a1a" class="badge"/>
+  <text x="26" y="127" class="text green" font-size="11">Scout: &#x2713; 2.3s</text>
+  <rect x="144" y="113" width="140" height="20" fill="#1a2a3a" class="badge"/>
+  <text x="154" y="127" class="text cyan" font-size="11">Surgeon: &#x23F3; running</text>
+
+  <!-- Scout output -->
+  <text x="12" y="156" class="text green" font-size="12">Scout</text>
+  <text x="56" y="156" class="text dim" font-size="12">found 3 files in 2.3s</text>
+  <text x="20" y="174" class="text dim" font-size="12">&#x251C;&#x2500;</text>
+  <text x="42" y="174" class="text cyan" font-size="12">src/auth/login_handler.py</text>
+  <text x="260" y="174" class="text dim" font-size="12">&#x2190; session token not validated</text>
+  <text x="20" y="192" class="text dim" font-size="12">&#x251C;&#x2500;</text>
+  <text x="42" y="192" class="text cyan" font-size="12">src/auth/middleware.py</text>
+  <text x="230" y="192" class="text dim" font-size="12">&#x2190; missing CSRF check</text>
+  <text x="20" y="210" class="text dim" font-size="12">&#x2514;&#x2500;</text>
+  <text x="42" y="210" class="text cyan" font-size="12">tests/test_auth.py</text>
+  <text x="218" y="210" class="text dim" font-size="12">&#x2190; 2 failing tests</text>
+
+  <!-- Surgeon output -->
+  <text x="12" y="240" class="text cyan" font-size="12">Surgeon</text>
+  <text x="72" y="240" class="text dim" font-size="12">editing login_handler.py</text>
+
+  <!-- Code block -->
+  <rect x="12" y="252" width="826" height="120" fill="#1f2335" rx="4"/>
+  <text x="20" y="270" class="text dim" font-size="11">src/auth/login_handler.py</text>
+  <text x="20" y="290" class="text dim" font-size="12">  42</text>
+  <text x="56" y="290" class="text white" font-size="12">def authenticate(self, request):</text>
+  <text x="20" y="308" class="text dim" font-size="12">  43</text>
+  <text x="56" y="308" class="text white" font-size="12">    token = request.headers.get("Authorization")</text>
+  <text x="20" y="326" class="text red" font-size="12">- 44</text>
+  <text x="56" y="326" class="text red" font-size="12">    if token:</text>
+  <text x="20" y="344" class="text green" font-size="12">+ 44</text>
+  <text x="56" y="344" class="text green" font-size="12">    if token and self._validate_session(token):</text>
+  <text x="20" y="362" class="text dim" font-size="12">  45</text>
+  <text x="56" y="362" class="text white" font-size="12">        return self._create_session(token)</text>
+
+  <!-- Validation status -->
+  <text x="12" y="394" class="text green" font-size="12">&#x2713; Syntax valid</text>
+  <text x="130" y="394" class="text green" font-size="12">&#x2713; 2 tests pass</text>
+  <text x="260" y="394" class="text dim" font-size="12">&#x2190; auto-rollback ready if tests fail</text>
+
+  <!-- Activity stream -->
+  <text x="12" y="420" class="text dim" font-size="11">&#x25B6; think   Planning code changes...</text>
+  <text x="12" y="436" class="text dim" font-size="11">&#x25B6; search  Found session validation gap</text>
+  <text x="12" y="452" class="text dim" font-size="11">&#x25B6; edit    Patching login_handler.py:44</text>
+
+  <!-- Input area -->
+  <rect x="12" y="466" width="826" height="36" class="input-bg"/>
+  <text x="20" y="489" class="text dim" font-size="12">Enter message or % for commands...</text>
+
+  <!-- Bottom bar -->
+  <rect y="508" width="850" height="12" fill="#1f2335"/>
+  <text x="12" y="518" class="text dim" font-size="10">Alt+P Mode  Alt+H Panel  Alt+A Agents  Alt+S Select  Alt+C Copy  Ctrl+D Exit</text>
+</svg>

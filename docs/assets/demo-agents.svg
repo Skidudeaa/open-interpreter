@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="340" viewBox="0 0 700 340">
+  <style>
+    .bg { fill: #0d1117; }
+    .text { font-family: 'SF Mono', 'Fira Code', Menlo, monospace; font-size: 13px; }
+    .dim { fill: #8b949e; }
+    .white { fill: #e6edf3; }
+    .green { fill: #3fb950; }
+    .blue { fill: #58a6ff; }
+    .cyan { fill: #79c0ff; }
+    .yellow { fill: #d29922; }
+    .red { fill: #f85149; }
+    .magenta { fill: #d2a8ff; }
+  </style>
+
+  <rect class="bg" width="700" height="340" rx="8"/>
+
+  <!-- Title bar -->
+  <rect fill="#161b22" width="700" height="28" rx="8"/>
+  <rect fill="#161b22" y="16" width="700" height="12"/>
+  <circle cx="18" cy="14" r="5" fill="#ff5f56"/>
+  <circle cx="36" cy="14" r="5" fill="#ffbd2e"/>
+  <circle cx="54" cy="14" r="5" fill="#27c93f"/>
+
+  <!-- Prompt -->
+  <text x="16" y="52" class="text green">&#x276F;</text>
+  <text x="30" y="52" class="text white">Fix the auth bug in login_handler.py</text>
+
+  <!-- Agent workflow visualization -->
+  <text x="16" y="82" class="text dim">&#x250C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2510;</text>
+
+  <text x="16" y="100" class="text dim">&#x2502;</text>
+  <text x="28" y="100" class="text cyan">Scout</text>
+  <text x="76" y="100" class="text dim">searching codebase...</text>
+  <text x="296" y="100" class="text green">&#x2713; 2.3s</text>
+  <text x="340" y="100" class="text dim">3 files found</text>
+  <text x="480" y="100" class="text dim">&#x2502;</text>
+
+  <text x="16" y="118" class="text dim">&#x2502;</text>
+  <text x="28" y="118" class="text magenta">Surgeon</text>
+  <text x="92" y="118" class="text dim">editing login_handler.py:44</text>
+  <text x="296" y="118" class="text green">&#x2713; 1.1s</text>
+  <text x="340" y="118" class="text dim">1 file patched</text>
+  <text x="480" y="118" class="text dim">&#x2502;</text>
+
+  <text x="16" y="136" class="text dim">&#x2502;</text>
+  <text x="28" y="136" class="text yellow">Validator</text>
+  <text x="100" y="136" class="text dim">running tests...</text>
+  <text x="296" y="136" class="text green">&#x2713; 3.0s</text>
+  <text x="340" y="136" class="text dim">2/2 tests pass</text>
+  <text x="480" y="136" class="text dim">&#x2502;</text>
+
+  <text x="16" y="154" class="text dim">&#x2514;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2518;</text>
+
+  <!-- Result -->
+  <text x="16" y="184" class="text green">&#x2713; Fixed</text>
+  <text x="70" y="184" class="text white">session token validation added to login_handler.py</text>
+
+  <!-- Diff preview -->
+  <rect x="16" y="198" width="668" height="60" fill="#161b22" rx="4"/>
+  <text x="24" y="218" class="text red">- if token:</text>
+  <text x="24" y="236" class="text green">+ if token and self._validate_session(token):</text>
+  <text x="24" y="252" class="text dim">  auto-rollback ready | git stash saved</text>
+
+  <!-- Features bar -->
+  <text x="16" y="282" class="text dim" font-size="11">&#x25CF; Risk-based approval</text>
+  <text x="186" y="282" class="text dim" font-size="11">&#x25CF; Edit validation + auto-rollback</text>
+  <text x="430" y="282" class="text dim" font-size="11">&#x25CF; 100+ LLM models via LiteLLM</text>
+
+  <text x="16" y="300" class="text dim" font-size="11">&#x25CF; Real-time observability</text>
+  <text x="186" y="300" class="text dim" font-size="11">&#x25CF; Semantic memory (edit tracking)</text>
+  <text x="430" y="300" class="text dim" font-size="11">&#x25CF; Local-first, no cloud required</text>
+
+  <!-- CTA -->
+  <text x="16" y="328" class="text green" font-size="12">$</text>
+  <text x="30" y="328" class="text white" font-size="12">OI_ACTIVATE_ALL=true poetry run interpreter</text>
+</svg>

@@ -50,6 +50,11 @@ class CodeBlock(BaseBlock):
     # Maximum lines to show in output panel during execution
     MAX_OUTPUT_LINES = 8
 
+    # Maximum lines to retain in the buffer — keeps memory and rebuild cost bounded.
+    # WHY: add_output rebuilds self.output via join on every chunk.  Without a cap,
+    # an 8 000-line cat produces O(n²) string work and a 12-minute hang.
+    MAX_BUFFER_LINES = 200
+
     # Pagination support
     PAGINATE_THRESHOLD = 50  # Show pagination controls after this many lines
 
@@ -108,6 +113,17 @@ class CodeBlock(BaseBlock):
             for line in new_lines:
                 detected_type = self._detect_output_type(line, output_type)
                 self._output_lines.append((line, detected_type))
+
+            # Cap the buffer so we don't accumulate unbounded lines.
+            # WHY: Without this, a large cat/command produces O(n²) join cost
+            # and the truncate_output call in terminal_interface is immediately
+            # undone by the next add_output rebuilding self.output from all lines.
+            if len(self._output_lines) > self.MAX_BUFFER_LINES:
+                self._total_lines_seen = getattr(self, "_total_lines_seen", 0) + (
+                    len(self._output_lines) - self.MAX_BUFFER_LINES
+                )
+                self._output_lines = self._output_lines[-self.MAX_BUFFER_LINES :]
+
             # Update the output string for compatibility
             self.output = "\n".join(line for line, _ in self._output_lines)
 
@@ -277,7 +293,9 @@ class CodeBlock(BaseBlock):
 
     def _build_output_panel(self) -> Panel:
         """Build the contained output panel with syntax-highlighted tracebacks."""
-        total_lines = len(self._output_lines) if self._output_lines else 0
+        buffered = len(self._output_lines) if self._output_lines else 0
+        # Include lines that were evicted from the buffer
+        total_lines = buffered + getattr(self, "_total_lines_seen", 0)
 
         # Check if output is tabular data (CSV or JSON array)
         raw_output = self.output.strip() if self.output else ""

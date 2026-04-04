@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 from ..core.utils.scan_code import scan_code
 from ..core.utils.system_debug_info import system_info
-from ..core.utils.truncate_output import truncate_output
 
 # Phase 0 UI Architecture: Event system for future backends
 from .components.activity_stream import ActivityStream
@@ -1022,12 +1021,11 @@ def terminal_interface(interpreter, message):
                             active_block.output += "\n" + chunk["content"]
                             active_block.output = active_block.output.strip()
 
-                        # Truncate output (only applies to final output string)
-                        active_block.output = truncate_output(
-                            active_block.output,
-                            interpreter.max_output,
-                            add_scrollbars=False,
-                        )
+                        # NOTE: truncate_output used to be called here, but it was
+                        # immediately undone by the next add_output() rebuilding
+                        # self.output from _output_lines.  The buffer is now capped
+                        # inside CodeBlock.add_output() instead.  LLM-facing
+                        # truncation still happens in core.py.
                     if "format" in chunk and chunk["format"] == "active_line":
                         active_block.active_line = chunk["content"]
 

@@ -250,3 +250,9 @@ numbers.txt
 poetry.lock
 # Local venv
 venv/
+
+# Dev screenshots (keep docs/assets/ only)
+*.png
+!docs/assets/*.png
+!docs/assets/logo/*.png
+!docs/assets/favicon.png

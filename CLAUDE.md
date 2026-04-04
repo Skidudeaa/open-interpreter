@@ -184,6 +184,7 @@ Scoring: Agent spawn +10, error +5, code exec +3, long run +3. Decays 1 pt/30s.
 - Never bind the server or tests to port 8000 — it's reserved for another project on this machine. Use port 8123 (or a random free port) instead.
 - Don't use F-keys for TUI bindings — they're system keys on Mac (brightness, Mission Control) and unavailable on iPad keyboards. Use Ctrl+key or Alt+key combos.
 - Check for argparse flag conflicts when adding new CLI arguments (e.g., `-t` was already taken by `--temperature` when `--tui` was added).
+- Pre-commit has ruff-format and black both enabled — they fight on 2 files (`state_machine.py`, `async_core.py`). Use `SKIP=ruff-format git commit` to work around until one formatter is removed.
 
 ## License
 

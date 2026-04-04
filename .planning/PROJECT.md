@@ -19,8 +19,12 @@ Past behavior compounds into future capability — the system learns YOU.
 - ✓ Runtime execution tracing — existing
 - ✓ LiteLLM abstraction for 100+ models — existing
 - ✓ Generator-based streaming for responses — existing
+- ✓ Observability pipeline: EventBus → ObservabilityBridge → cc-sidecar daemon — shipped 2026-04
+- ✓ Textual TUI backend with agent widgets and reactive state — shipped 2026-04
+- ✓ Sidecar security: owner-only file permissions, payload sanitization — shipped 2026-04
+- ✓ Thread-safe agent tracking with _active_agent attribution — shipped 2026-04
 
-### Active
+### Active — Memory Layer (next up)
 
 - [ ] Memory layer extending SemanticEditGraph for four memory types
 - [ ] Preference memory: explicit declarations ("I prefer X over Y")
@@ -36,14 +40,28 @@ Past behavior compounds into future capability — the system learns YOU.
 - [ ] Preference learning: explicit > implicit, both decay when contradicted
 - [ ] Causal inference: infer when obvious, ask when ambiguous
 
-### Out of Scope
+### Recommended Starting Point
 
-- Suggestion injection ("Based on past...") — deferred to v2, requires relevance detection
-- Constraint application (warns/refuses based on past failures) — deferred to v2, requires confidence thresholds
-- Auto-decisions (strong priors bypass LLM) — deferred to v2, requires high-confidence preference learning
+**Preference memory + pre-prompting** proves the architecture end-to-end with the smallest surface area:
+1. Store explicit preferences in SemanticEditGraph (extend existing DuckDB/SQLite)
+2. Retrieve relevant preferences before each LLM call in `respond.py`
+3. Inject as system message context (pre-prompting)
+4. This validates: storage, retrieval, relevance matching, and influence mechanism
+
+**Integration points already wired:**
+- `respond.py` execution loop — insert retrieval before system message assembly
+- `EventBus` SYSTEM_START events — carry user prompt text for relevance matching
+- `ObservabilityBridge` — already captures session events for durable storage
+- `SemanticEditGraph` — extend schema for preference records alongside edit records
+
+### Out of Scope (v2)
+
+- Suggestion injection ("Based on past...") — requires relevance detection
+- Constraint application (warns/refuses based on past failures) — requires confidence thresholds
+- Auto-decisions (strong priors bypass LLM) — requires high-confidence preference learning
 - Aggressive proactive surfacing — only relevant-only surfacing in scope
-- Continuous observation (passive filesystem/OS watching) — deferred, v1 is invocation-based
-- Intent routing layer (classifier before LLM) — deferred, not needed for pre-prompting proof
+- Continuous observation (passive filesystem/OS watching) — v1 is invocation-based
+- Intent routing layer (classifier before LLM) — not needed for pre-prompting proof
 
 ## Context
 
@@ -52,6 +70,7 @@ Past behavior compounds into future capability — the system learns YOU.
 - Event-driven UI with `EventBus` for decoupled component communication
 - Multi-agent orchestration with context passing between agents
 - Response layer with hooks for validation, tracing, memory recording
+- Observability pipeline capturing all session events to cc-sidecar SQLite
 
 **Existing memory infrastructure:**
 - `interpreter/core/memory/semantic_graph.py` — Edit tracking with symbol extraction
@@ -63,6 +82,7 @@ Past behavior compounds into future capability — the system learns YOU.
 - `respond.py` manages execution loop — pre-prompting hooks here
 - `UIState` and `EventBus` for surfacing memory-influenced behavior
 - `interpreter.messages` list holds conversation history
+- `cc-sidecar/db/store.py` holds durable session/agent/activity history
 
 ## Constraints
 
@@ -86,4 +106,4 @@ Past behavior compounds into future capability — the system learns YOU.
 | Relevant-only proactive surfacing | Useful without being annoying | — Pending |
 
 ---
-*Last updated: 2026-01-19 after initialization*
+*Last updated: 2026-04-04 after infrastructure completion (observability, agents, TUI, security hardening)*

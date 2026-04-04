@@ -16,7 +16,6 @@ Covers all spec-required scenarios:
 from __future__ import annotations
 
 import pytest
-
 from cc_sidecar.db.store import EventStore
 from cc_sidecar.reducer.state_machine import Reducer
 
@@ -598,6 +597,206 @@ class TestEventBusBridgeEvents:
         assert len(files) == 1
         assert files[0]["path"] == "/src/app.py"
         assert files[0]["added_lines"] == 10
+
+
+class TestEnsureSessionFallback:
+    """Tests for _ensure_session creating session/agent when no SessionStart precedes."""
+
+    def test_agent_spawn_without_session_start(self, reducer, store):
+        """eventbus.AGENT_SPAWN before any SessionStart should auto-create session."""
+        reducer.handle(
+            "eventbus.AGENT_SPAWN",
+            "nosess1",
+            {"agent_id": "scout-1", "role": "scout"},
+            _ts(0),
+        )
+
+        session = store.get_session("nosess1")
+        assert session is not None
+        assert session["source"] == "eventbus"
+
+        agents = store.get_agents("nosess1")
+        main = [a for a in agents if a["agent_pk"] == "main:nosess1"]
+        assert len(main) == 1, "main agent should be auto-created"
+
+        sub = [a for a in agents if a["agent_pk"] == "sub:scout-1"]
+        assert len(sub) == 1, "spawned agent should exist"
+
+    def test_ensure_session_idempotent(self, reducer, store):
+        """Calling _ensure_session twice for same session should not duplicate rows."""
+        reducer.handle(
+            "eventbus.ACTIVITY",
+            "nosess2",
+            {"activity_type": "search", "message": "first"},
+            _ts(0),
+        )
+        reducer.handle(
+            "eventbus.ACTIVITY",
+            "nosess2",
+            {"activity_type": "think", "message": "second"},
+            _ts(1),
+        )
+
+        session = store.get_session("nosess2")
+        assert session is not None
+
+        agents = store.get_agents("nosess2")
+        main_agents = [a for a in agents if a["agent_pk"] == "main:nosess2"]
+        assert len(main_agents) == 1, "should not create duplicate main agent"
+
+    def test_session_start_after_ensure_overwrites(self, reducer, store):
+        """A real SessionStart after auto-created session should update source."""
+        reducer.handle(
+            "eventbus.AGENT_SPAWN",
+            "nosess3",
+            {"agent_id": "scout-x", "role": "scout"},
+            _ts(0),
+        )
+
+        assert store.get_session("nosess3")["source"] == "eventbus"
+
+        reducer.handle(
+            "SessionStart",
+            "nosess3",
+            {"session": {"source": "open-interpreter", "model": "gpt-4o"}},
+            _ts(1),
+        )
+
+        session = store.get_session("nosess3")
+        assert session["source"] == "open-interpreter"
+        assert session["model"] == "gpt-4o"
+
+
+class TestAgentAttribution:
+    """Tests for _active_agent tracking across agent lifecycle."""
+
+    def test_activity_attributed_to_spawned_agent(self, reducer, store):
+        """After AGENT_SPAWN, ACTIVITY should be attributed to sub-agent."""
+        reducer.handle("SessionStart", "s1", {"session": {}}, _ts(0))
+        reducer.handle(
+            "eventbus.AGENT_SPAWN",
+            "s1",
+            {"agent_id": "scout-1", "role": "scout"},
+            _ts(1),
+        )
+        reducer.handle(
+            "eventbus.ACTIVITY",
+            "s1",
+            {"activity_type": "search", "message": "looking around"},
+            _ts(2),
+        )
+
+        agents = store.get_agents("s1")
+        sub = [a for a in agents if a["agent_pk"] == "sub:scout-1"]
+        assert sub[0]["current_activity_type"] == "search"
+
+    def test_activity_reverts_to_main_after_complete(self, reducer, store):
+        """After AGENT_COMPLETE, attribution should revert to main agent."""
+        reducer.handle("SessionStart", "s1", {"session": {}}, _ts(0))
+        reducer.handle(
+            "eventbus.AGENT_SPAWN",
+            "s1",
+            {"agent_id": "scout-1", "role": "scout"},
+            _ts(1),
+        )
+        reducer.handle(
+            "eventbus.AGENT_COMPLETE",
+            "s1",
+            {"agent_id": "scout-1", "output": "done"},
+            _ts(2),
+        )
+        reducer.handle(
+            "eventbus.ACTIVITY",
+            "s1",
+            {"activity_type": "think", "message": "post-agent work"},
+            _ts(3),
+        )
+
+        agents = store.get_agents("s1")
+        main = [a for a in agents if a["agent_pk"] == "main:s1"]
+        assert main[0]["current_activity_type"] == "think"
+
+    def test_activity_reverts_to_main_after_error(self, reducer, store):
+        """After AGENT_ERROR, attribution should revert to main agent."""
+        reducer.handle("SessionStart", "s1", {"session": {}}, _ts(0))
+        reducer.handle(
+            "eventbus.AGENT_SPAWN",
+            "s1",
+            {"agent_id": "scout-1", "role": "scout"},
+            _ts(1),
+        )
+        reducer.handle(
+            "eventbus.AGENT_ERROR",
+            "s1",
+            {"agent_id": "scout-1", "error": "timeout"},
+            _ts(2),
+        )
+        reducer.handle(
+            "eventbus.ACTIVITY",
+            "s1",
+            {"activity_type": "think", "message": "recovery"},
+            _ts(3),
+        )
+
+        agents = store.get_agents("s1")
+        main = [a for a in agents if a["agent_pk"] == "main:s1"]
+        assert main[0]["current_activity_type"] == "think"
+
+    def test_cancelled_agent_preserves_reason(self, reducer, store):
+        """AGENT_CANCELLED routed to error handler should capture 'reason' field."""
+        reducer.handle("SessionStart", "s1", {"session": {}}, _ts(0))
+        reducer.handle(
+            "eventbus.AGENT_SPAWN",
+            "s1",
+            {"agent_id": "scout-1", "role": "scout"},
+            _ts(1),
+        )
+        reducer.handle(
+            "eventbus.AGENT_ERROR",
+            "s1",
+            {"agent_id": "scout-1", "reason": "user cancelled"},
+            _ts(2),
+        )
+
+        agents = store.get_agents("s1")
+        sub = [a for a in agents if a["agent_pk"] == "sub:scout-1"]
+        assert sub[0]["last_summary"] == "user cancelled"
+
+
+class TestConcurrentEnsureSession:
+    """Test _ensure_session under concurrent access."""
+
+    def test_concurrent_ensure_session(self, reducer, store):
+        """Two threads calling _ensure_session should not create duplicate rows."""
+        import threading
+
+        errors: list[Exception] = []
+
+        def send_event(event_num: int) -> None:
+            try:
+                reducer.handle(
+                    "eventbus.ACTIVITY",
+                    "concurrent-sess",
+                    {"activity_type": "search", "message": f"event-{event_num}"},
+                    _ts(event_num),
+                )
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=send_event, args=(i,)) for i in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors, f"Concurrent access raised: {errors}"
+
+        session = store.get_session("concurrent-sess")
+        assert session is not None
+
+        agents = store.get_agents("concurrent-sess")
+        main_agents = [a for a in agents if a["agent_pk"] == "main:concurrent-sess"]
+        assert len(main_agents) == 1, f"Expected 1 main agent, got {len(main_agents)}"
 
 
 class TestInstructionsLoaded:

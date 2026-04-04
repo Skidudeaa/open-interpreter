@@ -1050,6 +1050,146 @@ class TestInputHandlerMocked:
         assert "Cancel" in help_text
 
 
+class TestCopyLastResponse:
+    """Tests for _copy_last_response clipboard handling."""
+
+    def setup_method(self):
+        reset_event_bus()
+        self.mock_interpreter = Mock()
+        self.state = UIState()
+
+    def test_copy_pyperclip_missing(self):
+        """When pyperclip is not installed, should print fallback message."""
+        from interpreter.terminal_interface.components.input_handler import InputHandler
+
+        self.mock_interpreter.messages = [
+            {"role": "assistant", "content": "test"},
+        ]
+        handler = InputHandler(self.mock_interpreter, self.state)
+
+        # Simulate pyperclip not being importable by removing it from sys.modules
+        import sys
+
+        saved = sys.modules.get("pyperclip")
+        sys.modules["pyperclip"] = None  # Forces ImportError on import
+        try:
+            handler._copy_last_response()  # Should not raise
+        finally:
+            if saved is not None:
+                sys.modules["pyperclip"] = saved
+            else:
+                del sys.modules["pyperclip"]
+
+    def test_copy_no_messages(self):
+        """When interpreter has no messages, should print 'Nothing to copy'."""
+        from interpreter.terminal_interface.components.input_handler import InputHandler
+
+        self.mock_interpreter.messages = []
+        handler = InputHandler(self.mock_interpreter, self.state)
+        handler._copy_last_response()  # Should not raise
+
+    def test_copy_no_assistant_messages(self):
+        """When only user messages exist, should print 'Nothing to copy'."""
+        from interpreter.terminal_interface.components.input_handler import InputHandler
+
+        self.mock_interpreter.messages = [
+            {"role": "user", "content": "hello"},
+        ]
+        handler = InputHandler(self.mock_interpreter, self.state)
+        handler._copy_last_response()  # Should not raise
+
+    @patch("pyperclip.copy")
+    def test_copy_success(self, mock_copy):
+        """Should copy last assistant message content."""
+        from interpreter.terminal_interface.components.input_handler import InputHandler
+
+        self.mock_interpreter.messages = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "Hi there!"},
+        ]
+        handler = InputHandler(self.mock_interpreter, self.state)
+        handler._copy_last_response()
+
+        mock_copy.assert_called_once_with("Hi there!")
+
+    @patch("pyperclip.copy")
+    def test_copy_truncation_preview(self, mock_copy):
+        """Long content should be truncated in preview but full in clipboard."""
+        from interpreter.terminal_interface.components.input_handler import InputHandler
+
+        long_content = "a" * 100
+        self.mock_interpreter.messages = [
+            {"role": "assistant", "content": long_content},
+        ]
+        handler = InputHandler(self.mock_interpreter, self.state)
+        handler._copy_last_response()
+
+        # Full content goes to clipboard
+        mock_copy.assert_called_once_with(long_content)
+
+    @patch("pyperclip.copy", side_effect=Exception("No clipboard backend"))
+    def test_copy_clipboard_failure(self, mock_copy):
+        """When pyperclip.copy raises, should handle gracefully."""
+        from interpreter.terminal_interface.components.input_handler import InputHandler
+
+        self.mock_interpreter.messages = [
+            {"role": "assistant", "content": "test content"},
+        ]
+        handler = InputHandler(self.mock_interpreter, self.state)
+        handler._copy_last_response()  # Should not raise
+
+
+class TestShowSelectionHint:
+    """Tests for _show_selection_hint."""
+
+    def setup_method(self):
+        reset_event_bus()
+        self.mock_interpreter = Mock()
+        self.state = UIState()
+
+    def test_hint_does_not_raise(self):
+        """_show_selection_hint should never raise."""
+        from interpreter.terminal_interface.components.input_handler import InputHandler
+
+        handler = InputHandler(self.mock_interpreter, self.state)
+        handler._show_selection_hint()  # Should not raise
+
+
+class TestTextualBindings:
+    """Verify Textual BINDINGS contain the expected keys."""
+
+    def test_alt_c_binding_exists(self):
+        """Alt+C should be a binding in the Textual app."""
+        from interpreter.terminal_interface.textual_app import InterpreterTUI
+
+        keys = [b.key if hasattr(b, "key") else b[0] for b in InterpreterTUI.BINDINGS]
+        assert "alt+c" in keys, "Alt+C binding missing from Textual BINDINGS"
+
+    def test_ctrl_shift_c_binding_exists(self):
+        """Ctrl+Shift+C should be a binding in the Textual app."""
+        from interpreter.terminal_interface.textual_app import InterpreterTUI
+
+        keys = [b.key if hasattr(b, "key") else b[0] for b in InterpreterTUI.BINDINGS]
+        assert "ctrl+shift+c" in keys
+
+    def test_alt_keys_present(self):
+        """All Alt+key bindings from CLAUDE.md should be present."""
+        from interpreter.terminal_interface.textual_app import InterpreterTUI
+
+        keys = [b.key if hasattr(b, "key") else b[0] for b in InterpreterTUI.BINDINGS]
+        for expected in ["alt+p", "alt+h", "alt+a", "alt+s"]:
+            assert expected in keys, f"{expected} missing from Textual BINDINGS"
+
+    def test_no_old_ctrl_bindings(self):
+        """Old Ctrl+key bindings (pre-unification) should not be present."""
+        from interpreter.terminal_interface.textual_app import InterpreterTUI
+
+        keys = [b.key if hasattr(b, "key") else b[0] for b in InterpreterTUI.BINDINGS]
+        # These were the old bindings before unification
+        for removed in ["ctrl+p", "ctrl+b", "ctrl+g", "ctrl+s"]:
+            assert removed not in keys, f"Old binding {removed} should be removed"
+
+
 # ============================================================================
 # Completers Tests
 # ============================================================================

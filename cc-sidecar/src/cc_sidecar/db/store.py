@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 import threading
 from pathlib import Path
@@ -108,7 +109,9 @@ class EventStore:
 
     def __init__(self, db_path: str | Path | None = None):
         self._db_path = Path(db_path) if db_path else DEFAULT_DB_PATH
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        # WHY: Sidecar DB stores user prompts and error tracebacks that may
+        # contain secrets. Restrict to owner-only to prevent local exfiltration.
+        self._db_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._lock = threading.Lock()
         self._conn: sqlite3.Connection | None = None
         self._init_db()
@@ -130,6 +133,8 @@ class EventStore:
             ("schema_version", str(SCHEMA_VERSION)),
         )
         self._conn.commit()
+        # WHY: Ensure DB file is owner-only even if umask is permissive.
+        os.chmod(self._db_path, 0o600)
 
     def close(self) -> None:
         """Close the database connection."""

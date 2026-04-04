@@ -99,7 +99,9 @@ def _spool_event(event: dict[str, Any]) -> None:
     Respects MAX_SPOOL_BYTES to prevent disk exhaustion on long outages.
     """
     spool_dir = get_spool_dir()
-    spool_dir.mkdir(parents=True, exist_ok=True)
+    # WHY: Spool files contain raw event payloads including user prompts.
+    # Restrict to owner-only to prevent local exfiltration on shared systems.
+    spool_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     # Check total spool size before writing
     total_size = sum(f.stat().st_size for f in spool_dir.glob("events_*.jsonl"))
@@ -112,8 +114,12 @@ def _spool_event(event: dict[str, Any]) -> None:
     spool_file = spool_dir / f"events_{hour_key}.jsonl"
 
     line = json.dumps(event, separators=(",", ":")) + "\n"
-    with open(spool_file, "a") as f:
-        f.write(line)
+    # WHY: Use os.open with 0o600 so spool files are owner-only from creation.
+    fd = os.open(spool_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    try:
+        os.write(fd, line.encode("utf-8"))
+    finally:
+        os.close(fd)
 
 
 def read_spool_files() -> list[dict[str, Any]]:

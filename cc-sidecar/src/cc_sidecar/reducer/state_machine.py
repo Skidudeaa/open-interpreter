@@ -46,6 +46,10 @@ class Reducer:
         self._store = store
         # Track current active agent per session for tool attribution
         self._active_agent: dict[str, str] = {}  # session_id -> agent_pk
+        # WHY: _active_agent is written from ThreadPoolExecutor workers.
+        # dict[k]=v is atomic under CPython GIL but not guaranteed by the
+        # language spec. This lock makes correctness portable.
+        self._agent_lock = __import__("threading").Lock()
         # Track pending compaction alerts by session
         self._compaction_alerts: dict[str, int] = {}  # session_id -> alert_id
 
@@ -484,27 +488,32 @@ class Reducer:
         especially when replaying spooled events. Without the session row, agent
         upserts fail the FK constraint.
         """
-        session = self._store.get_session(session_id)
-        if session:
+        # Fast path: check without lock (dict read is safe under GIL)
+        if self._store.get_session(session_id):
             return
-        self._store.upsert_session(
-            session_id,
-            source="eventbus",
-            started_at_ms=ts,
-            last_seen_at_ms=ts,
-        )
-        main_pk = f"main:{session_id}"
-        self._store.upsert_agent(
-            main_pk,
-            session_id,
-            agent_type="main",
-            state="idle",
-            state_source="inferred",
-            started_at_ms=ts,
-            last_event_at_ms=ts,
-            visibility_mode="full",
-        )
-        self._active_agent[session_id] = main_pk
+        # Slow path: serialize creation to prevent duplicate rows from
+        # concurrent ThreadPoolExecutor workers
+        with self._agent_lock:
+            if self._store.get_session(session_id):
+                return
+            self._store.upsert_session(
+                session_id,
+                source="eventbus",
+                started_at_ms=ts,
+                last_seen_at_ms=ts,
+            )
+            main_pk = f"main:{session_id}"
+            self._store.upsert_agent(
+                main_pk,
+                session_id,
+                agent_type="main",
+                state="idle",
+                state_source="inferred",
+                started_at_ms=ts,
+                last_event_at_ms=ts,
+                visibility_mode="full",
+            )
+            self._active_agent[session_id] = main_pk
 
     def _handle_eventbus_agent_spawn(
         self, _name: str, session_id: str, payload: dict, ts: int
@@ -524,6 +533,10 @@ class Reducer:
             last_event_at_ms=ts,
             visibility_mode="full",  # Fork bridge gives full visibility
         )
+        # WHY: Track the spawned agent so subsequent ACTIVITY/FILE_CHANGE events
+        # are attributed to this sub-agent, not the main agent.
+        with self._agent_lock:
+            self._active_agent[session_id] = agent_pk
 
     def _handle_eventbus_agent_complete(
         self, _name: str, session_id: str, payload: dict, ts: int
@@ -541,6 +554,10 @@ class Reducer:
             last_event_at_ms=ts,
             last_summary=str(output)[:500] if output else None,
         )
+        # WHY: Restore attribution to main agent so subsequent events
+        # are no longer attributed to the finished sub-agent.
+        with self._agent_lock:
+            self._active_agent[session_id] = f"main:{session_id}"
 
     def _handle_eventbus_agent_error(
         self, _name: str, session_id: str, payload: dict, ts: int
@@ -548,7 +565,9 @@ class Reducer:
         self._ensure_session(session_id, ts)
         agent_id = payload.get("agent_id", payload.get("id", ""))
         agent_pk = f"sub:{agent_id}"
-        error = payload.get("error", "")
+        # WHY: AGENT_CANCELLED events also route here. Cancelled agents carry
+        # "reason" not "error", so check both fields.
+        error = payload.get("error", payload.get("reason", ""))
         self._store.upsert_agent(
             agent_pk,
             session_id,
@@ -558,6 +577,9 @@ class Reducer:
             last_event_at_ms=ts,
             last_summary=str(error)[:500],
         )
+        # WHY: Restore attribution to main agent (mirrors agent_complete).
+        with self._agent_lock:
+            self._active_agent[session_id] = f"main:{session_id}"
 
     def _handle_eventbus_activity(
         self, _name: str, session_id: str, payload: dict, ts: int

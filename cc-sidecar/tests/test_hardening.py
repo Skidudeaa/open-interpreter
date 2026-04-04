@@ -13,7 +13,6 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-
 from cc_sidecar.db.store import EventStore
 from cc_sidecar.reducer.state_machine import Reducer
 
@@ -286,6 +285,66 @@ class TestCLIVersionAndDebug:
 
         _setup_logging(debug=False)
         assert logging.getLogger().level == logging.WARNING
+
+
+class TestFilePermissions:
+    """Sidecar DB and spool files should be owner-only."""
+
+    def test_db_directory_permissions(self, tmp_path):
+        """DB parent directory should be created with 0o700."""
+        import stat
+
+        db_path = tmp_path / "perms_test" / "sidecar.db"
+        s = EventStore(db_path)
+        s.close()
+
+        parent_mode = stat.S_IMODE(db_path.parent.stat().st_mode)
+        assert parent_mode == 0o700, f"Expected 0o700, got {oct(parent_mode)}"
+
+    def test_db_file_permissions(self, tmp_path):
+        """DB file should be chmod 0o600 after creation."""
+        import stat
+
+        db_path = tmp_path / "perms_test2" / "sidecar.db"
+        s = EventStore(db_path)
+        s.close()
+
+        file_mode = stat.S_IMODE(db_path.stat().st_mode)
+        assert file_mode == 0o600, f"Expected 0o600, got {oct(file_mode)}"
+
+    def test_spool_directory_permissions(self, tmp_path):
+        """Spool directory should be created with 0o700."""
+        import stat
+
+        from cc_sidecar.ingest.transport import _spool_event
+
+        with patch(
+            "cc_sidecar.ingest.transport.get_spool_dir",
+            return_value=tmp_path / "spool_perms",
+        ):
+            _spool_event({"test": "event"})
+
+        spool_dir = tmp_path / "spool_perms"
+        dir_mode = stat.S_IMODE(spool_dir.stat().st_mode)
+        assert dir_mode == 0o700, f"Expected 0o700, got {oct(dir_mode)}"
+
+    def test_spool_file_permissions(self, tmp_path):
+        """Spool files should be created with 0o600."""
+        import stat
+
+        from cc_sidecar.ingest.transport import _spool_event
+
+        with patch(
+            "cc_sidecar.ingest.transport.get_spool_dir",
+            return_value=tmp_path / "spool_perms2",
+        ):
+            _spool_event({"test": "event"})
+
+        spool_dir = tmp_path / "spool_perms2"
+        spool_files = list(spool_dir.glob("events_*.jsonl"))
+        assert len(spool_files) == 1
+        file_mode = stat.S_IMODE(spool_files[0].stat().st_mode)
+        assert file_mode == 0o600, f"Expected 0o600, got {oct(file_mode)}"
 
 
 class TestSchemaVersion:

@@ -674,8 +674,12 @@ Use """ to write multi-line messages.
     if getattr(interpreter, "enable_observability", False):
         try:
             _ = interpreter.observability_bridge
-        except Exception:
-            pass  # Non-blocking — bridge is optional
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Observability bridge failed to initialize: %s", e
+            )
 
     contribute_conversation_launch_logic(interpreter)
 

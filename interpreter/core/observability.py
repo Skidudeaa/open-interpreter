@@ -14,7 +14,7 @@ Architecture:
         │
         ├─ SYSTEM_START                →  UserPromptSubmit (session lifecycle)
         ├─ SYSTEM_END                  →  eventbus.ACTIVITY (session end)
-        ├─ SYSTEM_ERROR                →  eventbus.AGENT_ERROR
+        ├─ SYSTEM_ERROR                →  eventbus.ACTIVITY
         ├─ AGENT_SPAWN/COMPLETE/ERROR  →  eventbus.AGENT_SPAWN/COMPLETE/ERROR
         ├─ CODE_START/END              →  eventbus.ACTIVITY (execute)
         ├─ ACTIVITY                    →  eventbus.ACTIVITY
@@ -51,7 +51,9 @@ _EVENTBUS_MAP: dict[str, str] = {
     "FILE_CHANGE": "eventbus.FILE_CHANGE",
     "GIT_COMMIT": "eventbus.FILE_CHANGE",
     "SYSTEM_TOKEN_UPDATE": "eventbus.SYSTEM_TOKEN_UPDATE",
-    "SYSTEM_ERROR": "eventbus.AGENT_ERROR",
+    # WHY: SYSTEM_ERROR is system-level (e.g. LLM connection failure), not agent-level.
+    # Routing to ACTIVITY avoids creating phantom agent rows with empty IDs.
+    "SYSTEM_ERROR": "eventbus.ACTIVITY",
     "TEST_START": "eventbus.TEST_START",
     "TEST_END": "eventbus.TEST_END",
 }
@@ -72,6 +74,43 @@ _ACTIVITY_EVENTS: dict[str, str] = {
     "MEMORY_RECORD": "memory",
     "PLUGIN_HOOK": "plugin",
 }
+
+
+# WHY: Direct-mapped events forward event.data to the sidecar. Without allowlists,
+# AGENT_ERROR tracebacks may contain env vars / API keys, and large payloads
+# bloat the SQLite store. Only pass the fields the reducer actually needs.
+_PAYLOAD_ALLOWLISTS: dict[str, list[str]] = {
+    "AGENT_SPAWN": ["agent_id", "id", "role"],
+    "AGENT_COMPLETE": ["agent_id", "id", "output"],
+    "AGENT_ERROR": ["agent_id", "id", "error", "reason"],
+    "AGENT_CANCELLED": ["agent_id", "id", "error", "reason"],
+    "ACTIVITY": ["activity_type", "type", "message", "agent_id"],
+    "FILE_CHANGE": ["path", "file_path", "added_lines", "removed_lines"],
+    "GIT_COMMIT": ["path", "file_path", "sha", "message"],
+    "SYSTEM_TOKEN_UPDATE": ["total_tokens", "prompt_tokens", "completion_tokens"],
+    "SYSTEM_ERROR": ["error", "message", "activity_type"],
+    "TEST_START": ["test_name", "test_file", "agent_id"],
+    "TEST_END": ["test_name", "test_file", "passed", "agent_id", "duration_ms"],
+}
+
+# Max length for string values in sanitized payloads
+_MAX_FIELD_LEN = 500
+
+
+def _sanitize_payload(event_type_name: str, data: dict[str, Any]) -> dict[str, Any]:
+    """Extract only allowed fields and truncate strings."""
+    allowed = _PAYLOAD_ALLOWLISTS.get(event_type_name)
+    if allowed is None:
+        return data  # Unknown event type — pass through
+
+    result: dict[str, Any] = {}
+    for key in allowed:
+        if key in data:
+            val = data[key]
+            if isinstance(val, str) and len(val) > _MAX_FIELD_LEN:
+                val = val[:_MAX_FIELD_LEN]
+            result[key] = val
+    return result
 
 
 class ObservabilityBridge:
@@ -99,7 +138,6 @@ class ObservabilityBridge:
 
             bus = get_event_bus()
             bus.subscribe_all(self._on_event)
-            self._started = True
             logger.debug("ObservabilityBridge started for session %s", self._session_id)
 
             # WHY: Announce session to the reducer so it creates the session row.
@@ -115,8 +153,11 @@ class ObservabilityBridge:
                 },
                 time.time(),
             )
+            # WHY: Only mark started after SessionStart succeeds — if transport
+            # fails, _started=False prevents routing events to a dead pipe.
+            self._started = True
         except Exception:
-            logger.debug("ObservabilityBridge: EventBus not available", exc_info=True)
+            logger.debug("ObservabilityBridge: failed to start", exc_info=True)
 
     def stop(self) -> None:
         """Stop bridge and unsubscribe from EventBus."""
@@ -209,7 +250,10 @@ class ObservabilityBridge:
             # Check direct mapping first
             sidecar_event = _EVENTBUS_MAP.get(event_type_name)
             if sidecar_event:
-                self._send(sidecar_event, event.data, event.timestamp)
+                # WHY: Sanitize payload to prevent leaking secrets from error
+                # tracebacks, env vars, or large code blocks into the sidecar DB.
+                sanitized = _sanitize_payload(event_type_name, event.data)
+                self._send(sidecar_event, sanitized, event.timestamp)
                 return
 
             # Check activity mapping — only send type + message, not raw payloads
@@ -231,7 +275,12 @@ class ObservabilityBridge:
                 return
 
         except Exception:
-            pass  # Never disrupt the fork's event flow
+            # WHY: Never disrupt the fork's event flow, but log for diagnostics.
+            logger.debug(
+                "ObservabilityBridge: event handling failed for %s",
+                event.type.name if hasattr(event, "type") else "unknown",
+                exc_info=True,
+            )
 
     def _send(
         self, event_name: str, data: dict[str, Any], timestamp: float | None = None

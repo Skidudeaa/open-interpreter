@@ -475,6 +475,7 @@ class InterpreterTUI(App):
         Binding("ctrl+d", "quit", "Exit", show=True),
         Binding("ctrl+r", "search_history", "History", show=False),
         Binding("ctrl+shift+c", "copy_last", "Copy", show=True),
+        Binding("alt+c", "copy_last", "Copy", show=False),
     ]
 
     # Available themes (CSS classes)
@@ -761,17 +762,17 @@ class InterpreterTUI(App):
 
     def action_show_help(self) -> None:
         """Display key binding help overlay."""
-        help_lines = [
-            "Alt+P  Cycle UI mode",
-            "Alt+H  Toggle context panel",
-            "Alt+A  Focus agent strip",
-            "Alt+S  Toggle selection mode",
-            "Alt+T  Cycle theme",
-            "Ctrl+L Clear output",
-            "Ctrl+R Search history",
-            "Ctrl+D Exit",
-            "Ctrl+Shift+C  Copy last response",
-        ]
+        # WHY: Generate from BINDINGS so help stays in sync with actual bindings.
+        # Excludes hidden duplicates (alt+c is an alias for ctrl+shift+c).
+        seen_actions: set[str] = set()
+        help_lines: list[str] = []
+        for b in self.BINDINGS:
+            binding = b if isinstance(b, Binding) else Binding(*b)
+            if binding.action in seen_actions:
+                continue
+            seen_actions.add(binding.action)
+            key_display = binding.key.replace("ctrl+", "Ctrl+").replace("alt+", "Alt+")
+            help_lines.append(f"{key_display:<18} {binding.description}")
         self.notify("\n".join(help_lines), title="Key Bindings", timeout=10)
 
     def action_toggle_selection_mode(self) -> None:
@@ -780,7 +781,7 @@ class InterpreterTUI(App):
         if self.selection_mode:
             # Guide user on how to select text
             self.notify(
-                "Selection: Hold SHIFT+drag mouse | Ctrl+Shift+C to copy last response",
+                "Selection: Hold SHIFT+drag mouse | Alt+C or Ctrl+Shift+C to copy",
                 timeout=8,
             )
         else:
@@ -788,29 +789,21 @@ class InterpreterTUI(App):
 
     def action_copy_last(self) -> None:
         """Copy last assistant response or code block to clipboard."""
-        try:
-            import pyperclip
-        except ImportError:
-            self.notify(
-                "pyperclip not installed - use Shift+drag to select", severity="warning"
-            )
-            return
+        from .utils.clipboard import copy_to_clipboard, get_last_content
 
-        # Prefer code if we have it, otherwise use message
-        content = self._last_code_content or self._last_assistant_content
+        content = get_last_content(
+            self.interpreter,
+            prefer_code=self._last_code_content,
+            prefer_assistant=self._last_assistant_content,
+        )
+        success, message = copy_to_clipboard(content)
 
-        if not content:
+        if success:
+            self.notify(f"Copied: {message}")
+        elif message == "Nothing to copy":
             self.notify("Nothing to copy", severity="warning")
-            return
-
-        try:
-            pyperclip.copy(content)
-            # Show what was copied (truncated)
-            preview = content[:50] + "..." if len(content) > 50 else content
-            preview = preview.replace("\n", "↵")
-            self.notify(f"Copied: {preview}")
-        except Exception as e:
-            self.notify(f"Copy failed: {e}", severity="error")
+        else:
+            self.notify(message, severity="error")
 
     # Input handling
 

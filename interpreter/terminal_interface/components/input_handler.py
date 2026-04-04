@@ -340,7 +340,7 @@ class InputHandler:
         # Selection mode toggle - Alt+S (Option+S on Mac)
         @kb.add("escape", "s")
         def toggle_selection(event):
-            self._toggle_selection_mode()
+            self._show_selection_hint()
 
         # Copy last response - Alt+C (Option+C on Mac)
         @kb.add("escape", "c")
@@ -462,50 +462,32 @@ class InputHandler:
             )
         )
 
-    def _toggle_selection_mode(self) -> None:
-        """Toggle selection mode and print hint."""
+    def _show_selection_hint(self) -> None:
+        """Print a hint about text selection and copy."""
         from rich.console import Console
 
-        console = Console()
         # WHY: prompt_toolkit terminals generally allow mouse selection natively.
-        # This just prints a reminder of how to copy.
-        console.print(
+        # No toggle state needed — just print a reminder of how to copy.
+        Console().print(
             "[dim]Tip: Select text with mouse, Alt+C to copy last response[/dim]"
         )
 
     def _copy_last_response(self) -> None:
         """Copy the last assistant response to clipboard."""
-        try:
-            import pyperclip
-        except ImportError:
-            from rich.console import Console
+        from ..utils.clipboard import copy_to_clipboard, get_last_content
 
-            Console().print(
-                "[yellow]pyperclip not installed — use mouse selection to copy[/yellow]"
-            )
-            return
+        content = get_last_content(self.interpreter)
+        success, message = copy_to_clipboard(content)
 
-        # Get last assistant message from interpreter's message history
-        last_content = ""
-        if hasattr(self.interpreter, "messages"):
-            for msg in reversed(self.interpreter.messages):
-                if msg.get("role") == "assistant":
-                    last_content = msg.get("content", "")
-                    break
-
-        if not last_content:
-            from rich.console import Console
-
-            Console().print("[dim]Nothing to copy[/dim]")
-            return
-
-        pyperclip.copy(last_content)
-        preview = last_content[:50].replace("\n", " ")
-        if len(last_content) > 50:
-            preview += "..."
         from rich.console import Console
+        from rich.markup import escape
 
-        Console().print(f"[green]Copied:[/green] {preview}")
+        if success:
+            Console().print(f"[green]Copied:[/green] {escape(message)}")
+        elif message == "Nothing to copy":
+            Console().print("[dim]Nothing to copy[/dim]")
+        else:
+            Console().print(f"[yellow]{escape(message)}[/yellow]")
 
     def create_prompt_session(self) -> PromptSession:
         """

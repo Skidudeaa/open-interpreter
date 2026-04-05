@@ -211,7 +211,18 @@ class AtFileCompleter(Completer):
         for completion in self._path_completer.get_completions(
             path_doc, complete_event
         ):
-            display_name = completion.display or completion.text
+            from prompt_toolkit.formatted_text import to_plain_text
+
+            if isinstance(completion.display, str):
+                display_name = completion.display
+            elif completion.display is not None:
+                try:
+                    display_name = to_plain_text(completion.display)
+                except Exception:
+                    display_name = str(completion.display)
+            else:
+                display_name = completion.text
+
             is_dir = display_name.endswith("/")
             icon = "📁" if is_dir else "📄"
             meta = _file_meta(partial_path, completion.text, completion.start_position)

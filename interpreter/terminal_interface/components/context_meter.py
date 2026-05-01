@@ -90,9 +90,9 @@ class ContextMeter:
         # Critical warning at 90%
         if percent >= CRITICAL_THRESHOLD and not self._critical_issued:
             toast_mgr.show(
-                f"⚠ Context nearly full ({percent:.0f}%) - {remaining_str} tokens left",
+                f"⚠ Context nearly full ({percent:.0f}%) — {remaining_str} left. Run %compact",
                 level=ToastLevel.ERROR,
-                duration=5.0,
+                duration=6.0,
             )
             self._critical_issued = True
             self._warning_issued = True  # Don't also show warning
@@ -100,9 +100,9 @@ class ContextMeter:
         # Warning at 75%
         elif percent >= WARNING_THRESHOLD and not self._warning_issued:
             toast_mgr.show(
-                f"Context filling up ({percent:.0f}%) - {remaining_str} tokens remaining",
+                f"Context filling up ({percent:.0f}%) — {remaining_str} left. Run %compact to summarize",
                 level=ToastLevel.WARNING,
-                duration=4.0,
+                duration=5.0,
             )
             self._warning_issued = True
 

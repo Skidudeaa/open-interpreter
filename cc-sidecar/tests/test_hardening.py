@@ -350,10 +350,10 @@ class TestFilePermissions:
 class TestSchemaVersion:
     """Schema version should be updated for the new activities table."""
 
-    def test_schema_version_is_2(self):
+    def test_schema_version_is_3(self):
         from cc_sidecar.db.schema import SCHEMA_VERSION
 
-        assert SCHEMA_VERSION == 2
+        assert SCHEMA_VERSION == 3
 
     def test_activities_table_exists(self, store):
         """The activities table should be created by the schema."""

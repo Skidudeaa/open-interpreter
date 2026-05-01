@@ -37,6 +37,31 @@ except ImportError:
     HAS_PYGMENTS = False
 
 
+_KEY_DISPLAY: dict[str, str] = {
+    "escape p": "⌥P",
+    "escape h": "⌥H",
+    "escape a": "⌥A",
+    "escape s": "⌥S",
+    "escape c": "⌥C",
+    "escape ?": "⌥?",
+    "escape enter": "⌥↩",
+    "escape": "Esc",
+    "c-l": "⌃L",
+    "c-d": "⌃D",
+    "c-r": "⌃R",
+    "c-c": "⌃C",
+    "c-o": "⌃O",
+    "c-space": "⌃Space",
+    "enter": "↩",
+    "tab": "⇥",
+}
+
+
+def _fmt_key(raw: str) -> str:
+    """Convert a prompt_toolkit key name to a Mac-friendly symbol string."""
+    return _KEY_DISPLAY.get(raw.lower(), raw)
+
+
 class KeyAction(Enum):
     """Available key binding actions"""
 
@@ -367,10 +392,10 @@ class InputHandler:
         # Key Bindings section
         help_text.append("⌨️  Key Bindings\n", style="bold yellow")
         for _action, binding in self.bindings.items():
-            key_str = binding.primary
+            key_str = _fmt_key(binding.primary)
             if binding.fallback:
-                key_str += f" / {binding.fallback}"
-            help_text.append(f"  {key_str:18}", style="green")
+                key_str += f" / {_fmt_key(binding.fallback)}"
+            help_text.append(f"  {key_str:12}", style="green")
             help_text.append(f" {binding.description}\n")
 
         help_text.append("\n")
@@ -401,7 +426,7 @@ class InputHandler:
         ):
             help_text.append("🤖 Agent Controls\n", style="bold yellow")
             agent_commands = [
-                ("Alt+A", "Focus agent strip"),
+                ("⌥A", "Focus agent strip"),
                 ("Esc", "Cancel current agent"),
                 ("%agents", "List active agents"),
                 ("%agent <name>", "Run specific agent"),
@@ -412,7 +437,7 @@ class InputHandler:
             help_text.append("\n")
 
         # UI Modes section
-        help_text.append("🎨 UI Modes (Alt+P to cycle)\n", style="bold yellow")
+        help_text.append("🎨 UI Modes (⌥P to cycle)\n", style="bold yellow")
         modes = [
             ("ZEN", "Minimal, distraction-free"),
             ("STANDARD", "Default balanced view"),
@@ -431,7 +456,7 @@ class InputHandler:
         panel = Panel(
             help_text,
             title="[bold white]Help[/bold white]",
-            subtitle="[dim]Alt+? to toggle[/dim]",
+            subtitle="[dim]⌥? to toggle[/dim]",
             border_style="blue",
             padding=(1, 2),
         )
@@ -469,7 +494,7 @@ class InputHandler:
         # WHY: prompt_toolkit terminals generally allow mouse selection natively.
         # No toggle state needed — just print a reminder of how to copy.
         Console().print(
-            "[dim]Tip: Select text with mouse, Alt+C to copy last response[/dim]"
+            "[dim]Tip: Select text with mouse, ⌥C to copy last response[/dim]"
         )
 
     def _copy_last_response(self) -> None:

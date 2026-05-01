@@ -321,11 +321,11 @@ class InterpreterApp:
                 lambda: [
                     ("class:status-bar.key", " Esc "),
                     ("class:status-bar.value", "Cancel "),
-                    ("class:status-bar.key", " Alt+P "),
+                    ("class:status-bar.key", " ⌥P "),
                     ("class:status-bar.value", "Mode "),
-                    ("class:status-bar.key", " Ctrl+L "),
+                    ("class:status-bar.key", " ⌃L "),
                     ("class:status-bar.value", "Clear "),
-                    ("class:status-bar.key", " Ctrl+D "),
+                    ("class:status-bar.key", " ⌃D "),
                     ("class:status-bar.value", "Exit "),
                 ]
             ),
@@ -529,7 +529,7 @@ class InterpreterApp:
 
         # Update output to show search interface
         def render_search_ui():
-            lines = ["\n[bold cyan]History Search (Ctrl+R)[/bold cyan]"]
+            lines = ["\n[bold cyan]History Search (⌃R)[/bold cyan]"]
             lines.append(f"Search: {search_state['query']}_")
             lines.append("")
 

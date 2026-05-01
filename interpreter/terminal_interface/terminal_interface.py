@@ -608,7 +608,13 @@ def terminal_interface(interpreter, message):
             ui_state.reset_agents()
         _last_message_count = current_message_count
 
-        if interactive:
+        # WHY: %retry queues a message to re-send without prompting the user again.
+        # We consume it here before the normal input path so it flows through
+        # the full processing pipeline (@ expansion, LLM call, etc.) unmodified.
+        if hasattr(interpreter, "_pending_retry") and interpreter._pending_retry:
+            message = interpreter._pending_retry
+            interpreter._pending_retry = None
+        elif interactive:
             if (
                 len(interpreter.messages) == 1
                 and interpreter.messages[-1]["role"] == "user"
@@ -1266,6 +1272,14 @@ def terminal_interface(interpreter, message):
                     if current_time - last_refresh_time >= REFRESH_INTERVAL:
                         active_block.refresh(cursor=render_cursor)
                         last_refresh_time = current_time
+
+            # WHY: If LLM returns no chunks (empty/silent response), the spinner is
+            # never stopped by the content-arrival check inside the loop.
+            # A live Rich context left open eats all subsequent terminal output.
+            if "thinking_spinner" in locals() and thinking_spinner:
+                with UIErrorContext("ThinkingSpinner", "stop_after_loop"):
+                    thinking_spinner.stop()
+                thinking_spinner = None
 
             # (Sometimes -- like if they CTRL-C quickly -- active_block is still None here)
             if "active_block" in locals():

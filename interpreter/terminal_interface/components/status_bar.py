@@ -295,14 +295,15 @@ class KeybindingsStrip:
     """
 
     # WHY: Only show bindings the user will actually need right away.
-    # Completions, newline, history search are in Alt+? help.
+    # Use Mac-standard symbols: ⌃ = Control, ⌥ = Option/Alt, ↩ = Return.
+    # Completions, newline, history search are in ⌥? help.
     BINDINGS = [
-        ("^D", "exit"),
-        ("^C", "stop"),
-        ("^L", "clear"),
-        ("Alt+P", "mode"),
-        ("Alt+H", "panel"),
-        ("Alt+?", "help"),
+        ("⌃D", "exit"),
+        ("⌃C", "stop"),
+        ("⌃L", "clear"),
+        ("⌥P", "mode"),
+        ("⌥H", "panel"),
+        ("⌥?", "help"),
     ]
 
     def __init__(self, console: Console | None = None):

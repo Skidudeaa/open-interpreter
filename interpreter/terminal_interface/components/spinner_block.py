@@ -103,9 +103,18 @@ class SpinnerBlock:
             final_message: Message to display after stopping
             success: Whether the operation succeeded (affects icon color)
         """
-        if self.live:
-            self.live.stop()
-            self.is_active = False
+        if not self.is_active:
+            return
+        # WHY: Clear self.live before calling live.stop() so a second stop() call
+        # (e.g. from both the content-arrival path and an exception handler) is a
+        # no-op rather than a double-stop that corrupts terminal state.
+        live, self.live = self.live, None
+        self.is_active = False
+        if live:
+            try:
+                live.stop()
+            except Exception:
+                pass
 
         if final_message:
             if success:

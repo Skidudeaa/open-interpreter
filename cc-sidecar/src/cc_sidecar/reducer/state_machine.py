@@ -15,6 +15,7 @@ Key invariants:
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -49,7 +50,7 @@ class Reducer:
         # WHY: _active_agent is written from ThreadPoolExecutor workers.
         # dict[k]=v is atomic under CPython GIL but not guaranteed by the
         # language spec. This lock makes correctness portable.
-        self._agent_lock = __import__("threading").Lock()
+        self._agent_lock = threading.Lock()
         # Track pending compaction alerts by session
         self._compaction_alerts: dict[str, int] = {}  # session_id -> alert_id
 

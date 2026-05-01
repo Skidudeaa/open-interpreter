@@ -58,7 +58,7 @@ class OutputStatic(Static):
         padding: 0 1;
         background: #161b22;  /* $bg-medium */
         border: none;
-        border-left: thin #8b949e;  /* $text-muted */
+        border-left: solid #8b949e;  /* $text-muted */
         display: none;
     }
 
@@ -67,7 +67,7 @@ class OutputStatic(Static):
     }
 
     OutputStatic.has-error {
-        border-left: thin #f85149;  /* $error */
+        border-left: solid #f85149;  /* $error */
     }
 
     OutputStatic.folded {

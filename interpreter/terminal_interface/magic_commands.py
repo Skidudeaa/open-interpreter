@@ -62,6 +62,11 @@ def handle_help(self, arguments):
         "%load_message [path]": "Loads messages from a specified JSON path. If no path is provided, it defaults to 'messages.json'.",
         "%tokens [prompt]": "EXPERIMENTAL: Calculate the tokens used by the next request based on the current conversation's messages and estimate the cost of that request; optionally provide a prompt to also calculate the tokens used by that prompt and the total amount of tokens that will be sent with the next request",
         "%help": "Show this help message.",
+        "%status": "Show current model, active features, context usage, and re-launch command.",
+        "%retry": "Re-run the last user message (strips last exchange and re-queues it).",
+        "%compact [n]": "Summarize old messages with the LLM to free context window. Keeps last n (default 6).",
+        "%model [name]": "Show or hot-swap the model mid-session.",
+        "%copy": "Copy the last assistant response to the clipboard.",
         "%info": "Show system and interpreter information",
         "%jupyter": "Export the conversation to a Jupyter notebook file",
         "%markdown [path]": "Export the conversation to a specified Markdown path. If no path is provided, it will be saved to the Downloads folder with a generated conversation name.",
@@ -147,6 +152,225 @@ def handle_info(self, arguments):
 def handle_reset(self, arguments):
     self.reset()
     self.display_message("> Reset Done")
+
+
+def handle_status(self, arguments):
+    """Show current session status: model, features, settings, and re-launch command."""
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+
+    console = Console()
+
+    model = getattr(self.llm, "model", None) or "Not set"
+    auto_run = getattr(self, "auto_run", False)
+    safe_mode = getattr(self, "safe_mode", "off")
+
+    features = {
+        "memory": getattr(self, "enable_semantic_memory", False),
+        "validation": getattr(self, "enable_validation", False),
+        "agents": getattr(self, "enable_agents", False),
+        "tracing": getattr(self, "enable_tracing", False),
+        "plugins": getattr(self, "enable_plugins", False),
+        "observability": getattr(self, "enable_observability", False),
+    }
+
+    ui_backend = getattr(self, "_ui_backend", None)
+    backend_name = (
+        type(ui_backend).__name__.replace("Backend", "") if ui_backend else "Default"
+    )
+
+    # Build a re-launch command the user can copy
+    env_parts = []
+    non_obs_features = {k: v for k, v in features.items() if k != "observability"}
+    if any(non_obs_features.values()):
+        if all(non_obs_features.values()):
+            env_parts.append("OI_ACTIVATE_ALL=true")
+        else:
+            enabled = [k for k, v in non_obs_features.items() if v]
+            env_parts.append(f"# features active: {', '.join(enabled)}")
+
+    cmd_parts = ["poetry run interpreter"]
+    if model and model != "Not set":
+        cmd_parts.append(f"--model {model}")
+    if auto_run:
+        cmd_parts.append("-y")
+    if features.get("observability"):
+        cmd_parts.append("--observability")
+
+    env_prefix = " ".join(env_parts) + " " if env_parts else ""
+    relaunch = env_prefix + " ".join(cmd_parts)
+
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column(style="dim", min_width=14)
+    table.add_column()
+
+    table.add_row("Model", f"[cyan]{model}[/cyan]")
+    table.add_row("UI", f"[cyan]{backend_name}[/cyan]")
+    table.add_row("Auto-run", "[green]on[/green]" if auto_run else "[dim]off[/dim]")
+    if safe_mode != "off":
+        table.add_row("Safe mode", f"[yellow]{safe_mode}[/yellow]")
+
+    feat_parts = []
+    for name, enabled in features.items():
+        if enabled:
+            feat_parts.append(f"[green]{name} ✓[/green]")
+        else:
+            feat_parts.append(f"[dim]{name} ✗[/dim]")
+    table.add_row("Features", "  ".join(feat_parts))
+
+    # Context window usage (if available)
+    ui_state = getattr(self, "_ui_state", None)
+    if ui_state and ui_state.context_tokens > 0:
+        pct = ui_state.context_usage_percent
+        used = ui_state.context_tokens
+        limit = ui_state.context_limit
+        color = "green" if pct < 60 else "yellow" if pct < 85 else "red"
+        context_line = (
+            f"[{color}]{pct:.0f}%[/{color}]"
+            f" [dim]({used:,} / {limit:,} tokens)[/dim]"
+        )
+        if pct >= 75:
+            context_line += "  [dim]→ run %compact to summarize[/dim]"
+        table.add_row("Context", context_line)
+
+    table.add_row("", "")
+    table.add_row("Re-launch", f"[yellow]{relaunch}[/yellow]")
+
+    console.print(Panel(table, title="[bold]Session Status[/bold]", border_style="dim"))
+
+
+def handle_retry(self, arguments):
+    """Re-run the last user message (strips last exchange and re-queues it)."""
+    last_user_idx = None
+    for i, msg in enumerate(self.messages):
+        if msg.get("role") == "user" and msg.get("type") == "message":
+            last_user_idx = i
+
+    if last_user_idx is None:
+        self.display_message("> Nothing to retry")
+        return
+
+    last_msg = self.messages[last_user_idx].get("content", "")
+    self.messages = self.messages[:last_user_idx]
+    self._pending_retry = last_msg
+
+    preview = last_msg[:70] + ("..." if len(last_msg) > 70 else "")
+    self.display_message(f"> Retrying: `{preview}`")
+
+
+def handle_compact(self, arguments):
+    """Summarize old messages with the LLM to free up context window."""
+    from rich.console import Console
+
+    console = Console()
+
+    try:
+        keep_last = int(arguments.strip()) if arguments.strip() else 6
+    except ValueError:
+        self.display_message("> Usage: %compact [number of recent messages to keep]")
+        return
+
+    if len(self.messages) <= keep_last:
+        self.display_message(
+            f"> Not enough history to compact "
+            f"({len(self.messages)} messages, keeping last {keep_last})"
+        )
+        return
+
+    to_compact = self.messages[:-keep_last]
+    to_keep = self.messages[-keep_last:]
+
+    # Build text for the LLM — text messages only; code/console are noted but not full-quoted
+    lines = []
+    for msg in to_compact:
+        role = msg.get("role", "?")
+        mtype = msg.get("type", "message")
+        content = msg.get("content") or ""
+        label = "User" if role == "user" else "Assistant"
+        if mtype == "message" and isinstance(content, str) and content.strip():
+            lines.append(f"{label}: {content[:600]}")
+        elif mtype == "code":
+            lang = msg.get("format", "code")
+            snippet = str(content)[:200]
+            lines.append(f"{label} ran {lang} code: {snippet}")
+        elif mtype == "console" and isinstance(content, str) and content.strip():
+            lines.append(f"Console output: {content[:200]}")
+
+    if not lines:
+        self.display_message("> No text content found to compact")
+        return
+
+    console.print("[dim]Compacting conversation…[/dim]")
+
+    try:
+        import litellm
+
+        litellm.suppress_debug_info = True
+        response = litellm.completion(
+            model=self.llm.model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        "Summarize this conversation history into a concise paragraph. "
+                        "Preserve: file names, key code decisions, errors encountered, "
+                        "what was resolved, and any open questions. "
+                        "Start with: 'Earlier in this conversation:'\n\n"
+                        + "\n\n".join(lines)
+                    ),
+                }
+            ],
+            max_tokens=700,
+        )
+        summary = response.choices[0].message.content
+    except Exception as e:
+        self.display_message(f"> Compact failed: {e}")
+        return
+
+    compacted = {"role": "user", "type": "message", "content": summary}
+    self.messages = [compacted] + list(to_keep)
+
+    saved = len(to_compact)
+    console.print(
+        f"[green]✓[/green] [dim]Compacted {saved} messages → 1 summary. "
+        f"Kept last {len(to_keep)} messages.[/dim]"
+    )
+
+
+def handle_model(self, arguments):
+    """Show or hot-swap the model mid-session."""
+    from rich.console import Console
+
+    console = Console()
+
+    if not arguments.strip():
+        current = getattr(self.llm, "model", "Not set")
+        console.print(f"[dim]Model:[/dim] [cyan]{current}[/cyan]")
+        console.print(
+            "[dim]Switch:[/dim] [dim]%model gemini/gemini-3.1-pro-preview[/dim]"
+        )
+        return
+
+    new_model = arguments.strip()
+    old_model = getattr(self.llm, "model", "?")
+    self.llm.model = new_model
+    self.llm._is_loaded = False  # Force reload on next inference
+    console.print(
+        f"[dim]Model:[/dim] [red]{old_model}[/red] [dim]→[/dim] [green]{new_model}[/green]"
+    )
+
+
+def handle_copy(self, arguments):
+    """Copy the last assistant response to the clipboard."""
+    from .utils.clipboard import copy_to_clipboard, get_last_content
+
+    content = get_last_content(self)
+    success, msg = copy_to_clipboard(content)
+    if success:
+        self.display_message(f"> Copied: `{msg}`")
+    else:
+        self.display_message(f"> Copy failed: {msg}")
 
 
 def default_handle(self, arguments):
@@ -334,6 +558,11 @@ def handle_magic_command(self, user_input):
         "undo": handle_undo,
         "tokens": handle_count_tokens,
         "info": handle_info,
+        "status": handle_status,
+        "retry": handle_retry,
+        "compact": handle_compact,
+        "model": handle_model,
+        "copy": handle_copy,
         "jupyter": jupyter,
         "markdown": markdown,
     }

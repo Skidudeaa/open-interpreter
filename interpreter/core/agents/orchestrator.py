@@ -93,6 +93,66 @@ class WorkflowResult:
         return "\n".join(lines)
 
 
+class AgentLifecycleEmitter:
+    """Centralized lifecycle event emitter for one agent run."""
+
+    def __init__(
+        self,
+        orchestrator: "AgentOrchestrator",
+        agent_id: str,
+        role: AgentRole,
+        task: str,
+        parent_id: str | None = None,
+    ):
+        self.orchestrator = orchestrator
+        self.agent_id = agent_id
+        self.role = role
+        self.task = task
+        self.parent_id = parent_id
+        self.started_at = time.time()
+        self._started_perf = time.perf_counter()
+
+    def _elapsed_ms(self) -> float:
+        return (time.perf_counter() - self._started_perf) * 1000.0
+
+    def _data(self, status: str, **extra) -> dict:
+        return {
+            "status": status,
+            "task": self.task,
+            "parent_id": self.parent_id,
+            "started_at": self.started_at,
+            "elapsed_ms": self._elapsed_ms(),
+            **extra,
+        }
+
+    def _emit(self, event_type: "EventType", status: str, **extra) -> None:
+        self.orchestrator._emit_agent_event(
+            event_type,
+            self.agent_id,
+            self.role,
+            **self._data(status, **extra),
+        )
+
+    def spawn(self) -> None:
+        self._emit(EventType.AGENT_SPAWN, "running")
+
+    def output(self, message: str) -> None:
+        if message:
+            self._emit(EventType.AGENT_OUTPUT, "running", message=message)
+
+    def complete(self, result: AgentResult) -> None:
+        message = self.orchestrator._result_message(result)
+        self._emit(
+            EventType.AGENT_COMPLETE,
+            "complete",
+            result=self.orchestrator._preview(result.content),
+            message=message,
+        )
+
+    def error(self, error: str) -> None:
+        self._emit(EventType.AGENT_ERROR, "error", error=error)
+
+
 _PROJECT_MARKERS: tuple[str, ...] = (
     ".git",
     "pyproject.toml",
@@ -252,6 +312,26 @@ class AgentOrchestrator:
             return s
         return s[: limit - 3] + "..."
 
+    @staticmethod
+    def _result_message(result: AgentResult) -> str:
+        """Choose the most useful short message from an agent result."""
+        if result.output:
+            return AgentOrchestrator._preview(result.output)
+        if result.content:
+            return AgentOrchestrator._preview(result.content)
+        if result.error:
+            return AgentOrchestrator._preview(result.error)
+        return ""
+
+    @staticmethod
+    def _agent_error_message(role: AgentRole, result: AgentResult) -> str:
+        """Choose specific agent error text with a role-aware fallback."""
+        if result.error:
+            return AgentOrchestrator._preview(result.error)
+        if result.output:
+            return AgentOrchestrator._preview(result.output)
+        return f"{role.value} execution failed"
+
     def _emit_agent_event(
         self, event_type: "EventType", agent_id: str, role: AgentRole, **data
     ):
@@ -286,15 +366,16 @@ class AgentOrchestrator:
             (agent_id, agent_result)
         """
         agent_id = self._generate_agent_id(role)
+        lifecycle = AgentLifecycleEmitter(
+            orchestrator=self,
+            agent_id=agent_id,
+            role=role,
+            task=task,
+            parent_id=parent_id,
+        )
 
         if HAS_UI_EVENTS and self.event_bus:
-            self._emit_agent_event(
-                EventType.AGENT_SPAWN,
-                agent_id,
-                role,
-                task=task,
-                parent_id=parent_id,
-            )
+            lifecycle.spawn()
 
         activity_type, activity_msg = self._ROLE_ACTIVITY.get(
             role, ("think", "Processing")
@@ -326,30 +407,18 @@ class AgentOrchestrator:
 
                 if HAS_UI_EVENTS and self.event_bus:
                     if agent_result.success:
-                        self._emit_agent_event(
-                            EventType.AGENT_COMPLETE,
-                            agent_id,
-                            role,
-                            result=self._preview(agent_result.content),
-                        )
+                        message = self._result_message(agent_result)
+                        if message:
+                            lifecycle.output(message)
+                        lifecycle.complete(agent_result)
                     else:
-                        self._emit_agent_event(
-                            EventType.AGENT_ERROR,
-                            agent_id,
-                            role,
-                            error=f"{role.value} execution failed",
-                        )
+                        lifecycle.error(self._agent_error_message(role, agent_result))
 
                 return agent_id, agent_result
 
             except Exception as e:
                 if HAS_UI_EVENTS and self.event_bus:
-                    self._emit_agent_event(
-                        EventType.AGENT_ERROR,
-                        agent_id,
-                        role,
-                        error=str(e),
-                    )
+                    lifecycle.error(str(e))
                 raise
             finally:
                 # Restore original model after agent execution
@@ -518,6 +587,11 @@ Respond with exactly one word: NONE, EXPLORE, EDIT, VALIDATE, or FULL"""
                     del self._workflow_cache[key]
             return workflow
 
+        heuristic_workflow = self._detect_workflow_heuristic(task)
+        if heuristic_workflow is not None:
+            logger.info("Workflow detected heuristically: %s", heuristic_workflow.name)
+            return _cache_and_return(heuristic_workflow)
+
         try:
             if not (self.interpreter and hasattr(self.interpreter, "llm")):
                 logger.warning("Workflow detection skipped: no LLM available")
@@ -556,6 +630,72 @@ Respond with exactly one word: NONE, EXPLORE, EDIT, VALIDATE, or FULL"""
         except Exception as e:
             logger.warning(f"LLM workflow detection failed: {e}")
             return _cache_and_return(WorkflowType.NONE)
+
+    @staticmethod
+    def _detect_workflow_heuristic(task: str) -> WorkflowType | None:
+        """
+        Fast-path clear routing requests before paying for classifier latency.
+
+        Keep this intentionally conservative. Ambiguous requests still go to the
+        LLM classifier so the orchestrator does not over-route normal chat.
+        """
+        text = task.lower()
+        code_terms = (
+            "file",
+            "files",
+            "code",
+            "project",
+            "module",
+            "function",
+            "class",
+            "symbol",
+            ".py",
+            ".js",
+            ".ts",
+            ".json",
+            ".yaml",
+            ".yml",
+            ".toml",
+            ".md",
+        )
+        explore_terms = (
+            "find",
+            "search",
+            "list",
+            "locate",
+            "grep",
+            "where is",
+            "where are",
+            "show me",
+        )
+        edit_terms = (
+            "fix",
+            "add",
+            "change",
+            "update",
+            "modify",
+            "edit",
+            "implement",
+            "refactor",
+            "remove",
+        )
+        validate_terms = (
+            "test",
+            "verify",
+            "validate",
+            "check if",
+            "run tests",
+        )
+        is_code_related = any(term in text for term in code_terms)
+        if not is_code_related:
+            return None
+        if any(term in text for term in validate_terms):
+            return WorkflowType.VALIDATE
+        if any(term in text for term in explore_terms):
+            return WorkflowType.EXPLORE
+        if any(term in text for term in edit_terms):
+            return WorkflowType.EDIT
+        return None
 
     def _apply_pending_edits(self, result: WorkflowResult) -> None:
         """

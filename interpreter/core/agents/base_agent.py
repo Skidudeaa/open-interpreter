@@ -579,6 +579,9 @@ class BaseAgent(ABC):
             original_auto_run = getattr(self.interpreter, "auto_run", None)
             original_loop = getattr(self.interpreter, "loop", None)
             original_messages = getattr(self.interpreter, "messages", None)
+            original_agent_internal = getattr(
+                self.interpreter, "_agent_internal_call", None
+            )
 
             acquired = _LLM_CALL_LOCK.acquire(timeout=max(1.0, timeout))
             if not acquired:
@@ -606,6 +609,10 @@ class BaseAgent(ABC):
                 try:
                     # Use a shallow copy so agent code won't mutate caller list.
                     self.interpreter.messages = [m.copy() for m in messages]
+                except Exception:
+                    pass
+                try:
+                    self.interpreter._agent_internal_call = True
                 except Exception:
                     pass
 
@@ -663,6 +670,14 @@ class BaseAgent(ABC):
                 try:
                     if original_messages is not None:
                         self.interpreter.messages = original_messages
+                except Exception:
+                    pass
+                try:
+                    if original_agent_internal is None:
+                        if hasattr(self.interpreter, "_agent_internal_call"):
+                            delattr(self.interpreter, "_agent_internal_call")
+                    else:
+                        self.interpreter._agent_internal_call = original_agent_internal
                 except Exception:
                     pass
 

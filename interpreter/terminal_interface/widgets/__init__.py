@@ -14,6 +14,7 @@ Migration path:
 """
 
 from .agent_tree import AgentTreeWidget
+from .action_feed import ActionFeedWidget
 from .code_block import CodeBlockWidget
 from .context_panel import ContextPanelWidget
 from .input_area import InputArea
@@ -22,6 +23,7 @@ from .output_panel import OutputPanel
 
 __all__ = [
     "AgentTreeWidget",
+    "ActionFeedWidget",
     "CodeBlockWidget",
     "ContextPanelWidget",
     "InputArea",

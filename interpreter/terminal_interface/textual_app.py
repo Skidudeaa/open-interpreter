@@ -22,6 +22,7 @@ Development:
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -39,12 +40,15 @@ from .components.ui_events import EventType, UIEvent, get_event_bus
 from .components.ui_state import AgentRole, AgentStatus, UIMode, UIState
 from .widgets import (
     AgentTreeWidget,
+    ActionFeedWidget,
     CodeBlockWidget,
     ContextPanelWidget,
     InputArea,
     MessageWidget,
     OutputPanel,
 )
+
+CONFIRMATION_TIMEOUT_SECONDS = 300
 
 
 class ConfirmCodeScreen(ModalScreen[bool]):
@@ -467,6 +471,7 @@ class InterpreterTUI(App):
         Binding("alt+p", "cycle_mode", "Mode", show=True),
         Binding("alt+h", "toggle_panel", "Panel", show=True),
         Binding("alt+a", "toggle_agents", "Agents", show=True),
+        Binding("alt+v", "toggle_action_feed", "Feed", show=True),
         Binding("alt+t", "cycle_theme", "Theme", show=False),
         Binding("alt+s", "toggle_selection_mode", "Select", show=True),
         Binding("alt+question_mark", "show_help", "Help", show=False),
@@ -504,6 +509,7 @@ class InterpreterTUI(App):
         self._loading: LoadingIndicator | None = None
         self._last_assistant_content: str = ""  # Track last response for copy
         self._last_code_content: str = ""  # Track last code for copy
+        self._action_feed_user_hidden = False
 
     def compose(self) -> ComposeResult:
         """Compose the application layout."""
@@ -549,6 +555,7 @@ class InterpreterTUI(App):
             # Agent tree (shown when agents are active in POWER/DEBUG modes)
             yield AgentTreeWidget(self.ui_state, id="agent-tree")
 
+        yield ActionFeedWidget(id="action-feed")
         yield AgentStrip(id="agent-strip")
         yield InputArea(id="input-area")
         yield Footer()
@@ -563,11 +570,13 @@ class InterpreterTUI(App):
 
         # Update mode class
         self._update_mode_class()
+        self._sync_action_feed_visibility()
 
     def _subscribe_events(self) -> None:
         """Subscribe to EventBus events."""
         handlers = {
             EventType.AGENT_SPAWN: self._on_agent_spawn,
+            EventType.AGENT_OUTPUT: self._on_agent_output,
             EventType.AGENT_COMPLETE: self._on_agent_complete,
             EventType.AGENT_ERROR: self._on_agent_error,
             EventType.CODE_START: self._on_code_start,
@@ -576,6 +585,7 @@ class InterpreterTUI(App):
             EventType.MESSAGE_END: self._on_message_end,
             EventType.SYSTEM_TOKEN_UPDATE: self._on_token_update,
             EventType.SYSTEM_MODEL_CHANGE: self._on_model_change,
+            EventType.ACTIVITY: self._on_activity,
         }
         for event_type, handler in handlers.items():
             self._event_bus.subscribe(event_type, handler)
@@ -591,6 +601,25 @@ class InterpreterTUI(App):
 
         # Thread-safe UI update
         self.call_from_thread(self._add_agent, agent_id, role)
+        self.call_from_thread(self._record_action, "Agent started", role.value)
+
+    def _on_agent_output(self, event: UIEvent) -> None:
+        """Handle intermediate agent output."""
+        role = event.data.get("role", "agent")
+        message = event.data.get("message") or event.data.get("output", "")
+        detail = role
+        if message:
+            detail = f"{role}: {message}"
+        self.call_from_thread(self._record_action, "Agent update", detail)
+
+    def _on_activity(self, event: UIEvent) -> None:
+        """Handle generic activity stream events."""
+        message = event.data.get("message", "")
+        context = event.data.get("context", "")
+        if not message:
+            activity_type = event.data.get("activity_type", "activity")
+            message = str(activity_type).replace("_", " ").title()
+        self.call_from_thread(self._record_action, message, context)
 
     def _add_agent(self, agent_id: str, role: AgentRole) -> None:
         """Add agent to strip (must be called from main thread)."""
@@ -602,12 +631,14 @@ class InterpreterTUI(App):
         agent_id = event.data.get("agent_id")
         if agent_id:
             self.call_from_thread(self._update_agent, agent_id, AgentStatus.COMPLETE)
+            self.call_from_thread(self._record_action, "Agent complete", agent_id)
 
     def _on_agent_error(self, event: UIEvent) -> None:
         """Handle agent error."""
         agent_id = event.data.get("agent_id")
         if agent_id:
             self.call_from_thread(self._update_agent, agent_id, AgentStatus.ERROR)
+            self.call_from_thread(self._record_action, "Agent error", agent_id)
 
     def _update_agent(self, agent_id: str, status: AgentStatus) -> None:
         """Update agent status (must be called from main thread)."""
@@ -618,15 +649,19 @@ class InterpreterTUI(App):
         """Handle code block start from EventBus."""
         language = event.data.get("language", "python")
         self.call_from_thread(self._start_code_block, language)
+        self.call_from_thread(self._record_action, "Code proposed", language)
 
     def _on_code_end(self, event: UIEvent) -> None:
         """Handle code block end from EventBus."""
         self.call_from_thread(self._end_code_block)
+        self.call_from_thread(self._record_action, "Execution finished")
 
     def _on_message_start(self, event: UIEvent) -> None:
         """Handle message start from EventBus."""
         role = event.data.get("role", "assistant")
         self.call_from_thread(self._start_message_block, role)
+        if role == "assistant":
+            self.call_from_thread(self._record_action, "Assistant responding")
 
     def _on_message_end(self, event: UIEvent) -> None:
         """Handle message end from EventBus."""
@@ -671,6 +706,14 @@ class InterpreterTUI(App):
             self.ui_state.context_limit = context_window
             status.update_tokens(self.ui_state.context_tokens, context_window)
 
+    def _record_action(self, message: str, detail: str = "") -> None:
+        """Append a visible action to the Textual action feed."""
+        try:
+            feed = self.query_one("#action-feed", ActionFeedWidget)
+            feed.add_action(message, detail)
+        except Exception:
+            pass
+
     # Actions
 
     def action_cancel(self) -> None:
@@ -693,11 +736,38 @@ class InterpreterTUI(App):
 
         self.notify(f"Mode → {self.ui_mode.name}")
 
+    def action_toggle_action_feed(self) -> None:
+        """Toggle the action feed visibility."""
+        self._action_feed_user_hidden = not getattr(
+            self, "_action_feed_user_hidden", False
+        )
+        self._sync_action_feed_visibility()
+        if self._action_feed_user_hidden:
+            self.notify("Action feed hidden")
+        else:
+            self.notify("Action feed shown")
+
     def _update_mode_class(self) -> None:
         """Update CSS class based on current mode."""
         for mode in UIMode:
             self.remove_class(f"mode-{mode.name.lower()}")
         self.add_class(f"mode-{self.ui_mode.name.lower()}")
+        self._sync_action_feed_visibility()
+
+    def _sync_action_feed_visibility(self) -> None:
+        """Keep action feed visible by mode unless the user hides it."""
+        try:
+            feed = self.query_one("#action-feed", ActionFeedWidget)
+        except Exception:
+            return
+
+        hidden = self.ui_mode == UIMode.ZEN or getattr(
+            self, "_action_feed_user_hidden", False
+        )
+        if hidden:
+            feed.add_class("hidden")
+        else:
+            feed.remove_class("hidden")
 
     def action_toggle_panel(self) -> None:
         """Toggle context panel visibility."""
@@ -915,6 +985,10 @@ class InterpreterTUI(App):
         if chunk_type == "message":
             if "start" in chunk:
                 self.call_from_thread(self._start_message_block, role)
+                if role == "assistant":
+                    self.call_from_thread(
+                        self._record_action, "Assistant responding"
+                    )
             elif "content" in chunk and chunk["content"]:
                 self.call_from_thread(self._append_message, chunk["content"])
             elif "end" in chunk:
@@ -924,15 +998,34 @@ class InterpreterTUI(App):
         elif chunk_type == "code" and role == "assistant":
             if "start" in chunk:
                 language = chunk.get("format", "python")
+                self.call_from_thread(self._record_action, "Code proposed", language)
                 self.call_from_thread(self._start_code_block, language)
             elif "content" in chunk and chunk["content"]:
                 self.call_from_thread(self._append_code, chunk["content"])
 
         # Confirmation (code execution approval)
         elif chunk_type == "confirmation":
-            # Handle in main thread via event
             code_info = chunk.get("content", {})
-            self.call_from_thread(self._request_confirmation, code_info)
+            language = code_info.get("format", "code")
+            self.call_from_thread(self._record_action, "Approval required", language)
+            decision_event = threading.Event()
+            decision = {"approved": False}
+
+            self.call_from_thread(
+                self._request_confirmation,
+                code_info,
+                decision,
+                decision_event,
+            )
+
+            if not decision_event.wait(timeout=CONFIRMATION_TIMEOUT_SECONDS):
+                if self.interpreter:
+                    self.interpreter._code_execution_approved = False
+                self.call_from_thread(
+                    self.notify,
+                    "Code confirmation timed out",
+                    severity="warning",
+                )
 
         # Console output
         elif chunk_type == "console":
@@ -947,6 +1040,7 @@ class InterpreterTUI(App):
                     self.call_from_thread(self._set_active_line, line)
             elif "end" in chunk:
                 self.call_from_thread(self._end_code_block)
+                self.call_from_thread(self._record_action, "Execution finished")
 
     def _start_message_block(self, role: str = "assistant") -> None:
         """Create new message widget (main thread)."""
@@ -1012,22 +1106,29 @@ class InterpreterTUI(App):
                 self._active_code_block.set_success()
             self._active_code_block = None
 
-    def _request_confirmation(self, code_info: dict) -> None:
+    def _request_confirmation(
+        self,
+        code_info: dict,
+        decision: dict[str, bool] | None = None,
+        decision_event: threading.Event | None = None,
+    ) -> None:
         """Request user confirmation for code execution (main thread)."""
         language = code_info.get("format", "code")
         code = code_info.get("content", "")
 
-        # For auto_run mode, no confirmation needed
-        if self.interpreter and self.interpreter.auto_run:
-            return
+        def finish(approved: bool) -> None:
+            approved = bool(approved)
+            if decision is not None:
+                decision["approved"] = approved
+            if self.interpreter:
+                self.interpreter._code_execution_approved = approved
 
-        # Show confirmation modal
-        def handle_confirmation(approved: bool) -> None:
             if approved:
+                self._record_action("Execution approved", language)
                 self.notify("Code execution approved", severity="information")
             else:
+                self._record_action("Execution skipped", language)
                 self.notify("Code execution skipped", severity="warning")
-                # Add message to inform the LLM
                 if self.interpreter:
                     self.interpreter.messages.append(
                         {
@@ -1037,7 +1138,15 @@ class InterpreterTUI(App):
                         }
                     )
 
-        self.push_screen(ConfirmCodeScreen(language, code), handle_confirmation)
+            if decision_event is not None:
+                decision_event.set()
+
+        # For auto_run mode, no confirmation needed
+        if self.interpreter and self.interpreter.auto_run:
+            finish(True)
+            return
+
+        self.push_screen(ConfirmCodeScreen(language, code), finish)
 
     def _show_error(self, error: str) -> None:
         """Display error message (main thread)."""

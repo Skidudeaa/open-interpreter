@@ -292,6 +292,7 @@ def respond(interpreter):
         # Otherwise loop-mode and post-code messages will keep re-triggering agents.
         if (
             interpreter.enable_agents
+            and not getattr(interpreter, "_agent_internal_call", False)
             and hasattr(interpreter, "agent_orchestrator")
             and interpreter.agent_orchestrator is not None
             and interpreter.messages
@@ -798,6 +799,38 @@ def respond(interpreter):
                     # The user might exit here.
                     # We need to tell python what we (the generator) should do if they exit
                     break
+
+                if not getattr(interpreter, "_code_execution_approved", True):
+                    try:
+                        delattr(interpreter, "_code_execution_approved")
+                    except AttributeError:
+                        pass
+                    decline_message = (
+                        "I have declined to run this code. Please continue with an "
+                        "alternative approach or explain what the code would have done."
+                    )
+                    if not (
+                        interpreter.messages
+                        and interpreter.messages[-1].get("role") == "user"
+                        and interpreter.messages[-1].get("content") == decline_message
+                    ):
+                        interpreter.messages.append(
+                            {
+                                "role": "user",
+                                "type": "message",
+                                "content": decline_message,
+                            }
+                        )
+                    emit_activity(
+                        "wait",
+                        "Code execution declined",
+                        language,
+                    )
+                    continue
+                try:
+                    delattr(interpreter, "_code_execution_approved")
+                except AttributeError:
+                    pass
 
                 # They may have edited the code! Grab it again (O(1) avg via reverse scan)
                 code = None

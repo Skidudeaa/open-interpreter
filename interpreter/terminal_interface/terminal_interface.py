@@ -891,6 +891,7 @@ def terminal_interface(interpreter, message):
                             response = {0: "y", 1: "n", 2: "e"}.get(choice, "n")
 
                         if response.strip().lower() == "y":
+                            interpreter._code_execution_approved = True
                             # Create a new, identical block where the code will actually be run
                             # Conveniently, the chunk includes everything we need to do this:
                             active_block = CodeBlock(interpreter)
@@ -898,6 +899,7 @@ def terminal_interface(interpreter, message):
                             active_block.language = language
                             active_block.code = code
                         elif response.strip().lower() == "e":
+                            interpreter._code_execution_approved = True
                             # Edit
                             original_code = code  # Save original for diff
                             tf_name = None
@@ -941,6 +943,7 @@ def terminal_interface(interpreter, message):
                             active_block.language = language
                             active_block.code = code
                         else:
+                            interpreter._code_execution_approved = False
                             # User declined to run code.
                             print(
                                 "\n[Code execution declined. The assistant will be informed.]\n"

@@ -245,6 +245,102 @@ def _detect_language(file_path: str) -> str:
     return _EXTENSION_TO_LANGUAGE.get(ext, "text")
 
 
+def _run_mcp_tool(interpreter):
+    """
+    Execute an MCP tool call and yield result chunks.
+
+    Extracted from respond() to keep that function manageable.  Yields the
+    same dicts the inline block did.  When the MCP tool succeeds and the loop
+    should ``continue``, yields ``{"_mcp_continue": True}`` as the final item
+    so the caller can act on it.
+
+    Args:
+        interpreter: The OpenInterpreter instance whose ``messages[-1]`` is an
+            ``mcp_tool`` message.
+
+    Yields:
+        dict: Console-output chunks, and optionally a ``{"_mcp_continue": True}``
+            sentinel to signal the caller's while-loop should continue.
+    """
+    import asyncio
+
+    mcp_call = interpreter.messages[-1].get("content", {})
+    tool_name = mcp_call.get("name", "")
+    tool_args = mcp_call.get("arguments", {})
+
+    if interpreter.verbose:
+        logger.debug("Running MCP tool: %s %s", tool_name, tool_args)
+
+    emit_activity("mcp", f"Calling MCP tool: {tool_name}", str(tool_args)[:50])
+
+    try:
+        bridge = getattr(interpreter, "_mcp_bridge", None)
+        if bridge:
+            # Run async tool call
+            # NOTE: Bind variables via default args to avoid B023 warning
+            async def _call_mcp_tool(_bridge=bridge, _name=tool_name, _args=tool_args):
+                return await _bridge.call_tool_any(_name, _args)
+
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+            if loop.is_running():
+                # Create a new loop in a thread if needed
+                import concurrent.futures
+
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, _call_mcp_tool())
+                    result = future.result(timeout=30)
+            else:
+                result = loop.run_until_complete(_call_mcp_tool())
+
+            if result.success:
+                tool_output = str(result.content)
+            else:
+                tool_output = f"Error: {result.error}"
+
+            # Yield the result as a tool response
+            yield {
+                "role": "computer",
+                "type": "console",
+                "format": "output",
+                "content": f"[MCP:{tool_name}] {tool_output}\n",
+            }
+
+            # Add tool response to messages for LLM context
+            # NOTE: "type": "function" required by respond() loop check
+            interpreter.messages.append(
+                {
+                    "role": "function",
+                    "type": "function",
+                    "name": tool_name,
+                    "content": tool_output,
+                }
+            )
+
+            # Signal caller to continue so LLM can process the result
+            yield {"_mcp_continue": True}
+        else:
+            yield {
+                "role": "computer",
+                "type": "console",
+                "format": "output",
+                "content": f"[MCP] No bridge configured for tool: {tool_name}\n",
+            }
+
+    except Exception as e:
+        logger.debug(f"MCP tool execution failed: {e}")
+        yield {
+            "role": "computer",
+            "type": "console",
+            "format": "output",
+            "content": f"[MCP Error] {tool_name}: {e}\n",
+        }
+
+
 def respond(interpreter):
     """
     Yields chunks.
@@ -678,7 +774,7 @@ def respond(interpreter):
                     else:
                         provider_message = f"\n\nYou do not have access to {interpreter.llm.model}. If you are using an OpenAI model, you may need to add a payment method and purchase credits for the OpenAI API billing page (this is different from ChatGPT Plus).\n\nhttps://platform.openai.com/account/billing/overview\n\nWould you like to try Open Interpreter's hosted `i` model instead? (y/n)\n\n"
 
-                    print(provider_message)
+                    logger.warning(provider_message)
 
                     response = input()
                     print("")  # <- Aesthetic choice
@@ -720,7 +816,7 @@ def respond(interpreter):
 
         if interpreter.messages[-1]["type"] == "code":
             if interpreter.verbose:
-                print("Running code:", interpreter.messages[-1])
+                logger.debug("Running code: %s", interpreter.messages[-1])
 
             try:
                 # What language/code do you want to run?
@@ -730,7 +826,7 @@ def respond(interpreter):
                 if code.startswith("`\n"):
                     code = code[2:].strip()
                     if interpreter.verbose:
-                        print("Removing `\n")
+                        logger.debug("Removing `\\n")
                     interpreter.messages[-1]["content"] = code  # So the LLM can see it.
 
                 # A common hallucination
@@ -754,17 +850,6 @@ def respond(interpreter):
                 # print(code)
                 # print("---")
                 # time.sleep(2)
-
-                if code.strip().endswith("executeexecute"):
-                    code = code.replace("executeexecute", "")
-                    try:
-                        interpreter.messages[-1][
-                            "content"
-                        ] = code  # So the LLM can see it.
-                    except Exception as e:
-                        logger.debug(
-                            f"Message content update failed (non-blocking): {e}"
-                        )
 
                 if code.replace("\n", "").replace(" ", "").startswith('{"language":'):
                     try:
@@ -951,8 +1036,10 @@ def respond(interpreter):
                 except Exception as e:
                     if interpreter.debug:
                         raise
-                    print(str(e))
-                    print("Failed to sync iComputer with your Computer. Continuing...")
+                    logger.error(str(e))
+                    logger.warning(
+                        "Failed to sync iComputer with your Computer. Continuing..."
+                    )
 
                 ## ↓ CODE IS RUN HERE
 
@@ -1096,6 +1183,28 @@ def respond(interpreter):
                                 f"Tracing completion failed (non-blocking): {e}"
                             )
                             pass  # Non-blocking
+
+                # === DIRECTORY FRECENCY HOOK (autojump-style) ===
+                # WHY: OI's shell is a piped subprocess, so we can't hook the
+                # shell prompt the way autojump does — instead we parse `cd` /
+                # os.chdir targets out of the code that just ran. Cheap (regex
+                # only fires if the code mentions cd/chdir) and fully isolated
+                # so a bad path can never disturb the execution loop.
+                try:
+                    from .memory.directory_frecency import extract_cd_targets
+
+                    _cd_targets = extract_cd_targets(code, language)
+                    if _cd_targets:
+                        _base = getattr(interpreter.computer, "cwd", "") or os.getcwd()
+                        _recorded = interpreter.computer.files.frecency.record_many(
+                            _cd_targets, base_cwd=_base
+                        )
+                        # Track the last absolute dir so subsequent relative
+                        # `cd` resolution and file-diff base paths stay accurate.
+                        if _recorded:
+                            interpreter.computer.cwd = _recorded[-1]
+                except Exception as e:
+                    logger.debug(f"Directory frecency recording failed: {e}")
 
                 # === SEMANTIC MEMORY HOOK (post-execution) ===
                 if interpreter.enable_semantic_memory and interpreter.semantic_graph:
@@ -1425,8 +1534,10 @@ def respond(interpreter):
                 except Exception as e:
                     if interpreter.debug:
                         raise
-                    print(str(e))
-                    print("Failed to sync your Computer with iComputer. Continuing.")
+                    logger.error(str(e))
+                    logger.warning(
+                        "Failed to sync your Computer with iComputer. Continuing."
+                    )
 
                 # yield final "active_line" message, as if to say, no more code is running. unhighlight active lines
                 # (is this a good idea? is this our responsibility? i think so — we're saying what line of code is running! ...?)
@@ -1477,85 +1588,14 @@ def respond(interpreter):
         # WHY: Execute external tools via Model Context Protocol
         # TRADEOFF: Async execution overhead vs access to external tool ecosystem
         elif interpreter.messages[-1].get("type") == "mcp_tool":
-            mcp_call = interpreter.messages[-1].get("content", {})
-            tool_name = mcp_call.get("name", "")
-            tool_args = mcp_call.get("arguments", {})
-
-            if interpreter.verbose:
-                print(f"Running MCP tool: {tool_name}", tool_args)
-
-            emit_activity("mcp", f"Calling MCP tool: {tool_name}", str(tool_args)[:50])
-
-            try:
-                import asyncio
-
-                bridge = getattr(interpreter, "_mcp_bridge", None)
-                if bridge:
-                    # Run async tool call
-                    # NOTE: Bind variables via default args to avoid B023 warning
-                    async def _call_mcp_tool(
-                        _bridge=bridge, _name=tool_name, _args=tool_args
-                    ):
-                        return await _bridge.call_tool_any(_name, _args)
-
-                    try:
-                        loop = asyncio.get_event_loop()
-                    except RuntimeError:
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-
-                    if loop.is_running():
-                        # Create a new loop in a thread if needed
-                        import concurrent.futures
-
-                        with concurrent.futures.ThreadPoolExecutor() as executor:
-                            future = executor.submit(asyncio.run, _call_mcp_tool())
-                            result = future.result(timeout=30)
-                    else:
-                        result = loop.run_until_complete(_call_mcp_tool())
-
-                    if result.success:
-                        tool_output = str(result.content)
-                    else:
-                        tool_output = f"Error: {result.error}"
-
-                    # Yield the result as a tool response
-                    yield {
-                        "role": "computer",
-                        "type": "console",
-                        "format": "output",
-                        "content": f"[MCP:{tool_name}] {tool_output}\n",
-                    }
-
-                    # Add tool response to messages for LLM context
-                    # NOTE: "type": "function" required by respond() loop check
-                    interpreter.messages.append(
-                        {
-                            "role": "function",
-                            "type": "function",
-                            "name": tool_name,
-                            "content": tool_output,
-                        }
-                    )
-
-                    # Continue loop so LLM can process the result
-                    continue
+            _should_continue = False
+            for _chunk in _run_mcp_tool(interpreter):
+                if _chunk.get("_mcp_continue"):
+                    _should_continue = True
                 else:
-                    yield {
-                        "role": "computer",
-                        "type": "console",
-                        "format": "output",
-                        "content": f"[MCP] No bridge configured for tool: {tool_name}\n",
-                    }
-
-            except Exception as e:
-                logger.debug(f"MCP tool execution failed: {e}")
-                yield {
-                    "role": "computer",
-                    "type": "console",
-                    "format": "output",
-                    "content": f"[MCP Error] {tool_name}: {e}\n",
-                }
+                    yield _chunk
+            if _should_continue:
+                continue
 
         else:
             ## LOOP MESSAGE

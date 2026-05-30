@@ -9,11 +9,14 @@ Provides safe rollback of code changes using:
 No Docker required - uses git and filesystem operations.
 """
 
+import logging
 import os
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -111,6 +114,7 @@ class EditRollback:
             return True
 
         except Exception:
+            logger.debug("backup_file failed for %s", file_path, exc_info=True)
             return False
 
     def restore_file(self, file_path: str) -> bool:
@@ -141,6 +145,7 @@ class EditRollback:
             return True
 
         except Exception:
+            logger.debug("restore_file failed for %s", file_path, exc_info=True)
             return False
 
     def restore_all(self) -> RollbackResult:
@@ -211,6 +216,7 @@ class EditRollback:
             return False
 
         except Exception:
+            logger.debug("stash_changes failed", exc_info=True)
             return False
 
     def get_backup(self, file_path: str) -> FileBackup | None:
@@ -251,6 +257,7 @@ class EditRollback:
             )
             return result.returncode == 0
         except Exception:
+            logger.debug("_is_git_repo check failed", exc_info=True)
             return False
 
     def _is_git_tracked(self, file_path: str) -> bool:
@@ -263,6 +270,7 @@ class EditRollback:
             )
             return result.returncode == 0
         except Exception:
+            logger.debug("_is_git_tracked failed for %s", file_path, exc_info=True)
             return False
 
     def _git_stash_pop(self) -> bool:
@@ -275,6 +283,7 @@ class EditRollback:
             )
             return result.returncode == 0
         except Exception:
+            logger.debug("_git_stash_pop failed", exc_info=True)
             return False
 
     def _git_stash_drop(self) -> bool:
@@ -287,6 +296,7 @@ class EditRollback:
             )
             return result.returncode == 0
         except Exception:
+            logger.debug("_git_stash_drop failed", exc_info=True)
             return False
 
     def cleanup_old_backups(self, max_age_hours: int = 24):

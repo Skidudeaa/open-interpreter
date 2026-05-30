@@ -144,7 +144,7 @@ class SidecarDaemon:
         # Clean up stale socket
         if self._socket_path.exists():
             self._socket_path.unlink()
-        self._socket_path.parent.mkdir(parents=True, exist_ok=True)
+        self._socket_path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
 
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.bind(str(self._socket_path))

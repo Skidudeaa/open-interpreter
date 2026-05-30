@@ -381,7 +381,13 @@ class MCPServerHandler:
         methods = exposed_methods or ["execute"]
         for method_name in methods:
             if hasattr(agent, method_name):
-                tool_name = f"{agent_name}_{method_name}"
+                # WHY: Avoid doubled names like execute_execute when agent_name == method_name.
+                # That form causes the LLM to hallucinate the concatenated "executeexecute".
+                tool_name = (
+                    method_name
+                    if agent_name == method_name
+                    else f"{agent_name}_{method_name}"
+                )
                 self._tools[tool_name] = getattr(agent, method_name)
 
     def register_tool(

@@ -10,8 +10,10 @@ Features:
 
 import re
 
+from rich.console import Group
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.text import Text
 
 from .base_block import BaseBlock
 from .theme import BOX_STYLES, THEME, get_role_icon
@@ -52,12 +54,15 @@ class MessageBlock(BaseBlock):
         # De-stylize any code blocks in markdown
         content = textify_markdown_code_blocks(self.message)
 
-        # Add blinking cursor if streaming
-        if cursor:
-            content += "[blink]\u25cf[/blink]"  # Filled circle
-
-        # Render markdown
+        # WHY: rich.Markdown does not process Rich console markup like [blink]\u2026[/blink],
+        # so we render the streaming cursor as a separate Text element and group it with
+        # the markdown body. This avoids leaking literal "[blink]\u25cf[/blink]" into the panel.
         markdown = Markdown(content.strip())
+        if cursor:
+            cursor_text = Text("\u25cf", style="blink")
+            body = Group(markdown, cursor_text)
+        else:
+            body = markdown
 
         # Get role-specific styling
         border_color = self.ROLE_BORDER_STYLES.get(self.role, THEME["text_muted"])
@@ -65,7 +70,7 @@ class MessageBlock(BaseBlock):
 
         # Create styled panel
         panel = Panel(
-            markdown,
+            body,
             title=header,
             title_align="left",
             border_style=border_color,

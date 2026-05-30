@@ -87,18 +87,15 @@ def _run_status() -> int:
         # Recent sessions
         try:
             store = EventStore(db_path)
-            rows = store._execute(
-                "SELECT id, model, status, started_at FROM sessions "
-                "ORDER BY started_at DESC LIMIT 5"
-            )
+            rows = store.get_sessions(limit=5)
             store.close()
             if rows:
                 print(f"\n  Recent sessions ({len(rows)}):")
                 for row in rows:
-                    sid = row[0][:12] if row[0] else "?"
-                    model = row[1] or "unknown"
-                    status = row[2] or "active"
-                    started = row[3] or ""
+                    sid = (row.get("session_id") or "?")[:12]
+                    model = row.get("model") or "unknown"
+                    status = row.get("source") or "active"
+                    started = row.get("started_at_ms") or ""
                     print(f"    {sid}  {model:<30s}  {status:<10s}  {started}")
         except Exception:
             pass  # DB may be locked or schema mismatch

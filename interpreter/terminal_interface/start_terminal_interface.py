@@ -30,6 +30,72 @@ def spinner_sleep(message: str, duration: float, console: Console | None = None)
         yield
 
 
+def _ensure_sidecar_daemon(interpreter):
+    """Ensure the cc-sidecar daemon is running so observability events land in
+    SQLite instead of silently spooling to disk.
+
+    WHY: --observability only starts the in-process EventBus bridge. The bridge
+    sends events to a Unix socket served by a separate `cc-sidecar daemon`
+    process. If that daemon isn't running, every event spools to
+    ~/.cc-sidecar/spool and never materializes — making a healthy pipeline look
+    broken. We start it on demand (best-effort) and print a one-line status.
+    """
+    import logging
+
+    log = logging.getLogger(__name__)
+    try:
+        from cc_sidecar.ingest.transport import get_socket_path
+    except Exception:
+        # cc-sidecar package not importable — the bridge falls back to its
+        # inline transport; nothing to auto-start.
+        return
+
+    socket_path = get_socket_path()
+    if socket_path.exists():
+        # A daemon (or stale socket) is already present. Trust a live socket;
+        # the daemon replays the spool and dedupes, so we don't probe further.
+        interpreter.display_message("> observability: daemon already up, capturing")
+        return
+
+    import shutil
+    import subprocess
+
+    cc_sidecar_bin = shutil.which("cc-sidecar")
+    try:
+        if cc_sidecar_bin:
+            cmd = [cc_sidecar_bin, "daemon"]
+        else:
+            # Fall back to the module entry point in the current interpreter.
+            cmd = [sys.executable, "-m", "cc_sidecar", "daemon"]
+        # Detached, fire-and-forget: the daemon is long-lived and must outlive
+        # this start-up path. We don't wait on it; the bridge spools until the
+        # socket appears, then sends live.
+        subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        # Give the daemon a moment to bind its socket so early events land live.
+        for _ in range(20):
+            if socket_path.exists():
+                break
+            time.sleep(0.1)
+        if socket_path.exists():
+            interpreter.display_message("> observability: daemon started, capturing")
+        else:
+            interpreter.display_message(
+                "> observability: daemon starting — early events will spool then replay"
+            )
+    except Exception as e:
+        log.warning("Could not auto-start cc-sidecar daemon: %s", e)
+        interpreter.display_message(
+            "> observability: daemon not running — events will spool. "
+            "Start it with: cc-sidecar daemon"
+        )
+
+
 def start_terminal_interface(interpreter):
     """
     Meant to be used from the command line. Parses arguments, starts OI's terminal interface.
@@ -672,6 +738,12 @@ Use """ to write multi-line messages.
     # and other events emitted before chat() is called. Without this, the bridge
     # only subscribes inside chat(), missing all pre-first-message events.
     if getattr(interpreter, "enable_observability", False):
+        # WHY: The bridge fires events at a Unix socket, but nothing starts the
+        # daemon that listens on it. Without a live daemon every event silently
+        # spools to ~/.cc-sidecar/spool and `cc-sidecar status` shows nothing —
+        # the pipeline looks broken when it is merely headless. Auto-start the
+        # daemon (if absent) so --observability "just works", then report.
+        _ensure_sidecar_daemon(interpreter)
         try:
             _ = interpreter.observability_bridge
         except Exception as e:

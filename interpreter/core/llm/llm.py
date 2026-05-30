@@ -73,9 +73,9 @@ class Llm:
         self.completions = fixed_litellm_completions
 
         # Settings
-        # WHY: Gemini 3 Flash as default - fast, capable, cost-effective
+        # WHY: Gemini 3.5 Flash as default - fast, capable, cost-effective
         # TRADEOFF: Optimized for speed over maximum capability
-        self.model = "gemini/gemini-3-flash-preview"
+        self.model = "gemini/gemini-3.5-flash"
         self.temperature = 0.0
 
         self.supports_vision = None  # Will try to auto-detect

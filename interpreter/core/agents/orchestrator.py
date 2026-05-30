@@ -245,9 +245,9 @@ class AgentOrchestrator:
     # NOTE: None means use interpreter's default model
     # NOTE: Model names must include provider prefix for litellm routing (e.g., "anthropic/", "gemini/")
     _ROLE_MODELS: dict[AgentRole, str | None] = {
-        AgentRole.SCOUT: "gemini/gemini-3-flash-preview",  # Fast for exploration
-        AgentRole.SURGEON: "claude-opus-4-5-20251101",  # Precise for edits
-        AgentRole.ARCHITECT: "claude-opus-4-5-20251101",  # Deep analysis
+        AgentRole.SCOUT: "gemini/gemini-3.5-flash",  # Fast for exploration
+        AgentRole.SURGEON: "gpt-5.5",  # Precise coding edits
+        AgentRole.ARCHITECT: "claude-opus-4-8",  # Deep analysis
         AgentRole.VALIDATOR: None,  # Use default
     }
 

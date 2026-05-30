@@ -8,6 +8,10 @@ Open Interpreter fork that adds risk-based approval, semantic memory, multi-agen
 
 ## Usage
 
+Default model is `gemini/gemini-3.5-flash`. The `oi` shell alias
+(`alias oi='OI_ACTIVATE_ALL=true OPEN_INTERPRETER_APPROVAL=dangerous interpreter'`,
+see README) is the easy launcher and works from any directory.
+
 ```bash
 # Basic
 poetry run interpreter

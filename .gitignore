@@ -1,5 +1,10 @@
 llama.log
 
+# Dev scratch scripts (one-off completer debugging, not part of the package)
+/fix_completer.py
+/patch_completer.py
+/test_completer*.py
+
 # ChunkHound (semantic search index)
 .chunkhound/
 .chunkhound.json

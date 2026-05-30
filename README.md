@@ -42,26 +42,36 @@ Upstream Open Interpreter is a chat interface that runs code. This fork turns it
 git clone https://github.com/Skidudeaa/open-interpreter.git
 cd open-interpreter
 poetry install
-
-# Run with all features enabled
-OI_ACTIVATE_ALL=true poetry run interpreter
-
-# Or with a specific model
-OI_ACTIVATE_ALL=true poetry run interpreter --model gpt-4o
-
-# Auto-approve safe commands, prompt only on destructive ops
-export OPEN_INTERPRETER_APPROVAL=dangerous
-OI_ACTIVATE_ALL=true poetry run interpreter -y
 ```
 
-### One-liner aliases
+The default model is **`gemini/gemini-3.5-flash`** — fast, capable, and cost-effective.
+(Gemini 3.x needs thought-signature round-tripping for multi-turn tool calls;
+this fork handles that automatically, so agents work out of the box.)
+
+### Run it — just type `oi`
+
+Add this once to `~/.bashrc` (or `~/.zshrc`):
 
 ```bash
-# Add to ~/.bashrc or ~/.zshrc
-alias oi="OI_ACTIVATE_ALL=true poetry run interpreter --model gemini/gemini-3.1-pro-preview -y --observability"
-alias oitui="OI_ACTIVATE_ALL=true poetry run interpreter --model gemini/gemini-3.1-pro-preview -y --observability --tui"
-alias oilocal="OI_ACTIVATE_ALL=true poetry run interpreter --local -y --observability"
+# Easy launcher — works from ANY directory, not just the repo.
+alias oi='OI_ACTIVATE_ALL=true OPEN_INTERPRETER_APPROVAL=dangerous interpreter'
+alias oitui='OI_ACTIVATE_ALL=true OPEN_INTERPRETER_APPROVAL=dangerous interpreter --tui'
 ```
+
+Then reload (`source ~/.bashrc`) and from any project folder:
+
+```bash
+oi              # all features on, Gemini 3.5 Flash, prompts only on risky ops
+oi -y           # same, but auto-run code (no approval prompts)
+oi --model gpt-4o   # override the model for one run
+oitui           # full-screen Textual UI
+```
+
+`oi` works anywhere because the `interpreter` binary is on your `PATH` after
+`poetry install` — no need to `cd` into the repo or prefix `poetry run`.
+
+> Plain `interpreter` (no alias) also works; the `oi` alias just turns on the
+> agents/observability features and risk-based approval in one keystroke.
 
 ## Agents
 

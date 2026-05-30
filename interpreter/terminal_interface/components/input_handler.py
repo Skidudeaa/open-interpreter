@@ -412,6 +412,7 @@ class InputHandler:
             ("%tokens", "Show token usage"),
             ("%context", "Show current context"),
             ("%model <name>", "Change model"),
+            ("%jump <pattern>", "Jump to a frecency-ranked directory"),
         ]
         for cmd, desc in magic_commands:
             help_text.append(f"  {cmd:18}", style="green")

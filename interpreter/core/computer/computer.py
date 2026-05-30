@@ -25,6 +25,14 @@ class Computer:
     def __init__(self, interpreter):
         self.interpreter = interpreter
 
+        # WHY: respond.py reads `computer.cwd` for file-diff / test-discovery
+        # base paths and `files.jump()` updates it on navigation. Without this
+        # it was a latent AttributeError masked only by default-off feature
+        # flags (semantic memory / show_file_diffs).
+        import os as _os
+
+        self.cwd = _os.getcwd()
+
         self.terminal = Terminal(self)
 
         self.offline = False

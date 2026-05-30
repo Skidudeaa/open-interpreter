@@ -1,4 +1,5 @@
 import difflib
+import os
 
 from ...utils.lazy_import import lazy_import
 
@@ -9,12 +10,54 @@ aifs = lazy_import("aifs")
 class Files:
     def __init__(self, computer):
         self.computer = computer
+        # Lazy: the frecency DB is only opened the first time a directory is
+        # recorded or a jump is attempted, so sessions that never navigate pay
+        # nothing.
+        self._frecency = None
+
+    @property
+    def frecency(self):
+        if self._frecency is None:
+            from ...memory.directory_frecency import DirectoryFrecency
+
+            try:
+                from ....terminal_interface.utils.local_storage_path import (
+                    get_storage_path,
+                )
+
+                db_path = get_storage_path("jump.db")
+            except Exception:
+                db_path = None
+            self._frecency = DirectoryFrecency(db_path)
+        return self._frecency
 
     def search(self, *args, **kwargs):
         """
         Search the filesystem for the given query.
         """
         return aifs.search(*args, **kwargs)
+
+    def jump(self, pattern: str = "") -> str:
+        """
+        Jump to the most-used directory whose path matches `pattern` (autojump-style frecency). Returns the new absolute working directory.
+        """
+        target = self.frecency.query(pattern)
+        if target is None:
+            raise FileNotFoundError(
+                f"No remembered directory matches {pattern!r}. "
+                "Directories are learned from `cd` / os.chdir as you work."
+            )
+        os.chdir(target)
+        self.computer.cwd = target
+        # Jumping is itself a strong usage signal — reinforce it.
+        self.frecency.record(target)
+        return target
+
+    def record_visit(self, path: str) -> None:
+        """
+        Remember `path` as a visited directory for future jumps (does not change directory).
+        """
+        self.frecency.record(path, base_cwd=getattr(self.computer, "cwd", ""))
 
     def edit(self, path, original_text, replacement_text):
         """

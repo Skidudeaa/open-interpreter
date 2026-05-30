@@ -67,6 +67,7 @@ def handle_help(self, arguments):
         "%compact [n]": "Summarize old messages with the LLM to free context window. Keeps last n (default 6).",
         "%model [name]": "Show or hot-swap the model mid-session.",
         "%copy": "Copy the last assistant response to the clipboard.",
+        "%jump [pattern]": "Jump to a frecency-ranked directory (autojump-style). No args lists the top directories.",
         "%info": "Show system and interpreter information",
         "%jupyter": "Export the conversation to a Jupyter notebook file",
         "%markdown [path]": "Export the conversation to a specified Markdown path. If no path is provided, it will be saved to the Downloads folder with a generated conversation name.",
@@ -373,6 +374,32 @@ def handle_copy(self, arguments):
         self.display_message(f"> Copy failed: {msg}")
 
 
+def handle_jump(self, arguments):
+    """Jump to a frecency-ranked directory, or list the top ones with no args."""
+    frecency = self.computer.files.frecency
+    pattern = (arguments or "").strip()
+
+    if not pattern:
+        top = frecency.top(10)
+        if not top:
+            self.display_message(
+                "> No directories learned yet. They're recorded as you "
+                "`cd` / os.chdir during sessions."
+            )
+            return
+        lines = ["> **Top directories** (frecency):\n"]
+        for path, weight in top:
+            lines.append(f"- `{path}`  _(weight {weight:.1f})_\n")
+        self.display_message("".join(lines))
+        return
+
+    try:
+        target = self.computer.files.jump(pattern)
+        self.display_message(f"> Jumped to `{target}`")
+    except FileNotFoundError as e:
+        self.display_message(f"> {e}")
+
+
 def default_handle(self, arguments):
     self.display_message("> Unknown command")
     handle_help(self, arguments)
@@ -563,6 +590,7 @@ def handle_magic_command(self, user_input):
         "compact": handle_compact,
         "model": handle_model,
         "copy": handle_copy,
+        "jump": handle_jump,
         "jupyter": jupyter,
         "markdown": markdown,
     }

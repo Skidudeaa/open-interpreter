@@ -12,6 +12,12 @@ def merge_deltas(original, delta):
                     original[key] = (original[key] or "") + (value or "")
                 else:
                     original[key] = value
+            elif isinstance(value, list):
+                # WHY: List-valued deltas (e.g. Gemini thinking_blocks,
+                # annotations) aren't incrementally merged here — they arrive
+                # complete, and OI captures tool_calls/signatures separately.
+                # dict(value) would raise on a list, so replace wholesale.
+                original[key] = value
             else:
                 value = dict(value)
                 if key not in original:

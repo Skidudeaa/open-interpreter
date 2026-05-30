@@ -32,6 +32,15 @@ def _get_litellm():
 
         litellm.suppress_debug_info = True
         litellm.REPEATED_STREAMING_CHUNK_LIMIT = 99999999
+
+        # WHY: Gemini 3.x drops thought-signatures in streaming mode (litellm
+        # 1.80), which makes multi-turn tool calling 400 after the first run.
+        # Patch here so it's applied before the first completion regardless of
+        # which model is configured.
+        from ._gemini_streaming_patch import apply_gemini_streaming_thinking_patch
+
+        apply_gemini_streaming_thinking_patch()
+
         _litellm = litellm
     return _litellm
 
@@ -284,18 +293,15 @@ class Llm:
                 except Exception:
                     if len(messages) == 1:
                         if self.interpreter.in_terminal_interface:
-                            self.interpreter.display_message(
-                                """
+                            self.interpreter.display_message("""
 **We were unable to determine the context window of this model.** Defaulting to 8000.
 
 If your model can handle more, run `interpreter --context_window {token limit} --max_tokens {max tokens per response}`.
 
 Continuing...
-                            """
-                            )
+                            """)
                         else:
-                            self.interpreter.display_message(
-                                """
+                            self.interpreter.display_message("""
 **We were unable to determine the context window of this model.** Defaulting to 8000.
 
 If your model can handle more, run `self.context_window = {token limit}`.
@@ -303,8 +309,7 @@ If your model can handle more, run `self.context_window = {token limit}`.
 Also please set `self.max_tokens = {max tokens per response}`.
 
 Continuing...
-                            """
-                            )
+                            """)
                     messages = tt.trim(
                         messages, system_message=system_message, max_tokens=8000
                     )
@@ -481,6 +486,85 @@ Continuing...
             pass  # UI not available
 
 
+def _needs_nonstreaming_for_signature(params) -> bool:
+    """True for Gemini tool-calling requests, which must run non-streaming.
+
+    WHY: Gemini 3.x requires the thoughtSignature on each function call to be
+    replayed next turn. litellm 1.80 only surfaces that signature in the
+    NON-streaming response — for Open Interpreter's request shape, streaming
+    drops it entirely (verified: 0/6 streamed vs 6/6 non-streamed). Without it
+    the following turn fails with HTTP 400 "missing a thought_signature".
+    ARCHITECTURE: Only tool-calling Gemini requests are affected; plain Gemini
+    chat (no tools) keeps streaming, as do all non-Gemini providers.
+    TRADEOFF: Loses token-by-token display for Gemini tool turns (the code block
+    appears once, after the model responds) in exchange for correctness.
+    """
+    model = str(params.get("model", "")).lower()
+    return (
+        "gemini" in model and bool(params.get("tools")) and bool(params.get("stream"))
+    )
+
+
+def _gemini_nonstreaming_chunks(litellm, params):
+    """Run a Gemini request non-streaming, re-emit as OI streaming chunks.
+
+    Yields ModelResponseStream chunks shaped exactly like litellm's streaming
+    output so run_tool_calling_llm consumes them unchanged — but sourced from a
+    non-streaming completion so the thoughtSignature (thinking_blocks) is present.
+    """
+    from litellm.types.utils import Delta, ModelResponseStream, StreamingChoices
+
+    ns_params = dict(params)
+    ns_params["stream"] = False
+    response = litellm.completion(**ns_params)
+    message = response.choices[0].message
+    finish_reason = response.choices[0].finish_reason
+
+    content = getattr(message, "content", None)
+    thinking_blocks = getattr(message, "thinking_blocks", None)
+    reasoning_content = getattr(message, "reasoning_content", None)
+
+    raw_tool_calls = getattr(message, "tool_calls", None)
+    delta_tool_calls = None
+    if raw_tool_calls:
+        delta_tool_calls = [
+            {
+                "index": i,
+                "id": getattr(tc, "id", None),
+                "type": "function",
+                "function": {
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,
+                },
+            }
+            for i, tc in enumerate(raw_tool_calls)
+        ]
+
+    # WHY: run_tool_calling_llm rewrites `delta` to the function call when
+    # tool_calls are present, dropping any content on the same chunk. Emit text
+    # first as its own chunk so a leading explanation isn't lost.
+    if content and delta_tool_calls:
+        yield ModelResponseStream(
+            choices=[StreamingChoices(index=0, delta=Delta(content=content))]
+        )
+        content = None
+
+    delta = Delta(
+        content=content,
+        tool_calls=delta_tool_calls,
+        thinking_blocks=thinking_blocks,
+        reasoning_content=reasoning_content,
+    )
+    chunk = ModelResponseStream(
+        choices=[StreamingChoices(index=0, delta=delta, finish_reason=finish_reason)]
+    )
+    # Carry usage so the token meter still updates.
+    usage = getattr(response, "usage", None)
+    if usage is not None:
+        chunk.usage = usage
+    yield chunk
+
+
 def fixed_litellm_completions(**params):
     """
     Just uses a dummy API key, since we use litellm without an API key sometimes.
@@ -512,10 +596,19 @@ def fixed_litellm_completions(**params):
 
     params["num_retries"] = 0
 
+    # Gemini tool-calling must run non-streaming so the thoughtSignature is
+    # preserved for the next turn (see _needs_nonstreaming_for_signature).
+    use_nonstreaming = _needs_nonstreaming_for_signature(params)
+
     for attempt in range(attempts):
         try:
             chunk_received = False
-            for chunk in litellm.completion(**params):
+            chunk_source = (
+                _gemini_nonstreaming_chunks(litellm, params)
+                if use_nonstreaming
+                else litellm.completion(**params)
+            )
+            for chunk in chunk_source:
                 chunk_received = True
                 yield chunk
 

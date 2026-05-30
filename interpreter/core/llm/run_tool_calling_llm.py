@@ -197,6 +197,12 @@ def run_tool_calling_llm(llm, request_params):
     buffer = ""
     any_content_yielded = False  # Track if we got any real content
     mcp_tool_call = None  # Track MCP tool calls (non-execute functions)
+    # Gemini 3.x attaches a thoughtSignature to function-call parts that MUST be
+    # replayed next turn or the API 400s. Capture it here; respond.py stamps it
+    # onto the stored code message and convert_to_openai_messages replays it.
+    captured_thinking_blocks = None
+    # Reset any signature left over from a previous request on this llm instance.
+    llm._gemini_thinking_blocks = None
 
     for chunk in llm.completions(**request_params):
         if "choices" not in chunk or len(chunk["choices"]) == 0:
@@ -204,6 +210,13 @@ def run_tool_calling_llm(llm, request_params):
             continue
 
         delta = chunk["choices"][0]["delta"]
+
+        # Capture thought-signatures BEFORE the tool_calls->function_call rewrite
+        # below discards them. The block arrives complete (signature is a whole
+        # base64 string), so keep the latest non-empty list.
+        _tb = getattr(delta, "thinking_blocks", None)
+        if _tb:
+            captured_thinking_blocks = _tb
 
         # Convert tool call into function call, which we have great parsing logic for below
         if "tool_calls" in delta and delta["tool_calls"]:
@@ -355,6 +368,11 @@ def run_tool_calling_llm(llm, request_params):
                     }
             except Exception:
                 pass  # Not yet complete, keep accumulating
+
+    # Expose captured Gemini thought-signatures so respond.py can attach them to
+    # the assistant's code message for round-tripping on the next request.
+    if captured_thinking_blocks:
+        llm._gemini_thinking_blocks = captured_thinking_blocks
 
     # Yield MCP tool call if detected
     # WHY: Allow respond.py to execute MCP tools and feed results back to LLM

@@ -20,6 +20,41 @@ from .render_message import render_message
 logger = logging.getLogger(__name__)
 
 
+def _strip_thinking_block_ids(thinking_blocks):
+    """Remove the inner ``functionCall.id`` from captured Gemini thinking blocks.
+
+    WHY: litellm replays a thinking block as a *signed* functionCall part and
+    separately rebuilds an *unsigned* functionCall part from ``tool_calls``,
+    deduping the two by value (ignoring ``thoughtSignature``). Gemini includes a
+    per-call ``id`` inside the signed part's functionCall but OI's reconstructed
+    tool_call has none, so the values mismatch, dedup fails, and BOTH parts get
+    sent — the unsigned one re-triggers the "missing thought_signature" 400.
+    Dropping the ``id`` makes the parts match so only the signed one survives.
+    TRADEOFF: Verified empirically against the live Gemini API; the signature
+    stays valid without the id.
+    """
+    cleaned = []
+    for block in thinking_blocks:
+        if not isinstance(block, dict):
+            cleaned.append(block)
+            continue
+        new_block = dict(block)
+        thinking = new_block.get("thinking")
+        if isinstance(thinking, str):
+            try:
+                part = json.loads(thinking)
+                if isinstance(part, dict) and isinstance(
+                    part.get("functionCall"), dict
+                ):
+                    part["functionCall"].pop("id", None)
+                    new_block["thinking"] = json.dumps(part)
+            except (ValueError, TypeError):
+                # Not JSON (e.g. a plain thought-text block) — leave it as-is.
+                pass
+        cleaned.append(new_block)
+    return cleaned
+
+
 # System message cache to avoid rebuilding every iteration
 @dataclass(slots=True)
 class _SysMsgCacheEntry:
@@ -393,12 +428,23 @@ def respond(interpreter):
 
                             agent_context = "\n\n".join(agent_context_parts)
 
-                            # Inject as a computer message so LLM sees it as tool output
+                            # Inject findings as an assistant message, NOT a
+                            # computer/console output.
+                            # WHY: A console-output message with no preceding
+                            # code block is rendered by convert_to_openai_messages
+                            # as an orphan `role:function` response, and
+                            # process_messages then fabricates an assistant
+                            # tool_call (arguments="{}") to satisfy it. That
+                            # synthetic call carries no Gemini thoughtSignature,
+                            # so Gemini 3.x rejects the next request with HTTP 400
+                            # "missing a thought_signature". An assistant text
+                            # message conveys the same findings with no function
+                            # machinery, and (being non-user) does not re-trigger
+                            # the agent orchestrator on the next loop iteration.
                             interpreter.messages.append(
                                 {
-                                    "role": "computer",
-                                    "type": "console",
-                                    "format": "output",
+                                    "role": "assistant",
+                                    "type": "message",
                                     "content": f"[Agent Results]\n{agent_context}\n",
                                 }
                             )
@@ -652,6 +698,23 @@ def respond(interpreter):
                     raise
             finally:
                 network_status.end_request(success=_req_ok)
+
+        ### ATTACH GEMINI THOUGHT-SIGNATURES (if any) ###
+
+        # WHY: Gemini 3.x requires the thoughtSignature from each function-call
+        # part to be replayed on the next turn or it 400s. run_tool_calling_llm
+        # captured it during streaming; stamp it onto the assistant's code
+        # message so convert_to_openai_messages can send it back.
+        _gtb = getattr(interpreter.llm, "_gemini_thinking_blocks", None)
+        if (
+            _gtb
+            and interpreter.messages
+            and interpreter.messages[-1].get("type") == "code"
+        ):
+            interpreter.messages[-1]["thinking_blocks"] = _strip_thinking_block_ids(
+                _gtb
+            )
+        interpreter.llm._gemini_thinking_blocks = None
 
         ### RUN CODE (if it's there) ###
 

@@ -290,6 +290,13 @@ def start_terminal_interface(interpreter):
             "attribute": {"object": interpreter, "attr_name": "enable_intent_refiner"},
         },
         {
+            "name": "backend",
+            "help_text": "execution backend: 'oi' (default, built-in loop) or 'hermes' (NousResearch hermes-agent via ACP; requires uvx)",
+            "type": str,
+            "choices": ["oi", "hermes"],
+            "attribute": {"object": interpreter, "attr_name": "backend"},
+        },
+        {
             "name": "fast",
             "nickname": "f",
             "help_text": "runs `interpreter --model gpt-4o-mini` and asks OI to be extremely concise (shortcut for `interpreter --profile fast`)",

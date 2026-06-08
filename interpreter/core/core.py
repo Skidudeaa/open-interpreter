@@ -23,6 +23,11 @@ _OI_ENABLE_UNSTEER = os_module.environ.get("OI_ENABLE_UNSTEER", "").lower() in (
     "yes",
 )
 
+# Execution backend selector: "oi" (built-in core loop) or "hermes"
+# (drives NousResearch hermes-agent out-of-process via ACP). See
+# interpreter/core/backends/. Settable via OI_BACKEND, --backend, or settings.json.
+_OI_BACKEND = os_module.environ.get("OI_BACKEND", "oi").strip().lower() or "oi"
+
 from ..terminal_interface.local_setup import local_setup
 from ..terminal_interface.terminal_interface import terminal_interface
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
@@ -416,6 +421,10 @@ class OpenInterpreter:
             "OI_UNSTEER_MODEL", "openrouter/mistralai/mistral-small-creative"
         )
 
+        # Execution backend: "oi" (default, built-in respond() loop) or "hermes"
+        # (NousResearch hermes-agent driven out-of-process over ACP).
+        self.backend = _OI_BACKEND
+
         # Check for OI_ACTIVATE_ALL environment variable (set at module load)
         if _OI_ACTIVATE_ALL:
             self.enable_semantic_memory = True
@@ -454,6 +463,7 @@ class OpenInterpreter:
             "context_preserve_recent",
             "enable_intent_refiner",
             "enable_observability",
+            "backend",
         ]
 
         for flag in feature_flags:
@@ -462,6 +472,9 @@ class OpenInterpreter:
                 # context_preserve_recent is an int, not a bool
                 if flag == "context_preserve_recent":
                     setattr(self, flag, int(value))
+                # backend is a string selector, not a bool
+                elif flag == "backend":
+                    setattr(self, flag, str(value).strip().lower() or "oi")
                 else:
                     setattr(self, flag, bool(value))
 
@@ -870,8 +883,18 @@ class OpenInterpreter:
 
         last_flag_base = None
 
+        # Select the execution backend. "hermes" drives hermes-agent out-of-process
+        # over ACP, emitting the same LMC chunk stream as the built-in respond() loop,
+        # so everything below (message assembly, confirmation flow, flags) is unchanged.
+        if getattr(self, "backend", "oi") == "hermes":
+            from .backends import hermes_backend
+
+            chunk_source = hermes_backend.run(self)
+        else:
+            chunk_source = respond(self)
+
         try:
-            for chunk in respond(self):
+            for chunk in chunk_source:
                 # For async usage
                 if hasattr(self, "stop_event") and self.stop_event.is_set():
                     print("Open Interpreter stopping gracefully.")

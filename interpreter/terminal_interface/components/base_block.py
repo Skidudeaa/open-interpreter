@@ -28,6 +28,15 @@ class BaseBlock:
     _shared_console = None
     _console_lock = threading.Lock()
 
+    # Rich permits only ONE Live display at a time per console. Blocks are
+    # normally start→end→start, but an alternate execution backend (e.g. the
+    # Hermes ACP backend) can emit back-to-back tool calls whose blocks overlap
+    # before the previous one is ended. To keep Rich happy, all blocks share a
+    # single "live slot": starting a block's Live flushes+stops whichever block
+    # currently holds it. Reentrant so end()/cancel() can clear it while held.
+    _active_live_block = None
+    _active_live_lock = threading.RLock()
+
     def __init__(self):
         self.theme = THEME
         self.start_time = time.time()
@@ -46,6 +55,9 @@ class BaseBlock:
         """
         if self._live_started and self._live is not None:
             return True
+
+        # Free Rich's single Live slot: stop any other block that still holds it.
+        self._claim_live_slot()
 
         with self._live_lock:
             # Double-check after acquiring lock
@@ -71,6 +83,27 @@ class BaseBlock:
 
                 print(f"[UI] Live display failed: {e}", file=sys.stderr)
                 return False
+
+    def _claim_live_slot(self):
+        """Take ownership of Rich's single Live slot, stopping the prior holder.
+
+        If another block currently owns the live slot, flush+stop it first so its
+        final content lands in scrollback and Rich's one-Live constraint is met.
+        """
+        with BaseBlock._active_live_lock:
+            prev = BaseBlock._active_live_block
+            if prev is not None and prev is not self:
+                try:
+                    prev.end()
+                except Exception:
+                    pass
+            BaseBlock._active_live_block = self
+
+    def _release_live_slot(self):
+        """Relinquish the live slot if this block currently owns it."""
+        with BaseBlock._active_live_lock:
+            if BaseBlock._active_live_block is self:
+                BaseBlock._active_live_block = None
 
     def fallback_print(self, content, force: bool = False):
         """Print content directly when Live display isn't available.
@@ -140,6 +173,8 @@ class BaseBlock:
 
         logger = logging.getLogger(__name__)
 
+        self._release_live_slot()
+
         with self._live_lock:
             if self._live is not None:
                 try:
@@ -163,6 +198,7 @@ class BaseBlock:
 
     def cancel(self):
         """Cancel this block without rendering (for empty content)."""
+        self._release_live_slot()
         with self._live_lock:
             if self._live is not None:
                 try:

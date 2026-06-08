@@ -139,11 +139,29 @@ class SpinnerBlock:
         return table
 
 
-class ThinkingSpinner(SpinnerBlock):
-    """Convenience class for LLM thinking spinner."""
+def _use_globe_spinner() -> bool:
+    """Globe loader is the default thinking spinner; OI_SPINNER=classic opts out."""
+    import os
 
-    def __init__(self, console: Console | None = None):
-        super().__init__(spinner_type="thinking", console=console)
+    return os.environ.get("OI_SPINNER", "globe").strip().lower() != "classic"
+
+
+def ThinkingSpinner(console: Console | None = None):
+    """LLM thinking spinner.
+
+    Returns the Globe Loader port by default (terminal port of
+    ``Globe Loader v2.html``); set ``OI_SPINNER=classic`` for the legacy dots
+    spinner. Both expose the same start/update/stop API, so callers in
+    ``terminal_interface.py`` are agnostic to which one they get.
+    """
+    if _use_globe_spinner():
+        try:
+            from .globe_spinner import GlobeSpinner
+
+            return GlobeSpinner(console=console, text="Thinking")
+        except Exception as e:  # never let the loader break the chat loop
+            logger.debug(f"GlobeSpinner unavailable, using classic spinner: {e}")
+    return SpinnerBlock(spinner_type="thinking", console=console)
 
 
 class ExecutingSpinner(SpinnerBlock):

@@ -1291,6 +1291,17 @@ def terminal_interface(interpreter, message):
                     active_block = None
                     time.sleep(0.1)
 
+            # End-of-turn completion flourish: a brief, transient globe gesture
+            # (globe settles → ring → ✓) ported from Globe Loader v2. Played only
+            # on the success path, AFTER active_block is ended so it owns the only
+            # Rich Live context. Self-guards on styled-mode/reduced-motion/TTY and
+            # opts out via OI_GLOBE_COMPLETE=0, so pipes/CI/classic stay untouched.
+            if not interpreter.plain_text_display:
+                with UIErrorContext("GlobeSpinner", "completion_flourish"):
+                    from .components.globe_spinner import play_completion_flourish
+
+                    play_completion_flourish()
+
             # Emit SYSTEM_END event (Phase 0)
             event_bus.emit(
                 UIEvent(type=EventType.SYSTEM_END, source="terminal_interface")

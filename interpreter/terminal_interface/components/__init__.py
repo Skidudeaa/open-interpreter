@@ -11,6 +11,7 @@ from .diff_block import DiffBlock, show_diff
 
 # New UI components (v0.4.x)
 from .error_block import ErrorBlock, display_error
+from .globe_spinner import GlobeSpinner
 from .interactive_menu import InteractiveMenu, interactive_choice
 from .live_output_panel import LiveOutputPanel, OutputBuffer
 from .message_block import MessageBlock, textify_markdown_code_blocks
@@ -60,6 +61,7 @@ __all__ = [
     "SpinnerBlock",
     "ThinkingSpinner",
     "ExecutingSpinner",
+    "GlobeSpinner",
     "with_spinner",
     # Status
     "StatusBar",

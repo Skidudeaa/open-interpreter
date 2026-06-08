@@ -16,6 +16,17 @@ def validate_llm_settings(interpreter):
     Interactively prompt the user for required LLM settings
     """
 
+    # The Hermes backend manages its own providers/credentials out-of-process,
+    # so the LiteLLM key validation below doesn't apply. Show an accurate banner
+    # (the plain "Model set to" line is misleading here) and skip the rest.
+    if getattr(interpreter, "backend", "oi") == "hermes":
+        if len(interpreter.messages) != 1:
+            interpreter.display_message(
+                f"> Backend `hermes-agent` (ACP) · model `{interpreter.llm.model}` "
+                "— resolved by hermes-agent"
+            )
+        return
+
     # This runs in a while loop so `continue` lets us start from the top
     # after changing settings (like switching to/from local)
     while True:

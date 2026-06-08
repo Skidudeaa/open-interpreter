@@ -173,12 +173,58 @@ def _latest_user_text(interpreter) -> str:
     return ""
 
 
-def _map_model(oi_model: str, models: dict) -> str | None:
-    """Best-effort map a litellm-style model id to a Hermes ``modelId``.
+# Friendly short aliases → a needle matched against Hermes's live model catalog.
+# Resolved against availableModels at runtime, so these stay valid as the catalog
+# shifts (e.g. "sonnet" tracks whatever claude-sonnet-* is offered).
+_MODEL_ALIASES = {
+    "opus": "claude-opus-4.8",
+    "opus-fast": "claude-opus-4.8-fast",
+    "sonnet": "claude-sonnet",
+    "haiku": "claude-haiku",
+    "gpt": "openai/gpt-5.5",
+    "gpt-pro": "gpt-5.5-pro",
+    "gpt-mini": "gpt-5.4-mini",
+    "gemini": "gemini-3.1-pro",
+    "gemini-pro": "gemini-3.1-pro",
+    "gemini-flash": "gemini-3.5-flash",
+    "grok": "x-ai/grok",
+    "deepseek": "deepseek-v4-pro",
+    "deepseek-flash": "deepseek-v4-flash",
+    "qwen": "qwen3.7-max",
+    "kimi": "moonshotai/kimi",
+    "glm": "z-ai/glm",
+    "minimax": "minimax-m3",
+}
 
-    Hermes model ids look like ``provider:model`` (e.g. ``openrouter:gpt-4o``);
-    litellm ids look like ``gemini/gemini-3.5-flash``. Returns None to leave
-    Hermes on its configured default.
+
+def _resolve_model(needle: str, available: list[str]) -> str | None:
+    """Find the best Hermes modelId for a needle: exact > tail-exact > shortest substring."""
+    if not needle:
+        return None
+    n = needle.strip().lower()
+    # 1. exact full id
+    for mid in available:
+        if mid.lower() == n:
+            return mid
+    # 2. tail-exact (after ':' provider, then after '/' vendor)
+    for mid in available:
+        low = mid.lower()
+        tail = low.split(":", 1)[-1]
+        if tail == n or tail.split("/")[-1] == n:
+            return mid
+    # 3. substring — prefer the shortest id (the base variant over -fast/-pro/:free)
+    subs = [mid for mid in available if n in mid.lower()]
+    if subs:
+        return min(subs, key=len)
+    return None
+
+
+def _map_model(oi_model: str, models: dict) -> str | None:
+    """Map a requested model to a Hermes ``modelId``.
+
+    Accepts: a full Hermes id (``openrouter:openai/gpt-5.5``), a short alias
+    (``sonnet``, ``opus``, ``gpt``, ``gemini``), or a litellm-style id
+    (``gemini/gemini-3.5-flash``). Returns None to leave Hermes on its default.
     """
     available = [
         m.get("modelId")
@@ -187,14 +233,19 @@ def _map_model(oi_model: str, models: dict) -> str | None:
     ]
     if not oi_model or not available:
         return None
-    base = oi_model.split("/", 1)[1] if "/" in oi_model else oi_model
-    for mid in available:  # exact match wins
-        if mid == oi_model:
-            return mid
-    for mid in available:
-        tail = mid.split(":", 1)[1] if ":" in mid else mid
-        if tail == base or tail == oi_model or (base and base in tail):
-            return mid
+
+    needles: list[str] = []
+    alias = _MODEL_ALIASES.get(oi_model.strip().lower())
+    if alias:
+        needles.append(alias)
+    needles.append(oi_model)
+    if "/" in oi_model:  # strip a litellm provider prefix ("google/gemini-…")
+        needles.append(oi_model.split("/", 1)[1])
+
+    for needle in needles:
+        match = _resolve_model(needle, available)
+        if match:
+            return match
     return None
 
 
@@ -290,15 +341,27 @@ async def _drive(interpreter, chunk_q: queue.Queue, state: dict) -> None:
         session_id = result.get("sessionId")
         state["session_id"] = session_id
 
-        model_id = _map_model(
-            getattr(getattr(interpreter, "llm", None), "model", "") or "",
-            result.get("models") or {},
-        )
-        if model_id:
+        models = result.get("models") or {}
+        current = models.get("currentModelId")
+        requested = getattr(getattr(interpreter, "llm", None), "model", "") or ""
+        model_id = _map_model(requested, models)
+        if model_id and model_id != current:
             try:
                 await client.set_model(session_id, model_id)
-            except ACPError:
-                pass  # best effort — Hermes stays on its default
+            except ACPError as e:
+                # Hermes may route a listed model to a provider with no key.
+                # Don't fail silently — tell the user their choice didn't take.
+                chunk_q.put(
+                    {
+                        "role": "assistant",
+                        "type": "message",
+                        "content": (
+                            f"⚠ Couldn't switch to `{model_id}` ({e}). "
+                            f"Continuing on Hermes's current model"
+                            + (f" `{current}`." if current else ".")
+                        ),
+                    }
+                )
 
         stop_event = getattr(interpreter, "stop_event", None)
         if stop_event is not None:

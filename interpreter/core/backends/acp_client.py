@@ -33,6 +33,17 @@ from typing import Any, Callable
 PROTOCOL_VERSION = 1
 
 
+def _error_detail(error) -> str:
+    """Pull the most human-readable string out of a JSON-RPC error object."""
+    if isinstance(error, dict):
+        data = error.get("data")
+        if isinstance(data, dict) and data.get("details"):
+            return str(data["details"])
+        if error.get("message"):
+            return str(error["message"])
+    return str(error)
+
+
 class ACPError(Exception):
     """Any ACP transport / protocol failure."""
 
@@ -171,7 +182,7 @@ class ACPClient:
             fut = self._pending.pop(msg["id"], None)
             if fut is not None and not fut.done():
                 if "error" in msg:
-                    fut.set_exception(ACPError(str(msg["error"])))
+                    fut.set_exception(ACPError(_error_detail(msg["error"])))
                 else:
                     fut.set_result(msg.get("result"))
             return

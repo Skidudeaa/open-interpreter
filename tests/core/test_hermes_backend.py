@@ -395,6 +395,40 @@ def test_model_mapping_best_effort(monkeypatch):
     assert server.set_model_called_with == "openrouter:gemini-3.5-flash"
 
 
+def test_model_alias_resolution():
+    """Short aliases, full ids, and litellm-style ids all map to Hermes modelIds."""
+    catalog = {
+        "availableModels": [
+            {"modelId": m}
+            for m in [
+                "openrouter:anthropic/claude-opus-4.8",
+                "openrouter:anthropic/claude-opus-4.8-fast",
+                "openrouter:anthropic/claude-sonnet-4.6",
+                "openrouter:openai/gpt-5.5",
+                "openrouter:openai/gpt-5.5-pro",
+                "openrouter:google/gemini-3.1-pro-preview",
+                "openrouter:google/gemini-3.5-flash",
+            ]
+        ]
+    }
+    m = hermes_backend._map_model
+    # alias → base variant (not -fast / -pro)
+    assert m("opus", catalog) == "openrouter:anthropic/claude-opus-4.8"
+    assert m("opus-fast", catalog) == "openrouter:anthropic/claude-opus-4.8-fast"
+    assert m("sonnet", catalog) == "openrouter:anthropic/claude-sonnet-4.6"
+    assert m("gpt", catalog) == "openrouter:openai/gpt-5.5"
+    assert m("gemini", catalog) == "openrouter:google/gemini-3.1-pro-preview"
+    # full id → exact
+    assert m("openrouter:openai/gpt-5.5", catalog) == "openrouter:openai/gpt-5.5"
+    # litellm-style id → mapped
+    assert m("gemini/gemini-3.5-flash", catalog) == "openrouter:google/gemini-3.5-flash"
+    # bare substring picks the shortest (base) variant
+    assert m("gpt-5.5", catalog) == "openrouter:openai/gpt-5.5"
+    # unknown → None (leave Hermes on its default)
+    assert m("bogus-xyz", catalog) is None
+    assert m("", catalog) is None
+
+
 def test_core_branch_selects_hermes(monkeypatch):
     """interpreter.backend == 'hermes' routes _respond_and_store through hermes_backend."""
     from interpreter import OpenInterpreter

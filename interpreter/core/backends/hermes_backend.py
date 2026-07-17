@@ -173,6 +173,32 @@ def _latest_user_text(interpreter) -> str:
     return ""
 
 
+def _compose_prompt(interpreter) -> str:
+    """The text sent to Hermes for a turn: OI's assembled system message (incl.
+    source-routing) as a labeled preamble, then the user request.
+
+    ACP has no separate system-prompt slot (``acp_client.new_session``/``prompt``
+    take no instructions), so OI's prompt must ride in the prompt text or hermes
+    runs without it. Non-blocking: if the system message can't be built, fall back
+    to the user text alone (prior behavior).
+    """
+    user_text = _latest_user_text(interpreter)
+    try:
+        from ..services.system_message_builder import SystemMessageBuilder
+
+        system_message = SystemMessageBuilder().build(interpreter)
+    except Exception:
+        system_message = ""
+    if not system_message:
+        return user_text
+    return (
+        "# System instructions\n"
+        f"{system_message}\n\n"
+        "# User request\n"
+        f"{user_text}"
+    )
+
+
 # Friendly short aliases → a needle matched against Hermes's live model catalog.
 # Resolved against availableModels at runtime, so these stay valid as the catalog
 # shifts (e.g. "sonnet" tracks whatever claude-sonnet-* is offered).
@@ -367,7 +393,7 @@ async def _drive(interpreter, chunk_q: queue.Queue, state: dict) -> None:
         if stop_event is not None:
             watcher = asyncio.create_task(_watch_stop(stop_event, client, session_id))
 
-        await client.prompt(session_id, _latest_user_text(interpreter))
+        await client.prompt(session_id, _compose_prompt(interpreter))
     except ACPError as e:
         chunk_q.put(
             {

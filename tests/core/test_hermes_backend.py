@@ -445,3 +445,39 @@ def test_core_branch_selects_hermes(monkeypatch):
     chunks = list(interp._respond_and_store())
     contents = [c.get("content") for c in chunks if c.get("type") == "message"]
     assert "from-hermes" in contents
+
+
+def test_compose_prompt_prepends_system_message():
+    """Phase 1: hermes turns carry OI's assembled system message (ACP has no
+    separate system-prompt slot) ahead of the user request."""
+    from interpreter.core.core import OpenInterpreter
+
+    interp = OpenInterpreter()
+    interp.system_message = "SENTINEL_SYSTEM_PROMPT"
+    interp.messages = [{"role": "user", "type": "message", "content": "do the thing"}]
+
+    out = hermes_backend._compose_prompt(interp)
+
+    assert "SENTINEL_SYSTEM_PROMPT" in out
+    assert "do the thing" in out
+    assert out.index("SENTINEL_SYSTEM_PROMPT") < out.index("do the thing")
+
+
+def test_compose_prompt_falls_back_to_user_text_on_build_failure(monkeypatch):
+    """Non-blocking: if the system message can't be built, hermes still gets the
+    user request (prior behavior)."""
+    from interpreter.core.core import OpenInterpreter
+    from interpreter.core.services import system_message_builder as smb
+
+    interp = OpenInterpreter()
+    interp.messages = [
+        {"role": "user", "type": "message", "content": "just the user text"}
+    ]
+
+    def boom(self, interpreter):
+        raise RuntimeError("build failed")
+
+    monkeypatch.setattr(smb.SystemMessageBuilder, "build", boom)
+
+    out = hermes_backend._compose_prompt(interp)
+    assert out == "just the user text"

@@ -254,6 +254,211 @@ def _feed_trace_to_llm(interpreter) -> None:
         logger.debug(f"Trace feedback failed (non-blocking): {e}")
 
 
+def _detect_file_changes_and_commit(
+    interpreter, snapshots_before: dict, status: dict
+) -> dict:
+    """Diff source files against ``snapshots_before``, emit FILE_CHANGE display
+    events, record changes to memory, and auto-commit. Returns the changed-files
+    map (also consumed by auto-test). Sets ``status['committed']``.
+
+    File-change *detection* stays here (shared infra); memory recording and
+    commit are delegated to MemoryRecorder.
+    """
+    changed_files: dict = {}
+    if not snapshots_before:
+        return changed_files
+    try:
+        from .utils.file_snapshot import capture_source_file_states, diff_file_states
+
+        snapshots_after = capture_source_file_states(interpreter.computer.cwd or ".")
+        changed_files = diff_file_states(snapshots_before, snapshots_after)
+
+        # Emit FILE_CHANGE events for UI diff display
+        if changed_files and getattr(interpreter, "show_file_diffs", False):
+            event_bus = get_event_bus()
+            for file_path, (old_content, new_content) in changed_files.items():
+                event_bus.emit(
+                    UIEvent(
+                        type=EventType.FILE_CHANGE,
+                        data={
+                            "file_path": file_path,
+                            "old_content": old_content,
+                            "new_content": new_content,
+                            "language": _detect_language(file_path),
+                        },
+                        source="respond",
+                    )
+                )
+
+        # Record detected file changes to semantic memory, then auto-commit them
+        # (both guarded/non-blocking in the service).
+        user_msgs = [m for m in interpreter.messages if m.get("role") == "user"]
+        recorder = MemoryRecorder()
+        edits_to_commit = recorder.record_file_changes(
+            interpreter,
+            changed_files,
+            user_msgs[-1].get("content", "") if user_msgs else "",
+        )
+        # === AUTO-COMMIT HOOK ===
+        commit_hash = recorder.commit_edits(interpreter, edits_to_commit)
+        if commit_hash:
+            status["committed"] = True
+    except Exception as e:
+        logger.debug(f"File change detection failed (non-blocking): {e}")
+
+    return changed_files
+
+
+def _run_auto_tests(interpreter, changed_files: dict, status: dict):
+    """Discover and run tests related to changed .py files, yielding [AutoTest]
+    console chunks and feeding failures back to the LLM. Sets ``status['tested']``."""
+    if not (interpreter.enable_auto_test and changed_files):
+        return
+    try:
+        from pathlib import Path
+
+        from .validation import TestDiscovery
+
+        # Emit test start event for UI feedback
+        event_bus = get_event_bus()
+        changed_py_files = [f for f in changed_files.keys() if f.endswith(".py")]
+        event_bus.emit(
+            UIEvent(
+                type=EventType.TEST_START,
+                data={"files_changed": len(changed_py_files)},
+                source="respond",
+            )
+        )
+
+        discovery = TestDiscovery(interpreter.computer.cwd or ".")
+
+        # WHY: Batch lookup builds test index once instead of per-file.
+        # TRADEOFF: Slight memory overhead vs. O(n^2) file walks.
+        all_test_results = []
+        py_files = [f for f in changed_files.keys() if f.endswith(".py")]
+
+        # Use batch method to find related tests for all files at once
+        if py_files:
+            related_tests_map = discovery.find_related_tests_batch(
+                py_files, max_tests_per_file=5
+            )
+
+            for file_path in py_files:
+                related_tests = related_tests_map.get(file_path, [])
+                if related_tests:
+                    result = discovery.run_tests(related_tests[:5], timeout_seconds=60)
+                    all_test_results.append((file_path, result))
+
+        # Report test results
+        failed_tests_context = []
+        for file_path, result in all_test_results:
+            if result.passed:
+                status_msg = f"✓ Tests passed for {Path(file_path).name}"
+            else:
+                status_msg = f"✗ Tests failed for {Path(file_path).name}: {result.failed_test_names}"
+                failed_tests_context.append(
+                    {
+                        "file": file_path,
+                        "failed": result.failed_test_names,
+                        "output": (result.output[:1000] if result.output else ""),
+                    }
+                )
+
+            yield {
+                "role": "computer",
+                "type": "console",
+                "format": "output",
+                "content": f"[AutoTest] {status_msg}\n",
+            }
+
+        # Feed test failures to LLM for analysis
+        if failed_tests_context:
+            failure_summary = "\n".join(
+                [
+                    f"- {f['file']}: {', '.join(f['failed'])}\n  Output: {f['output'][:200]}..."
+                    for f in failed_tests_context
+                ]
+            )
+            interpreter.messages.append(
+                {
+                    "role": "user",
+                    "type": "message",
+                    "content": (
+                        "Tests failed after your code changes:\n\n"
+                        f"{failure_summary}\n\n"
+                        "Recommend: (1) fix now, (2) add to todos, or (3) continue without fixing."
+                    ),
+                }
+            )
+
+        status["tested"] = len(all_test_results) > 0
+
+        # Emit test end event with results
+        passed_count = sum(1 for _, r in all_test_results if r.passed)
+        failed_count = len(all_test_results) - passed_count
+        event_bus.emit(
+            UIEvent(
+                type=EventType.TEST_END,
+                data={
+                    "tests_run": len(all_test_results),
+                    "passed": passed_count,
+                    "failed": failed_count,
+                },
+                source="respond",
+            )
+        )
+    except Exception as e:
+        logger.debug(f"Auto-test failed (non-blocking): {e}")
+
+
+def _yield_status_indicator(status: dict):
+    """Yield the single post-execution feature-status chunk (if any hook ran)."""
+    if any(status.values()):
+        status_parts = []
+        if status["validated"]:
+            status_parts.append("✓ validated")
+        if status["traced"]:
+            status_parts.append("✓ traced")
+        if status["recorded"]:
+            status_parts.append("✓ recorded")
+        if status["tested"]:
+            status_parts.append("✓ tested")
+        if status["committed"]:
+            status_parts.append("✓ committed")
+        yield {
+            "role": "computer",
+            "type": "status",
+            "format": "features",
+            "content": " | ".join(status_parts),
+        }
+
+
+def _sync_computer_after(interpreter, language: str) -> None:
+    """Sync your Computer with the in-language computer's state after running."""
+    try:
+        if interpreter.sync_computer and language == "python":
+            # sync up the interpreter's computer with your computer
+            result = interpreter.computer.run(
+                "python",
+                """
+                import json
+                computer_dict = computer.to_dict()
+                if '_hashes' in computer_dict:
+                    computer_dict.pop('_hashes')
+                if "system_message" in computer_dict:
+                    computer_dict.pop("system_message")
+                print(json.dumps(computer_dict))
+                """,
+            )
+            result = result[-1]["content"]
+            interpreter.computer.load_dict(json.loads(result.strip('"').strip("'")))
+    except Exception as e:
+        if interpreter.debug:
+            raise
+        logger.error(str(e))
+        logger.warning("Failed to sync your Computer with iComputer. Continuing.")
+
+
 def _run_mcp_tool(interpreter):
     """
     Execute an MCP tool call and yield result chunks.
@@ -1126,226 +1331,19 @@ def respond(interpreter):
                 )
 
                 # === FILE CHANGE DETECTION: AFTER ===
-                _changed_files = {}
-                if _file_snapshots_before:
-                    try:
-                        from .utils.file_snapshot import (
-                            capture_source_file_states,
-                            diff_file_states,
-                        )
-
-                        _file_snapshots_after = capture_source_file_states(
-                            interpreter.computer.cwd or "."
-                        )
-                        _changed_files = diff_file_states(
-                            _file_snapshots_before, _file_snapshots_after
-                        )
-
-                        # Emit FILE_CHANGE events for UI diff display
-                        if _changed_files and getattr(
-                            interpreter, "show_file_diffs", False
-                        ):
-                            event_bus = get_event_bus()
-                            for file_path, (
-                                old_content,
-                                new_content,
-                            ) in _changed_files.items():
-                                event_bus.emit(
-                                    UIEvent(
-                                        type=EventType.FILE_CHANGE,
-                                        data={
-                                            "file_path": file_path,
-                                            "old_content": old_content,
-                                            "new_content": new_content,
-                                            "language": _detect_language(file_path),
-                                        },
-                                        source="respond",
-                                    )
-                                )
-
-                        # Record detected file changes to semantic memory, then
-                        # auto-commit them (both guarded/non-blocking in the service).
-                        user_msgs = [
-                            m for m in interpreter.messages if m.get("role") == "user"
-                        ]
-                        _recorder = MemoryRecorder()
-                        edits_to_commit = _recorder.record_file_changes(
-                            interpreter,
-                            _changed_files,
-                            user_msgs[-1].get("content", "") if user_msgs else "",
-                        )
-                        # === AUTO-COMMIT HOOK ===
-                        commit_hash = _recorder.commit_edits(
-                            interpreter, edits_to_commit
-                        )
-                        if commit_hash:
-                            _status["committed"] = True
-                    except Exception as e:
-                        logger.debug(
-                            f"File change detection failed (non-blocking): {e}"
-                        )
-                        pass  # Non-blocking
+                _changed_files = _detect_file_changes_and_commit(
+                    interpreter, _file_snapshots_before, _status
+                )
 
                 # === AUTO-TEST HOOK ===
-                if interpreter.enable_auto_test and _changed_files:
-                    try:
-                        from pathlib import Path
-
-                        from .validation import TestDiscovery
-
-                        # Emit test start event for UI feedback
-                        event_bus = get_event_bus()
-                        changed_py_files = [
-                            f for f in _changed_files.keys() if f.endswith(".py")
-                        ]
-                        event_bus.emit(
-                            UIEvent(
-                                type=EventType.TEST_START,
-                                data={"files_changed": len(changed_py_files)},
-                                source="respond",
-                            )
-                        )
-
-                        discovery = TestDiscovery(interpreter.computer.cwd or ".")
-
-                        # WHY: Batch lookup builds test index once instead of per-file.
-                        # TRADEOFF: Slight memory overhead vs. O(n^2) file walks.
-                        all_test_results = []
-                        py_files = [
-                            f for f in _changed_files.keys() if f.endswith(".py")
-                        ]
-
-                        # Use batch method to find related tests for all files at once
-                        if py_files:
-                            related_tests_map = discovery.find_related_tests_batch(
-                                py_files, max_tests_per_file=5
-                            )
-
-                            for file_path in py_files:
-                                related_tests = related_tests_map.get(file_path, [])
-                                if related_tests:
-                                    result = discovery.run_tests(
-                                        related_tests[:5], timeout_seconds=60
-                                    )
-                                    all_test_results.append((file_path, result))
-
-                        # Report test results
-                        failed_tests_context = []
-                        for file_path, result in all_test_results:
-                            if result.passed:
-                                status_msg = (
-                                    f"\u2713 Tests passed for {Path(file_path).name}"
-                                )
-                            else:
-                                status_msg = f"\u2717 Tests failed for {Path(file_path).name}: {result.failed_test_names}"
-                                failed_tests_context.append(
-                                    {
-                                        "file": file_path,
-                                        "failed": result.failed_test_names,
-                                        "output": (
-                                            result.output[:1000]
-                                            if result.output
-                                            else ""
-                                        ),
-                                    }
-                                )
-
-                            yield {
-                                "role": "computer",
-                                "type": "console",
-                                "format": "output",
-                                "content": f"[AutoTest] {status_msg}\n",
-                            }
-
-                        # Feed test failures to LLM for analysis
-                        if failed_tests_context:
-                            failure_summary = "\n".join(
-                                [
-                                    f"- {f['file']}: {', '.join(f['failed'])}\n  Output: {f['output'][:200]}..."
-                                    for f in failed_tests_context
-                                ]
-                            )
-                            interpreter.messages.append(
-                                {
-                                    "role": "user",
-                                    "type": "message",
-                                    "content": (
-                                        "Tests failed after your code changes:\n\n"
-                                        f"{failure_summary}\n\n"
-                                        "Recommend: (1) fix now, (2) add to todos, or (3) continue without fixing."
-                                    ),
-                                }
-                            )
-
-                        _status["tested"] = len(all_test_results) > 0
-
-                        # Emit test end event with results
-                        passed_count = sum(1 for _, r in all_test_results if r.passed)
-                        failed_count = len(all_test_results) - passed_count
-                        event_bus.emit(
-                            UIEvent(
-                                type=EventType.TEST_END,
-                                data={
-                                    "tests_run": len(all_test_results),
-                                    "passed": passed_count,
-                                    "failed": failed_count,
-                                },
-                                source="respond",
-                            )
-                        )
-                    except Exception as e:
-                        logger.debug(f"Auto-test failed (non-blocking): {e}")
-                        pass  # Non-blocking
+                yield from _run_auto_tests(interpreter, _changed_files, _status)
 
                 # === STATUS INDICATOR (post-execution) ===
-                if any(_status.values()):
-                    status_parts = []
-                    if _status["validated"]:
-                        status_parts.append("\u2713 validated")
-                    if _status["traced"]:
-                        status_parts.append("\u2713 traced")
-                    if _status["recorded"]:
-                        status_parts.append("\u2713 recorded")
-                    if _status["tested"]:
-                        status_parts.append("\u2713 tested")
-                    if _status["committed"]:
-                        status_parts.append("\u2713 committed")
-                    yield {
-                        "role": "computer",
-                        "type": "status",
-                        "format": "features",
-                        "content": " | ".join(status_parts),
-                    }
+                yield from _yield_status_indicator(_status)
 
                 ## ↑ CODE IS RUN HERE
 
-                # sync up your computer with the interpreter's computer
-                try:
-                    if interpreter.sync_computer and language == "python":
-                        # sync up the interpreter's computer with your computer
-                        result = interpreter.computer.run(
-                            "python",
-                            """
-                            import json
-                            computer_dict = computer.to_dict()
-                            if '_hashes' in computer_dict:
-                                computer_dict.pop('_hashes')
-                            if "system_message" in computer_dict:
-                                computer_dict.pop("system_message")
-                            print(json.dumps(computer_dict))
-                            """,
-                        )
-                        result = result[-1]["content"]
-                        interpreter.computer.load_dict(
-                            json.loads(result.strip('"').strip("'"))
-                        )
-                except Exception as e:
-                    if interpreter.debug:
-                        raise
-                    logger.error(str(e))
-                    logger.warning(
-                        "Failed to sync your Computer with iComputer. Continuing."
-                    )
+                _sync_computer_after(interpreter, language)
 
                 # yield final "active_line" message, as if to say, no more code is running. unhighlight active lines
                 # (is this a good idea? is this our responsibility? i think so — we're saying what line of code is running! ...?)

@@ -32,6 +32,12 @@ def _interp(enable, messages):
     it.messages = messages
     it._outcome_store = OutcomeStore(db_path=None)  # fresh in-memory, hermetic
     it._last_outcome_scan = 0
+    # neutralize sibling task section (shared enable_memory_preprompt gate)
+    from interpreter.core.memory.tasks import TaskStore
+
+    it._task_store = TaskStore(db_path=None)
+    it._last_task_capture = None
+    it.task_limit = 10
     return it
 
 

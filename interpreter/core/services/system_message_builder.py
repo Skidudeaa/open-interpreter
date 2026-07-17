@@ -164,10 +164,42 @@ class SystemMessageBuilder:
         non-blocking, so the base system message is never affected."""
         sections = [
             self._preferences_section(interpreter),
+            self._tasks_section(interpreter),
             self._outcome_section(interpreter),
             self._edit_memory_section(interpreter),
         ]
         return "\n\n".join(s for s in sections if s)
+
+    def _tasks_section(self, interpreter) -> str:
+        """Capture task open/complete declarations from the current message and
+        inject the open set for continuity. Store lazily attached to the
+        interpreter (no core.py dependency); capture deduped per message."""
+        if not getattr(interpreter, "enable_memory_preprompt", False):
+            return ""
+        try:
+            store = getattr(interpreter, "_task_store", None)
+            if store is None:
+                from ...terminal_interface.utils.local_storage_path import (
+                    get_storage_path,
+                )
+                from ..memory.tasks import TaskStore
+
+                store = TaskStore(db_path=get_storage_path("tasks.db"))
+                interpreter._task_store = store
+            query = self._latest_user_query(interpreter)
+            if query and getattr(interpreter, "_last_task_capture", None) != query:
+                interpreter._last_task_capture = query
+                store.record_from_text(query)
+            open_tasks = store.get_open(limit=getattr(interpreter, "task_limit", 10))
+            if not open_tasks:
+                return ""
+            lines = [f"- {t.title}" for t in open_tasks]
+            return (
+                "## Open tasks\n"
+                "Work in progress — keep these in mind:\n" + "\n".join(lines)
+            )
+        except Exception:  # task memory must never break the system message
+            return ""
 
     def _outcome_section(self, interpreter) -> str:
         """Record execution failures from the conversation and inject a warning

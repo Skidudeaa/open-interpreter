@@ -1,27 +1,17 @@
-"""Unit tests for the extracted CodeGate service.
-
-These pin the CURRENT (buggy) no-op behavior verbatim. Plan Step 6 fixes the gate
-and deliberately updates these expectations.
-"""
+"""Unit tests for the CodeGate service (post Step-6 fix: the gate actually
+validates)."""
 
 from types import SimpleNamespace
 
 import pytest
 
 from interpreter.core.validation.code_gate import CodeGate
-from interpreter.core.validation.syntax_checker import SyntaxCheckResult
+from interpreter.core.validation.syntax_checker import SyntaxChecker
 from interpreter.terminal_interface.components.ui_events import (
     EventType,
     get_event_bus,
     reset_event_bus,
 )
-
-
-class _DataclassReturningChecker:
-    """Mimics the real SyntaxChecker: returns a dataclass (no .get method)."""
-
-    def check(self, *args, **kwargs):
-        return SyntaxCheckResult(valid=True, language="python")
 
 
 @pytest.fixture(autouse=True)
@@ -47,12 +37,9 @@ def test_no_syntax_checker_returns_not_validated():
     assert CodeGate().check(interp, "python", "print(1)") == (False, [])
 
 
-def test_enabled_is_currently_a_noop_but_sets_validated():
-    """VALIDATION_START fires and validated=True, but the swallowed dataclass-.get
-    bug means VALIDATION_END never fires and no error lines are produced."""
-    interp = SimpleNamespace(
-        enable_validation=True, syntax_checker=_DataclassReturningChecker()
-    )
+def test_valid_code_validates_with_no_errors():
+    """Both start and end events fire; valid code yields no error lines."""
+    interp = SimpleNamespace(enable_validation=True, syntax_checker=SyntaxChecker())
     events = _events()
 
     validated, error_lines = CodeGate().check(interp, "python", "print(1)")
@@ -61,4 +48,20 @@ def test_enabled_is_currently_a_noop_but_sets_validated():
     assert error_lines == []
     types = {ev.type for ev in events}
     assert EventType.VALIDATION_START in types
-    assert EventType.VALIDATION_END not in types  # THE BUG
+    assert EventType.VALIDATION_END in types
+
+
+def test_invalid_code_surfaces_error_lines():
+    """Invalid syntax produces [Validation] error lines and fires VALIDATION_END."""
+    interp = SimpleNamespace(enable_validation=True, syntax_checker=SyntaxChecker())
+    events = _events()
+
+    validated, error_lines = CodeGate().check(
+        interp, "python", "def broken(:\n    pass"
+    )
+
+    assert validated is True
+    assert error_lines, "invalid code should produce error lines"
+    assert all(line.startswith("[Validation] ") for line in error_lines)
+    types = {ev.type for ev in events}
+    assert EventType.VALIDATION_END in types

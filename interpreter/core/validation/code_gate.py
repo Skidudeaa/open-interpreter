@@ -4,19 +4,17 @@
 ``(validated: bool, error_lines: list[str])`` — ``validated`` drives the
 '✓ validated' status flag, ``error_lines`` are console strings the caller yields.
 
-IMPORTANT — this preserves a PRE-EXISTING BUG verbatim so the decomposition stays
-behavior-identical. The gate calls ``syntax_checker.check(language, code)`` with
-the arguments swapped (the real signature is ``check(code, file_path,
-language=None)`` returning a ``SyntaxCheckResult`` dataclass), then calls
-``.get("valid")`` on that dataclass — which has no ``.get`` — raising
-AttributeError that the non-blocking except swallows. Net effect TODAY:
-``VALIDATION_START`` fires and ``validated`` is set True, but ``VALIDATION_END``
-never fires and no ``[Validation]`` error lines are ever produced.
-
-The real fix (route through ``syntax_checker.check(code, file_path=...,
-language=...)`` / ``EditValidator`` and read ``result.valid``/``result.errors``
-off the dataclass) is a deliberate, separately-approved behavior change — see the
-respond-decomposition plan Step 6 — not part of this extraction.
+This gate previously did nothing: the inline code called
+``syntax_checker.check(language, code)`` with the arguments swapped (the real
+signature is ``check(code, file_path, language=None)`` returning a
+``SyntaxCheckResult`` dataclass) and then called ``.get("valid")`` on the
+dataclass, raising an AttributeError the non-blocking except swallowed — so
+``VALIDATION_START`` fired but ``VALIDATION_END`` never did and no ``[Validation]``
+lines were produced. That bug is now fixed: we call ``check`` with the correct
+arguments and read ``result.valid`` / ``result.errors`` off the dataclass, so
+validation actually runs (opt-in via ``enable_validation``). Failures remain
+non-blocking (surfaced as ``[Validation]`` console lines; execution still
+proceeds).
 """
 
 from __future__ import annotations
@@ -29,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 class CodeGate:
-    """Pre-execution syntax gate (currently a no-op; see module docstring)."""
+    """Pre-execution syntax gate."""
 
     def check(self, interpreter, language: str, code: str) -> tuple[bool, list[str]]:
         validated = False
@@ -49,12 +47,15 @@ class CodeGate:
                 )
             )
 
-            # BUG (preserved): args are swapped and .get() is called on a dataclass;
-            # this raises and is swallowed below. See module docstring / plan Step 6.
-            validation_result = interpreter.syntax_checker.check(language, code)
+            # Correct call: check(code, file_path, language=...). file_path is only
+            # used to label error locations; this is script execution (no file), so
+            # pass "" and set language explicitly.
+            validation_result = interpreter.syntax_checker.check(
+                code, "", language=language
+            )
             validated = True
-            is_valid = validation_result.get("valid", True)
-            errors = validation_result.get("errors", [])
+            is_valid = validation_result.valid
+            errors = validation_result.errors
 
             # Emit end event with result
             event_bus.emit(

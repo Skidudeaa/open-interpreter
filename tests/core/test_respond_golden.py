@@ -227,11 +227,10 @@ def test_golden_mcp_sentinel_is_filtered(monkeypatch):
 # --------------------------------------------------------------------------
 # Flow 5 — validation gate: pins the CURRENT buggy no-op behavior
 # --------------------------------------------------------------------------
-def test_golden_validation_gate_is_currently_a_noop():
-    """Today the gate emits VALIDATION_START and sets the 'validated' status
-    flag, but the swapped-args + dataclass-.get() bug means VALIDATION_END never
-    fires and no validation-error chunks are yielded. Step 6 fixes this and
-    updates this golden deliberately.
+def test_golden_validation_gate_runs_on_valid_code():
+    """After the Step-6 fix, the gate actually validates: both VALIDATION_START
+    and VALIDATION_END fire. For valid code (print('hi')) there are no
+    [Validation] error chunks, and the status indicator reports 'validated'.
     """
     interp = _quiet_interpreter()
     interp.enable_validation = True
@@ -260,18 +259,17 @@ def test_golden_validation_gate_is_currently_a_noop():
 
     event_types = {ev.type for ev in events}
     assert EventType.VALIDATION_START in event_types
-    # THE BUG: end never fires today.
-    assert EventType.VALIDATION_END not in event_types
+    assert EventType.VALIDATION_END in event_types  # fixed: end now fires
 
-    # No [Validation] error chunks today.
+    # Valid code -> no [Validation] error chunks.
     assert not any(
         "[Validation]" in (c.get("content") or "")
         for c in chunks
         if isinstance(c.get("content"), str)
     )
 
-    # But the status indicator still reports "validated" (flag was set). Filter to
-    # the content-bearing status chunk (start/end flag delimiters carry no content).
+    # The status indicator reports "validated". Filter to the content-bearing
+    # status chunk (start/end flag delimiters carry no content).
     status_contents = [
         c["content"]
         for c in chunks
@@ -279,3 +277,42 @@ def test_golden_validation_gate_is_currently_a_noop():
     ]
     assert status_contents, "expected a status/features chunk with content"
     assert any("validated" in content for content in status_contents)
+
+
+def test_golden_validation_gate_surfaces_errors_on_invalid_code():
+    """Invalid code now yields a [Validation] error chunk (execution still
+    proceeds — the gate is non-blocking)."""
+    interp = _quiet_interpreter()
+    interp.enable_validation = True
+    interp.auto_run = True
+    interp.messages = [
+        {"role": "user", "type": "message", "content": "run it"},
+        {
+            "role": "assistant",
+            "type": "code",
+            "format": "python",
+            "content": "def broken(:\n    pass",  # syntax error
+        },
+    ]
+
+    def fake_run(language, code, stream=False):
+        yield {"type": "console", "format": "output", "content": "ran anyway\n"}
+
+    def fake_llm_run(messages):
+        yield {"type": "message", "content": "done"}
+
+    interp.computer.run = fake_run
+    interp.llm.run = fake_llm_run
+
+    events = _capture_events()
+    chunks = list(interp._respond_and_store())
+
+    event_types = {ev.type for ev in events}
+    assert EventType.VALIDATION_START in event_types
+    assert EventType.VALIDATION_END in event_types
+
+    assert any(
+        "[Validation]" in (c.get("content") or "")
+        for c in chunks
+        if isinstance(c.get("content"), str)
+    ), "invalid code should surface a [Validation] error chunk"

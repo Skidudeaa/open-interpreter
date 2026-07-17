@@ -62,7 +62,19 @@ class SystemMessageBuilder:
 
     def build(self, interpreter) -> str:
         """
-        Build the system message with caching based on dependencies.
+        Build the system message: cached static base + an optional dynamic
+        memory preamble (relevant past memories, reranked) injected per-turn.
+        The static base keeps its dependency cache; the preamble is recomputed
+        each call (it depends on the current user query) and is empty unless
+        ``enable_memory_preprompt`` is on with semantic memory available.
+        """
+        static = self._build_static(interpreter)
+        preamble = self._build_memory_preamble(interpreter)
+        return f"{preamble}\n\n{static}" if preamble else static
+
+    def _build_static(self, interpreter) -> str:
+        """
+        Build the static system message with caching based on dependencies.
         Returns cached version if dependencies haven't changed.
         """
         # Build cache key from dependencies (exclude id; we store per-interpreter id already)
@@ -131,3 +143,52 @@ class SystemMessageBuilder:
             _system_message_cache.clear()
 
         return system_message
+
+    @staticmethod
+    def _latest_user_query(interpreter) -> str:
+        """The most recent user text message — the query to retrieve memories for."""
+        for msg in reversed(getattr(interpreter, "messages", []) or []):
+            if not isinstance(msg, dict):
+                continue
+            if msg.get("role") == "user" and msg.get("type", "message") == "message":
+                content = msg.get("content")
+                if isinstance(content, str):
+                    return content
+                if isinstance(content, list):
+                    return " ".join(str(x) for x in content)
+        return ""
+
+    def _build_memory_preamble(self, interpreter) -> str:
+        """Retrieve relevant past memories for the current query and format them
+        as a preamble. Fully non-blocking: returns '' when disabled, unavailable,
+        empty, or on any error — so the base system message is never affected."""
+        if not getattr(interpreter, "enable_memory_preprompt", False):
+            return ""
+        try:
+            graph = getattr(interpreter, "semantic_graph", None)
+            if graph is None or not hasattr(graph, "semantic_search"):
+                return ""
+            query = self._latest_user_query(interpreter)
+            if not query:
+                return ""
+            results = graph.semantic_search(
+                query,
+                limit=getattr(interpreter, "memory_preprompt_limit", 5),
+                reranker=getattr(interpreter, "reranker", None),
+            )
+            lines: list[str] = []
+            for r in results:
+                content = (r.get("content") or "").strip()
+                if not content:
+                    continue
+                path = (r.get("metadata") or {}).get("file_path")
+                lines.append(f"- {content}" + (f" ({path})" if path else ""))
+            if not lines:
+                return ""
+            return (
+                "## Relevant context from past work\n"
+                "These past memories may relate to the current request:\n"
+                + "\n".join(lines)
+            )
+        except Exception:  # pre-prompting must never break the system message
+            return ""

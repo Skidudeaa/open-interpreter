@@ -381,6 +381,11 @@ class OpenInterpreter:
         self.rerank_model = os_module.environ.get(
             "OI_RERANK_MODEL", "cohere/rerank-v4.0-pro"
         )
+        # Memory pre-prompting: inject relevant past memories (reranked) into the
+        # system message before the LLM sees the request. Opt-in (adds a retrieval
+        # per turn); no-ops without semantic memory.
+        self.enable_memory_preprompt = False
+        self.memory_preprompt_limit = 5
 
         # Plugin system (lazy-initialized)
         self._plugin_registry = None
@@ -446,6 +451,7 @@ class OpenInterpreter:
             self.auto_commit = True
             self.enable_observability = True
             self.enable_reranker = True  # no-ops without a key, so harmless
+            self.enable_memory_preprompt = True  # no-ops without semantic memory
             # NOTE: intent_refiner deliberately NOT enabled here - it causes
             # workflow misrouting by transforming simple commands into complex ones
 
@@ -474,6 +480,7 @@ class OpenInterpreter:
             "enable_intent_refiner",
             "enable_observability",
             "enable_reranker",
+            "enable_memory_preprompt",
             "backend",
         ]
 
@@ -723,6 +730,7 @@ class OpenInterpreter:
         self.enable_context_compaction = True
         self.enable_observability = True
         self.enable_reranker = True  # no-ops without a provider key
+        self.enable_memory_preprompt = True  # no-ops without semantic memory
         return self
 
     def local_setup(self):

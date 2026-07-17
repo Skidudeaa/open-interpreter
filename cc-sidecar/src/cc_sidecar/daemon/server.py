@@ -81,9 +81,13 @@ class SidecarDaemon:
 
     def process_event(self, envelope: dict[str, Any]) -> None:
         """Process an incoming event envelope."""
+        # Extract identity outside the try so a failure below can be logged
+        # with the event that caused it — a bare "Error processing event" makes
+        # dropped events undiagnosable. The raw event is stored first, so a
+        # reducer failure is recoverable by replaying raw_events.
+        event_name = envelope.get("event_name", "Unknown")
+        session_id = envelope.get("session_id", "unknown")
         try:
-            event_name = envelope.get("event_name", "Unknown")
-            session_id = envelope.get("session_id", "unknown")
             payload = envelope.get("payload", {})
             received_at_ms = envelope.get("received_at_ms", int(time.time() * 1000))
             seq = envelope.get("seq", self._next_seq())
@@ -116,7 +120,9 @@ class SidecarDaemon:
             )
 
         except Exception:
-            logger.exception("Error processing event")
+            logger.exception(
+                "Error processing event %s for session %s", event_name, session_id
+            )
 
     def _broadcast_ws(self, message: dict[str, Any]) -> None:
         """Broadcast a message to all WebSocket clients.
@@ -144,7 +150,14 @@ class SidecarDaemon:
         # Clean up stale socket
         if self._socket_path.exists():
             self._socket_path.unlink()
-        self._socket_path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+        sock_dir = self._socket_path.parent
+        sock_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+        # mkdir(exist_ok=True) does not tighten a pre-existing dir with looser
+        # perms; enforce owner-only explicitly so the socket is never exposed.
+        try:
+            sock_dir.chmod(0o700)
+        except OSError:
+            logger.warning("Could not enforce 0o700 on %s", sock_dir)
 
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.bind(str(self._socket_path))

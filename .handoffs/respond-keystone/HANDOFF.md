@@ -33,7 +33,20 @@ preamble to `SystemMessageBuilder.build()`. Verified it does NOT break the golde
    from the enum) AND `language=` (not an `Edit` field) — so it silently no-op'd. Fixed to `EditType.UNKNOWN`
    with language in `user_intent`; verified end-to-end (real SemanticEditGraph records the edit + MEMORY_RECORD).
 
-## Next: HERMES ChunkPipeline
+## HERMES ChunkPipeline — Phases 0-4 DONE (branch `feat/hermes-chunkpipeline`)
+
+Executed `.planning/HERMES_CHUNKPIPELINE_PLAN.md` through Phase 4. Commits: `9c8af866`(P0 seam) →
+`5744cc54`(P1 system-msg→hermes) → `60dc077a`(P2 FileChangeDetector) → `7e3f9276`(P3 MemoryMiddleware) →
+`7507d7c6`(P4 ValidationMiddleware). New: `interpreter/core/pipeline/` (ChunkPipeline + Memory/Validation
+middleware), `interpreter/core/memory/file_change_detector.py`. Wired at `_respond_and_store` via lazy
+`chunk_pipeline` property; oi golden byte-identical throughout; all middleware no-op for oi (gated on
+`backend=="hermes"`). **P3 verified end-to-end: a hermes turn writing a file adds a row to the real
+graph.db (41→42).** OPEN: P1 not reproduced against a live hermes (needs uvx/network — verify hermes honors
+the in-prompt system preamble); P4 is warn-only (git-rollback deferred). **Phase 5 (Option-B consolidation)
+optional, not started.** Parallel session is landing memory-layer commits (pre-prompting/outcome/task-state)
+on the same lineage — coordinate branch points.
+
+## (superseded) Original next: HERMES ChunkPipeline
 
 Executable plan: `.planning/HERMES_CHUNKPIPELINE_PLAN.md` (scope: `HERMES_CHUNKPIPELINE_SCOPE.md`).
 Wire the 3 services into hermes via middleware at the `_respond_and_store` seam (`core.py:916-921`).

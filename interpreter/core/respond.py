@@ -58,6 +58,20 @@ def _strip_thinking_block_ids(thinking_blocks):
     return cleaned
 
 
+def _stamp_gemini_thought_signatures(interpreter) -> None:
+    """Replay Gemini 3.x thoughtSignatures onto the assistant's code message.
+
+    WHY: Gemini 3.x requires the thoughtSignature from each function-call part to
+    be replayed on the next turn or it 400s. run_tool_calling_llm captured it
+    during streaming; stamp it onto the assistant's code message so
+    convert_to_openai_messages can send it back.
+    """
+    _gtb = getattr(interpreter.llm, "_gemini_thinking_blocks", None)
+    if _gtb and interpreter.messages and interpreter.messages[-1].get("type") == "code":
+        interpreter.messages[-1]["thinking_blocks"] = _strip_thinking_block_ids(_gtb)
+    interpreter.llm._gemini_thinking_blocks = None
+
+
 # Intent refiner instance cache (lazy-loaded)
 @dataclass(slots=True)
 class _IntentRefinerCacheEntry:
@@ -238,20 +252,13 @@ def _run_mcp_tool(interpreter):
         }
 
 
-def respond(interpreter):
-    """
-    Yields chunks.
-    Responds until it decides not to run any more code or say anything else.
-    """
+def _start_mcp_background_connect(interpreter) -> None:
+    """Connect to configured MCP servers once per session, in a background thread.
 
-    last_unsupported_code = ""
-    insert_loop_message = False
-    loop_message = ""  # Initialized here, assigned in loop body
-
-    # ========= MCP SERVER CONNECTION (lazy, background, once per session) =========
-    # WHY: Connect to configured MCP servers to enable external tool use
-    # TRADEOFF: Background thread complexity vs blocking startup
-    # NOTE: Connection now happens in background thread to avoid startup delay
+    WHY: Connect to configured MCP servers to enable external tool use.
+    TRADEOFF: Background thread complexity vs blocking startup — connection
+    happens off the startup path so the interpreter stays responsive.
+    """
     _mcp_connected = getattr(interpreter, "_mcp_servers_connected", False)
     _mcp_connecting = getattr(interpreter, "_mcp_connecting", False)
     if (
@@ -313,6 +320,20 @@ def respond(interpreter):
         except Exception as e:
             logger.debug(f"MCP initialization failed (non-blocking): {e}")
             interpreter._mcp_connecting = False
+
+
+def respond(interpreter):
+    """
+    Yields chunks.
+    Responds until it decides not to run any more code or say anything else.
+    """
+
+    last_unsupported_code = ""
+    insert_loop_message = False
+    loop_message = ""  # Initialized here, assigned in loop body
+
+    # ========= MCP SERVER CONNECTION (lazy, background, once per session) =========
+    _start_mcp_background_connect(interpreter)
 
     while True:
         # ========= AGENT ORCHESTRATION (guarded) =========
@@ -693,21 +714,7 @@ def respond(interpreter):
                 network_status.end_request(success=_req_ok)
 
         ### ATTACH GEMINI THOUGHT-SIGNATURES (if any) ###
-
-        # WHY: Gemini 3.x requires the thoughtSignature from each function-call
-        # part to be replayed on the next turn or it 400s. run_tool_calling_llm
-        # captured it during streaming; stamp it onto the assistant's code
-        # message so convert_to_openai_messages can send it back.
-        _gtb = getattr(interpreter.llm, "_gemini_thinking_blocks", None)
-        if (
-            _gtb
-            and interpreter.messages
-            and interpreter.messages[-1].get("type") == "code"
-        ):
-            interpreter.messages[-1]["thinking_blocks"] = _strip_thinking_block_ids(
-                _gtb
-            )
-        interpreter.llm._gemini_thinking_blocks = None
+        _stamp_gemini_thought_signatures(interpreter)
 
         ### RUN CODE (if it's there) ###
 

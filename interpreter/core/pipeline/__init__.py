@@ -10,5 +10,6 @@ and may inject chunks, but never reorders the producer's chunks. See
 
 from .base import ChunkPipeline, Middleware
 from .memory_middleware import MemoryMiddleware
+from .validation_middleware import ValidationMiddleware
 
-__all__ = ["ChunkPipeline", "Middleware", "MemoryMiddleware"]
+__all__ = ["ChunkPipeline", "Middleware", "MemoryMiddleware", "ValidationMiddleware"]

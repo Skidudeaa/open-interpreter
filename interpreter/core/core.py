@@ -584,8 +584,10 @@ class OpenInterpreter:
         no-ops for the oi backend and activates for hermes; ordering is
         producer -> ... -> consumer."""
         from .pipeline.memory_middleware import MemoryMiddleware
+        from .pipeline.validation_middleware import ValidationMiddleware
 
-        return [MemoryMiddleware()]
+        # Memory first (records edits), then validation (warns on the same edits).
+        return [MemoryMiddleware(), ValidationMiddleware()]
 
     @property
     def preference_store(self):

@@ -38,6 +38,10 @@ def _interp(enable, messages):
     it._task_store = TaskStore(db_path=None)
     it._last_task_capture = None
     it.task_limit = 10
+    from interpreter.core.memory.context_patterns import ContextPatternStore
+
+    it._context_store = ContextPatternStore(db_path=None)
+    it._last_context_capture = None
     return it
 
 

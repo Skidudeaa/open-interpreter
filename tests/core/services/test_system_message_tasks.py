@@ -36,6 +36,10 @@ def _interp(enable, query):
 
     it._outcome_store = OutcomeStore(db_path=None)
     it._last_outcome_scan = 0
+    from interpreter.core.memory.context_patterns import ContextPatternStore
+
+    it._context_store = ContextPatternStore(db_path=None)
+    it._last_context_capture = None
     it.messages = [{"role": "user", "type": "message", "content": query}]
     return it
 

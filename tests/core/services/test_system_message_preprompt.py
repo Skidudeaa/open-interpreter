@@ -42,6 +42,10 @@ def _interp(enable_preprompt, search_results=None, query="fix the socket"):
     it.task_limit = 10
     it._outcome_store = OutcomeStore(db_path=None)
     it._last_outcome_scan = 0
+    from interpreter.core.memory.context_patterns import ContextPatternStore
+
+    it._context_store = ContextPatternStore(db_path=None)
+    it._last_context_capture = None
     it.messages = [{"role": "user", "type": "message", "content": query}]
     it.reranker = None
     if search_results is None:

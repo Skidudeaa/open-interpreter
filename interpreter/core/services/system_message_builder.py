@@ -166,9 +166,48 @@ class SystemMessageBuilder:
             self._preferences_section(interpreter),
             self._tasks_section(interpreter),
             self._outcome_section(interpreter),
+            self._context_section(interpreter),
             self._edit_memory_section(interpreter),
         ]
         return "\n\n".join(s for s in sections if s)
+
+    def _context_section(self, interpreter) -> str:
+        """Observe (time-of-day, activity) for this turn and, once a pattern has
+        enough support, surface it. Store lazily attached to the interpreter (no
+        core.py dependency); capture deduped per message. Non-blocking."""
+        if not getattr(interpreter, "enable_memory_preprompt", False):
+            return ""
+        try:
+            from ...terminal_interface.utils.local_storage_path import get_storage_path
+            from ..memory import context_patterns as cp
+
+            store = getattr(interpreter, "_context_store", None)
+            if store is None:
+                store = cp.ContextPatternStore(
+                    db_path=get_storage_path("context_patterns.db")
+                )
+                interpreter._context_store = store
+            now = cp._now()
+            bucket = cp.time_bucket(now)
+            query = self._latest_user_query(interpreter)
+            activity = cp.classify_activity(query) if query else "other"
+            if (
+                activity != "other"
+                and query
+                and getattr(interpreter, "_last_context_capture", None) != query
+            ):
+                interpreter._last_context_capture = query
+                store.record(bucket, activity, now=now)
+            dom = store.dominant(bucket)
+            if not dom:
+                return ""
+            return (
+                "## Working context\n"
+                f"It's {bucket} — you usually work on {dom['activity']} tasks "
+                f"around this time (seen {dom['count']}x)."
+            )
+        except Exception:  # context memory must never break the system message
+            return ""
 
     def _tasks_section(self, interpreter) -> str:
         """Capture task open/complete declarations from the current message and

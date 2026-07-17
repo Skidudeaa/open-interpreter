@@ -1,3 +1,28 @@
+"""The core respond() generator: the built-in ("oi") execution driver.
+
+respond() orchestrates the LLM <-> code-execution loop, delegating cross-cutting
+work to reusable, backend-agnostic SERVICES and to module-level in-file helpers:
+
+* Services (importable by the hermes backend too — see
+  .planning/HERMES_COMPLEMENTARY_PLAN.md):
+  - SystemMessageBuilder  (core/services/system_message_builder.py)
+  - MemoryRecorder        (core/memory/recorder.py)
+  - CodeGate              (core/validation/code_gate.py)
+* In-file helpers (oi-loop plumbing): _build_messages_for_llm, _execute_code,
+  _detect_file_changes_and_commit, _run_auto_tests, _yield_status_indicator,
+  _sync_computer_before/after, _capture_file_snapshots_before,
+  _record_directory_frecency, _feed_trace_to_llm, _stamp_gemini_thought_signatures,
+  _start_mcp_background_connect, _run_mcp_tool, loop-message helpers.
+
+Runtime tracing (_execute_code) is oi-only: sys.settrace cannot cross a process
+boundary, so it is intentionally NOT a backend-agnostic service. Agent
+orchestration and the LLM-streaming block remain inline (control-flow heavy;
+agent orchestration is deferred to HERMES Phase 6).
+
+The observable output contract (chunk shapes + ordering, the internal
+_mcp_continue sentinel filtering) is pinned by tests/core/test_respond_golden.py.
+"""
+
 import json
 import logging
 import os

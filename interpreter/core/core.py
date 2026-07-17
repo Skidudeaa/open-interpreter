@@ -378,6 +378,10 @@ class OpenInterpreter:
         # search and needs a provider key, but no-ops safely without one.
         self._reranker = None
         self.enable_reranker = False  # Disabled by default (paid API + key)
+        # Chunk pipeline: backend-agnostic middleware applied to the LMC chunk
+        # stream at the _respond_and_store seam (for both the oi respond() loop and
+        # the hermes backend). Lazily built; empty by default (pure pass-through).
+        self._chunk_pipeline = None
         self.rerank_model = os_module.environ.get(
             "OI_RERANK_MODEL", "cohere/rerank-v4.0-pro"
         )
@@ -557,6 +561,28 @@ class OpenInterpreter:
 
                     self._reranker = Reranker(model=self.rerank_model)
         return self._reranker
+
+    @property
+    def chunk_pipeline(self):
+        """
+        Lazy-initialized ChunkPipeline applied to the chunk stream at the backend
+        seam. Thread-safe with double-checked locking. Empty (pure pass-through)
+        by default; later phases register middleware here.
+        """
+        if self._chunk_pipeline is None:
+            with self._property_lock:
+                if self._chunk_pipeline is None:
+                    from .pipeline import ChunkPipeline
+
+                    self._chunk_pipeline = ChunkPipeline(
+                        self._build_pipeline_middleware()
+                    )
+        return self._chunk_pipeline
+
+    def _build_pipeline_middleware(self) -> list:
+        """The ordered middleware list for the chunk pipeline. Empty in Phase 0;
+        later phases append Observability/Memory/Validation middleware here."""
+        return []
 
     @property
     def preference_store(self):
@@ -946,12 +972,17 @@ class OpenInterpreter:
         # Select the execution backend. "hermes" drives hermes-agent out-of-process
         # over ACP, emitting the same LMC chunk stream as the built-in respond() loop,
         # so everything below (message assembly, confirmation flow, flags) is unchanged.
-        if getattr(self, "backend", "oi") == "hermes":
+        backend = getattr(self, "backend", "oi")
+        if backend == "hermes":
             from .backends import hermes_backend
 
             chunk_source = hermes_backend.run(self)
         else:
             chunk_source = respond(self)
+
+        # Apply the backend-agnostic chunk pipeline (empty pass-through by default).
+        ctx = {"interpreter": self, "backend": backend}
+        chunk_source = self.chunk_pipeline.process(chunk_source, ctx)
 
         try:
             for chunk in chunk_source:

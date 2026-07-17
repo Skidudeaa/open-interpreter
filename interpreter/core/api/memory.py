@@ -191,7 +191,11 @@ async def search_memory(
     results = []
     try:
         if hasattr(semantic_graph, "semantic_search"):
-            raw_results = semantic_graph.semantic_search(q, limit=limit)
+            # Pass the interpreter's configured reranker (None when disabled);
+            # semantic_search falls back to recency order without it.
+            raw_results = semantic_graph.semantic_search(
+                q, limit=limit, reranker=getattr(interpreter, "reranker", None)
+            )
             results = [
                 {
                     "type": r.get("type", "unknown"),

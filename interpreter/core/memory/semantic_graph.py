@@ -568,6 +568,78 @@ class SemanticEditGraph:
 
         return [Edit.from_dict(json.loads(row[0])) for row in results]
 
+    def _recent_edits(self, limit: int) -> list[Edit]:
+        """Fetch the most recent edits regardless of match — the candidate pool
+        for relevance reranking (the LIKE-filtered queries are too narrow for
+        free-text search)."""
+        if self._use_duckdb:
+            rows = self._connection.execute(
+                "SELECT data FROM edits ORDER BY timestamp DESC LIMIT ?", [limit]
+            ).fetchall()
+        else:
+            cursor = self._connection.cursor()
+            cursor.execute(
+                "SELECT data FROM edits ORDER BY timestamp DESC LIMIT ?", (limit,)
+            )
+            rows = cursor.fetchall()
+        return [Edit.from_dict(json.loads(row[0])) for row in rows]
+
+    @staticmethod
+    def _edit_document(edit: Edit) -> str:
+        """Flatten an Edit into a single text document for reranking."""
+        parts: list[str] = []
+        if edit.user_intent:
+            parts.append(edit.user_intent)
+        if edit.file_path:
+            parts.append(edit.file_path)
+        symbols = [s.name for s in (edit.affected_symbols or []) if s and s.name][:5]
+        if symbols:
+            parts.append("symbols: " + ", ".join(symbols))
+        body = edit.diff or edit.new_content
+        if body:
+            parts.append(body[:500])
+        return "\n".join(parts)
+
+    def semantic_search(
+        self, query: str, limit: int = 10, reranker=None
+    ) -> list[dict[str, Any]]:
+        """Relevance-ranked memory recall.
+
+        Gathers a recent-edit candidate pool and, when a reranker is supplied and
+        available, orders it by relevance to ``query`` (best first). Without a
+        reranker it falls back to recency order — still populated, unlike the
+        prior LIKE-only path. Returns ``{type, content, score, metadata}`` dicts,
+        the shape the ``/memory/search`` API endpoint expects.
+        """
+        if not query:
+            return []
+        candidate_limit = max(limit * 5, 50)
+        edits = self._recent_edits(candidate_limit)
+        if not edits:
+            return []
+
+        def _to_result(edit: Edit, score: float) -> dict[str, Any]:
+            return {
+                "type": "edit",
+                "content": (edit.user_intent or edit.file_path or "")[:500],
+                "score": float(score),
+                "metadata": {
+                    "id": edit.id,
+                    "file_path": edit.file_path,
+                    "edit_type": edit.edit_type.value if edit.edit_type else None,
+                    "timestamp": edit.timestamp.isoformat() if edit.timestamp else None,
+                },
+            }
+
+        if reranker is not None and reranker.is_available():
+            ranked = reranker.rerank_items(
+                query, edits, key=self._edit_document, top_k=limit
+            )
+            return [_to_result(edit, score) for edit, score in ranked]
+
+        # Fallback: recency order (still better than the previously-dead endpoint).
+        return [_to_result(edit, 0.0) for edit in edits[:limit]]
+
     def query_by_conversation(self, conversation_id: str) -> list[Edit]:
         """
         Find all edits from a specific conversation.

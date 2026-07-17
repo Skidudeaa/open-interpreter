@@ -297,6 +297,13 @@ Always provide:
                 research_depth=self.config.depth,
             )
 
+        # Relevance-rerank extracted sources before synthesis so the strongest
+        # evidence leads both the synthesis prompt and the citation order.
+        # Reorder-only; no-op to the current order when the reranker is off.
+        self._extracted_contents = self._rerank_contents(
+            query, self._extracted_contents
+        )
+
         # Step 4: Synthesize findings
         self.log("Synthesizing findings...")
         report = self.synthesizer.synthesize(
@@ -306,6 +313,25 @@ Always provide:
         )
 
         return report
+
+    def _rerank_contents(self, query, contents):
+        """Reorder extracted sources by relevance to the query via the shared
+        reranker. Reorder-only: returns the input order unchanged when the
+        reranker is disabled/unkeyed, so synthesis behaves exactly as before."""
+        if len(contents) <= 1 or not query:
+            return contents
+        reranker = getattr(self.interpreter, "reranker", None)
+        if reranker is None or not reranker.is_available():
+            return contents
+
+        def _doc(c):
+            return getattr(c, "clean_text", "") or getattr(c, "summary", "") or ""
+
+        try:
+            ranked = reranker.rerank_items(query, contents, key=_doc)
+            return [item for item, _score in ranked] or contents
+        except Exception:  # never let ranking break research
+            return contents
 
     def _research_sync(self, query: str) -> ResearchReport:
         """Synchronous fallback for research."""

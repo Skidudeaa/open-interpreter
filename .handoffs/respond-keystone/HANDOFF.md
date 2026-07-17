@@ -29,10 +29,9 @@ preamble to `SystemMessageBuilder.build()`. Verified it does NOT break the golde
 
 1. **FIXED** (`f8bccc1d`): validation gate was a dead no-op (swapped args + `.get()` on a dataclass). Now
    validates for real; opt-in via `enable_validation`; invalid code → `[Validation]` chunks (non-blocking).
-2. **OPEN, preserved verbatim:** `MemoryRecorder.record_code_execution` uses `EditType.OTHER`, which is NOT
-   on the enum (members end at `UNKNOWN`) → code-execution memory recording silently no-ops today. Pinned by
-   `tests/core/memory/test_recorder.py::test_record_code_execution_currently_noops_due_to_edittype_bug` with a
-   `# BUG` note. **Candidate quick follow-up:** change `EditType.OTHER` → `EditType.UNKNOWN` and update that test.
+2. **FIXED** (`24e3cb89`): `MemoryRecorder.record_code_execution` was doubly broken — `EditType.OTHER` (absent
+   from the enum) AND `language=` (not an `Edit` field) — so it silently no-op'd. Fixed to `EditType.UNKNOWN`
+   with language in `user_intent`; verified end-to-end (real SemanticEditGraph records the edit + MEMORY_RECORD).
 
 ## Next: HERMES ChunkPipeline
 

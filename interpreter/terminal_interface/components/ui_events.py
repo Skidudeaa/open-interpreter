@@ -89,6 +89,8 @@ class EventType(Enum):
     TEST_END = auto()  # Auto-test complete (passed/failed)
     MEMORY_RECORD = auto()  # Edit recorded to semantic memory
     PLUGIN_HOOK = auto()  # Plugin hook executed
+    RERANK_START = auto()  # Relevance rerank starting
+    RERANK_END = auto()  # Relevance rerank complete (count/top score)
 
     # File change events (for diff display)
     FILE_CHANGE = auto()  # File modified by code execution

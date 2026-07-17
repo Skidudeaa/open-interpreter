@@ -118,6 +118,55 @@ def test_key_resolution_by_prefix(monkeypatch):
     assert Reranker(model="mystery/model").is_available() is False
 
 
+def test_emits_rerank_events_on_real_path():
+    from interpreter.terminal_interface.components.ui_events import (
+        EventType,
+        get_event_bus,
+    )
+
+    captured = []
+    bus = get_event_bus()
+    bus.subscribe_all(captured.append)
+    try:
+        results = [
+            {"index": 1, "relevance_score": 0.7},
+            {"index": 0, "relevance_score": 0.3},
+        ]
+        r = Reranker(model="cohere/rerank-v4.0-pro", api_key="test-key")
+        with patch(_LITELLM_PATH, return_value=_fake_litellm(results)):
+            r.rerank("query", ["a", "b"])
+    finally:
+        bus.unsubscribe_all(captured.append)
+
+    types = [e.type for e in captured]
+    assert EventType.RERANK_START in types
+    assert EventType.RERANK_END in types
+    end = next(e for e in captured if e.type == EventType.RERANK_END)
+    assert end.data["ranked"] == 2
+    assert end.data["top_score"] == 0.7
+
+
+def test_no_events_on_no_op_path():
+    from interpreter.terminal_interface.components.ui_events import (
+        EventType,
+        get_event_bus,
+    )
+
+    captured = []
+    bus = get_event_bus()
+    bus.subscribe_all(captured.append)
+    try:
+        r = Reranker(model="cohere/rerank-v4.0-pro")  # no key -> no-op
+        r.rerank("query", ["a", "b"])
+    finally:
+        bus.unsubscribe_all(captured.append)
+
+    rerank_events = [
+        e for e in captured if e.type in (EventType.RERANK_START, EventType.RERANK_END)
+    ]
+    assert rerank_events == []  # unavailable path never emits
+
+
 def test_object_shaped_results_are_parsed():
     """Provider items may be attribute objects, not dicts."""
     docs = ["a", "b"]

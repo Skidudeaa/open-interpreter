@@ -74,6 +74,8 @@ _ACTIVITY_EVENTS: dict[str, str] = {
     "MESSAGE_START": "think",
     "MEMORY_RECORD": "memory",
     "PLUGIN_HOOK": "plugin",
+    "RERANK_START": "rerank",
+    "RERANK_END": "rerank",
 }
 
 

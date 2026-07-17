@@ -37,7 +37,7 @@ class Reranker:
     """Reorders candidate documents by relevance to a query.
 
     Args:
-        model: litellm rerank model id, e.g. ``"cohere/rerank-4-pro"``.
+        model: litellm rerank model id, e.g. ``"cohere/rerank-v4.0-pro"``.
         api_key: explicit key; if omitted, resolved from the env var matching the
             model prefix.
         api_base: optional base URL override (for gateways / self-hosted).
@@ -105,6 +105,7 @@ class Reranker:
         if not query or not self.is_available():
             return self._identity(n, limit)
 
+        self._emit("RERANK_START", {"model": self.model, "candidates": n})
         try:
             # Reuse the fork's lazy litellm loader (~300ms cold-start amortized).
             from ..llm.llm import _get_litellm
@@ -126,10 +127,24 @@ class Reranker:
                     continue
                 ranked.append((int(idx), float(score)))
             if not ranked:
+                self._emit("RERANK_END", {"ranked": 0, "message": "no results"})
                 return self._identity(n, limit)
-            return ranked[:limit]
+            ranked = ranked[:limit]
+            self._emit(
+                "RERANK_END",
+                {
+                    "ranked": len(ranked),
+                    "top_score": ranked[0][1],
+                    "message": f"ranked {len(ranked)} (top {ranked[0][1]:.2f})",
+                },
+            )
+            return ranked
         except Exception as e:  # provider/network/parse — degrade to identity
             self._warn_once(e)
+            self._emit(
+                "RERANK_END",
+                {"ranked": 0, "error": type(e).__name__, "message": "rerank failed"},
+            )
             return self._identity(n, limit)
 
     def rerank_items(
@@ -156,6 +171,28 @@ class Reranker:
         if not self._warned:
             logger.debug("Rerank failed (%s); falling back to identity order", exc)
             self._warned = True
+
+    @staticmethod
+    def _emit(event_name: str, data: dict[str, Any]) -> None:
+        """Emit a rerank event to the global bus (feeds cc-sidecar). Best-effort:
+        lazily imported and fully swallowed so retrieval stays decoupled from the
+        UI and a missing/erroring bus never affects ranking."""
+        try:
+            from ...terminal_interface.components.ui_events import (
+                EventType,
+                UIEvent,
+                get_event_bus,
+            )
+
+            get_event_bus().emit(
+                UIEvent(
+                    type=getattr(EventType, event_name),
+                    data=data,
+                    source="reranker",
+                )
+            )
+        except Exception:
+            pass
 
 
 def _field(item: Any, name: str, default: Any = None) -> Any:

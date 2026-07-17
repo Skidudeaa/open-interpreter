@@ -120,6 +120,86 @@ def _get_refined_message(interpreter, content: str) -> str:
         return content
 
 
+def _build_messages_for_llm(interpreter) -> list:
+    """Assemble the message list for the LLM: rendered system message, a deep-ish
+    copy of interpreter.messages (with optional intent refinement of the last user
+    message), system message prepended."""
+    system_message = SystemMessageBuilder().build(interpreter)
+
+    ## Rendering ↓
+    rendered_system_message = render_message(interpreter, system_message)
+    ## Rendering ↑
+
+    rendered_system_message = {
+        "role": "system",
+        "type": "message",
+        "content": rendered_system_message,
+    }
+
+    # IMPORTANT: copy dicts too. Shallow list copy mutates interpreter.messages (gross).
+    messages_for_llm = [m.copy() for m in interpreter.messages]
+
+    # Intent refinement: refine the last user message if enabled
+    # This strips safety-trigger phrasing before the main LLM sees it
+    if getattr(interpreter, "enable_intent_refiner", False):
+        for msg in reversed(messages_for_llm):
+            if msg.get("role") == "user" and msg.get("type") == "message":
+                original_content = msg.get("content", "")
+                if original_content:
+                    msg["content"] = _get_refined_message(interpreter, original_content)
+                break  # Only refine the last user message
+
+    return [rendered_system_message] + messages_for_llm
+
+
+def _is_genuine_loop_breaker(content, breaker) -> bool:
+    """Check if the loop breaker appears genuinely (not as part of a longer sentence)."""
+    if breaker not in content:
+        return False
+    # Check if it appears at the end or on its own line
+    content_stripped = content.strip()
+    if content_stripped.endswith(breaker):
+        return True
+    # Check if it's on its own line
+    for line in content.split("\n"):
+        if line.strip() == breaker:
+            return True
+    return False
+
+
+def _collapse_loop_messages(messages: list, loop_message: str) -> list:
+    """Remove past loop_message messages and combine adjacent assistant messages
+    so the model learns to just keep going."""
+    # Remove past loop_message messages
+    messages = [
+        message for message in messages if message.get("content", "") != loop_message
+    ]
+    # Combine adjacent assistant messages, so hopefully it learns to just keep going!
+    # WHY: Collect parts and join() to avoid O(n²) string concatenation
+    # TRADEOFF: Slightly more complex logic vs quadratic perf on long conversations
+    combined_messages = []
+    for message in messages:
+        if (
+            combined_messages
+            and message["role"] == "assistant"
+            and combined_messages[-1]["role"] == "assistant"
+            and message["type"] == "message"
+            and combined_messages[-1]["type"] == "message"
+        ):
+            # Track parts list instead of repeated += concat
+            prev = combined_messages[-1]
+            if "_parts" not in prev:
+                prev["_parts"] = [prev["content"]]
+            prev["_parts"].append(message["content"])
+        else:
+            combined_messages.append(message)
+    # Final join pass: collapse _parts into content
+    for msg in combined_messages:
+        if "_parts" in msg:
+            msg["content"] = "\n".join(msg.pop("_parts"))
+    return combined_messages
+
+
 # Extension to language mapping for file diff display
 _EXTENSION_TO_LANGUAGE = {
     ".py": "python",
@@ -900,34 +980,7 @@ def respond(interpreter):
                 # Fall through
 
         # ========= BUILD LLM MESSAGES =========
-        system_message = SystemMessageBuilder().build(interpreter)
-
-        ## Rendering ↓
-        rendered_system_message = render_message(interpreter, system_message)
-        ## Rendering ↑
-
-        rendered_system_message = {
-            "role": "system",
-            "type": "message",
-            "content": rendered_system_message,
-        }
-
-        # IMPORTANT: copy dicts too. Shallow list copy mutates interpreter.messages (gross).
-        messages_for_llm = [m.copy() for m in interpreter.messages]
-
-        # Intent refinement: refine the last user message if enabled
-        # This strips safety-trigger phrasing before the main LLM sees it
-        if getattr(interpreter, "enable_intent_refiner", False):
-            for msg in reversed(messages_for_llm):
-                if msg.get("role") == "user" and msg.get("type") == "message":
-                    original_content = msg.get("content", "")
-                    if original_content:
-                        msg["content"] = _get_refined_message(
-                            interpreter, original_content
-                        )
-                    break  # Only refine the last user message
-
-        messages_for_llm = [rendered_system_message] + messages_for_llm
+        messages_for_llm = _build_messages_for_llm(interpreter)
 
         if insert_loop_message:
             messages_for_llm.append(
@@ -1410,22 +1463,8 @@ def respond(interpreter):
                 else ""
             )
 
-            def is_genuine_loop_breaker(content, breaker):
-                """Check if the loop breaker appears genuinely (not as part of a longer sentence)."""
-                if breaker not in content:
-                    return False
-                # Check if it appears at the end or on its own line
-                content_stripped = content.strip()
-                if content_stripped.endswith(breaker):
-                    return True
-                # Check if it's on its own line
-                for line in content.split("\n"):
-                    if line.strip() == breaker:
-                        return True
-                return False
-
             has_loop_breaker = any(
-                is_genuine_loop_breaker(last_content, task_status)
+                _is_genuine_loop_breaker(last_content, task_status)
                 for task_status in loop_breakers
             )
 
@@ -1435,36 +1474,9 @@ def respond(interpreter):
                 and interpreter.messages[-1].get("role", "") == "assistant"
                 and not has_loop_breaker
             ):
-                # Remove past loop_message messages
-                interpreter.messages = [
-                    message
-                    for message in interpreter.messages
-                    if message.get("content", "") != loop_message
-                ]
-                # Combine adjacent assistant messages, so hopefully it learns to just keep going!
-                # WHY: Collect parts and join() to avoid O(n²) string concatenation
-                # TRADEOFF: Slightly more complex logic vs quadratic perf on long conversations
-                combined_messages = []
-                for message in interpreter.messages:
-                    if (
-                        combined_messages
-                        and message["role"] == "assistant"
-                        and combined_messages[-1]["role"] == "assistant"
-                        and message["type"] == "message"
-                        and combined_messages[-1]["type"] == "message"
-                    ):
-                        # Track parts list instead of repeated += concat
-                        prev = combined_messages[-1]
-                        if "_parts" not in prev:
-                            prev["_parts"] = [prev["content"]]
-                        prev["_parts"].append(message["content"])
-                    else:
-                        combined_messages.append(message)
-                # Final join pass: collapse _parts into content
-                for msg in combined_messages:
-                    if "_parts" in msg:
-                        msg["content"] = "\n".join(msg.pop("_parts"))
-                interpreter.messages = combined_messages
+                interpreter.messages = _collapse_loop_messages(
+                    interpreter.messages, loop_message
+                )
 
                 # Send model the loop_message:
                 insert_loop_message = True

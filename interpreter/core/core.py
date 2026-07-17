@@ -373,6 +373,15 @@ class OpenInterpreter:
         self._agent_orchestrator = None
         self.enable_agents = True  # Enabled by default for smart exploration
 
+        # Reranker (lazy-initialized) — relevance-orders retrieval candidates
+        # (Scout hits, research sources, memory recall). Opt-in: it costs per
+        # search and needs a provider key, but no-ops safely without one.
+        self._reranker = None
+        self.enable_reranker = False  # Disabled by default (paid API + key)
+        self.rerank_model = os_module.environ.get(
+            "OI_RERANK_MODEL", "cohere/rerank-v4.0-pro"
+        )
+
         # Plugin system (lazy-initialized)
         self._plugin_registry = None
         self.enable_plugins = True  # Enabled by default for extensibility
@@ -436,6 +445,7 @@ class OpenInterpreter:
             self.enable_plugins = True
             self.auto_commit = True
             self.enable_observability = True
+            self.enable_reranker = True  # no-ops without a key, so harmless
             # NOTE: intent_refiner deliberately NOT enabled here - it causes
             # workflow misrouting by transforming simple commands into complex ones
 
@@ -463,6 +473,7 @@ class OpenInterpreter:
             "context_preserve_recent",
             "enable_intent_refiner",
             "enable_observability",
+            "enable_reranker",
             "backend",
         ]
 
@@ -516,6 +527,21 @@ class OpenInterpreter:
                         db_path=self.semantic_memory_path
                     )
         return self._semantic_graph
+
+    @property
+    def reranker(self):
+        """
+        Lazy-initialized relevance reranker for retrieval candidates.
+        Thread-safe with double-checked locking. Returns None when disabled.
+        """
+        if self._reranker is None and self.enable_reranker:
+            with self._property_lock:
+                # Double-check after acquiring lock
+                if self._reranker is None and self.enable_reranker:
+                    from .retrieval import Reranker
+
+                    self._reranker = Reranker(model=self.rerank_model)
+        return self._reranker
 
     @property
     def conversation_linker(self):
@@ -696,6 +722,7 @@ class OpenInterpreter:
         self.auto_commit = True
         self.enable_context_compaction = True
         self.enable_observability = True
+        self.enable_reranker = True  # no-ops without a provider key
         return self
 
     def local_setup(self):

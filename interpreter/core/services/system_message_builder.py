@@ -164,9 +164,45 @@ class SystemMessageBuilder:
         non-blocking, so the base system message is never affected."""
         sections = [
             self._preferences_section(interpreter),
+            self._outcome_section(interpreter),
             self._edit_memory_section(interpreter),
         ]
         return "\n\n".join(s for s in sections if s)
+
+    def _outcome_section(self, interpreter) -> str:
+        """Record execution failures from the conversation and inject a warning
+        about ones seen before. The store is lazily attached to the interpreter
+        (avoids a core.py dependency) and scanning is incremental. Non-blocking."""
+        if not getattr(interpreter, "enable_memory_preprompt", False):
+            return ""
+        try:
+            store = getattr(interpreter, "_outcome_store", None)
+            if store is None:
+                from ...terminal_interface.utils.local_storage_path import (
+                    get_storage_path,
+                )
+                from ..memory.outcomes import OutcomeStore
+
+                store = OutcomeStore(db_path=get_storage_path("outcomes.db"))
+                interpreter._outcome_store = store
+            messages = getattr(interpreter, "messages", []) or []
+            scanned = getattr(interpreter, "_last_outcome_scan", 0)
+            if len(messages) > scanned:
+                store.record_from_messages(messages, start_index=scanned)
+                interpreter._last_outcome_scan = len(messages)
+            recurring = store.recurring_failures(min_count=1, limit=3)
+            if not recurring:
+                return ""
+            lines = []
+            for r in recurring:
+                times = "once" if r["count"] == 1 else f"{r['count']}x"
+                lines.append(f"- {r['signature']} (seen {times})")
+            return (
+                "## Past failures to avoid repeating\n"
+                "These errors have occurred before:\n" + "\n".join(lines)
+            )
+        except Exception:  # outcome memory must never break the system message
+            return ""
 
     def _preferences_section(self, interpreter) -> str:
         """Capture explicit preferences from the current message and inject the

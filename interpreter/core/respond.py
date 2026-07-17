@@ -17,6 +17,7 @@ from ..terminal_interface.utils.display_markdown_message import display_markdown
 from .memory.recorder import MemoryRecorder
 from .render_message import render_message
 from .services.system_message_builder import SystemMessageBuilder, _weakref_or_none
+from .validation.code_gate import CodeGate
 
 # Module logger
 logger = logging.getLogger(__name__)
@@ -977,45 +978,16 @@ def respond(interpreter):
                         pass  # Non-blocking
 
                 # === VALIDATION HOOK (pre-execution) ===
-                if interpreter.enable_validation and interpreter.syntax_checker:
-                    try:
-                        # Emit start event for UI feedback
-                        event_bus = get_event_bus()
-                        event_bus.emit(
-                            UIEvent(
-                                type=EventType.VALIDATION_START,
-                                data={"language": language, "code_length": len(code)},
-                                source="respond",
-                            )
-                        )
-
-                        validation_result = interpreter.syntax_checker.check(
-                            language, code
-                        )
-                        _status["validated"] = True
-                        is_valid = validation_result.get("valid", True)
-                        errors = validation_result.get("errors", [])
-
-                        # Emit end event with result
-                        event_bus.emit(
-                            UIEvent(
-                                type=EventType.VALIDATION_END,
-                                data={"valid": is_valid, "error_count": len(errors)},
-                                source="respond",
-                            )
-                        )
-
-                        if not is_valid:
-                            for error in errors:
-                                yield {
-                                    "role": "computer",
-                                    "type": "console",
-                                    "format": "output",
-                                    "content": f"[Validation] {error}\n",
-                                }
-                    except Exception as e:
-                        logger.debug(f"Validation failed (non-blocking): {e}")
-                        pass  # Non-blocking - continue even if validation fails
+                _status["validated"], _validation_errors = CodeGate().check(
+                    interpreter, language, code
+                )
+                for _error_line in _validation_errors:
+                    yield {
+                        "role": "computer",
+                        "type": "console",
+                        "format": "output",
+                        "content": _error_line,
+                    }
 
                 # === EXECUTION WITH OPTIONAL TRACING ===
                 # Using context manager pattern for tracer (start/stop via __enter__/__exit__)

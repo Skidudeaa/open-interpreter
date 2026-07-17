@@ -14,6 +14,7 @@ from ..terminal_interface.components.activity_stream import emit_activity
 from ..terminal_interface.components.network_status import get_network_status
 from ..terminal_interface.components.ui_events import EventType, UIEvent, get_event_bus
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
+from .memory.recorder import MemoryRecorder
 from .render_message import render_message
 from .services.system_message_builder import SystemMessageBuilder, _weakref_or_none
 
@@ -1102,56 +1103,9 @@ def respond(interpreter):
                     logger.debug(f"Directory frecency recording failed: {e}")
 
                 # === SEMANTIC MEMORY HOOK (post-execution) ===
-                if interpreter.enable_semantic_memory and interpreter.semantic_graph:
-                    try:
-                        from .core import _get_memory_module
-
-                        memory_module = _get_memory_module()
-                        Edit = memory_module["Edit"]
-                        EditType = memory_module["EditType"]
-
-                        # Get conversation context
-                        context = None
-                        if interpreter.conversation_linker:
-                            user_msgs = [
-                                m
-                                for m in interpreter.messages
-                                if m.get("role") == "user"
-                            ]
-                            if user_msgs:
-                                context = (
-                                    interpreter.conversation_linker.create_context(
-                                        user_message=user_msgs[-1].get("content", ""),
-                                        assistant_response=code,
-                                    )
-                                )
-
-                        # Record the code execution
-                        edit = Edit(
-                            file_path=None,  # Script execution, not file edit
-                            original_content="",
-                            new_content=code,
-                            edit_type=EditType.OTHER,
-                            language=language,
-                            conversation_context=context,
-                        )
-                        interpreter.semantic_graph.record_edit(edit)
-                        _status["recorded"] = True
-
-                        # Emit memory record event for UI feedback
-                        event_bus = get_event_bus()
-                        event_bus.emit(
-                            UIEvent(
-                                type=EventType.MEMORY_RECORD,
-                                data={"type": "code_execution", "language": language},
-                                source="respond",
-                            )
-                        )
-                    except Exception as e:
-                        logger.debug(
-                            f"Semantic memory recording failed (non-blocking): {e}"
-                        )
-                        pass  # Non-blocking - don't crash on memory errors
+                _status["recorded"] = MemoryRecorder().record_code_execution(
+                    interpreter, code, language
+                )
 
                 # === FILE CHANGE DETECTION: AFTER ===
                 _changed_files = {}
@@ -1191,82 +1145,23 @@ def respond(interpreter):
                                     )
                                 )
 
-                        # Record detected file changes to semantic memory
-                        if (
-                            _changed_files
-                            and interpreter.enable_semantic_memory
-                            and interpreter.semantic_graph
-                        ):
-                            from .core import _get_memory_module
-
-                            memory_module = _get_memory_module()
-                            create_edit = memory_module.get(
-                                "create_edit_from_file_change"
-                            )
-                            user_msgs = [
-                                m
-                                for m in interpreter.messages
-                                if m.get("role") == "user"
-                            ]
-
-                            # Collect all edits for batch processing
-                            edits_to_commit = []
-
-                            for file_path, (
-                                old_content,
-                                new_content,
-                            ) in _changed_files.items():
-                                if create_edit:
-                                    edit = create_edit(
-                                        file_path=file_path,
-                                        original_content=old_content,
-                                        new_content=new_content,
-                                        user_message=(
-                                            user_msgs[-1].get("content", "")
-                                            if user_msgs
-                                            else ""
-                                        ),
-                                    )
-                                    interpreter.semantic_graph.record_edit(edit)
-                                    edits_to_commit.append(edit)
-
-                            # === AUTO-COMMIT HOOK ===
-                            if interpreter.auto_commit and edits_to_commit:
-                                try:
-                                    from .validation.auto_commit import (
-                                        batch_auto_commit,
-                                    )
-
-                                    commit_hash = batch_auto_commit(
-                                        edits=edits_to_commit,
-                                        project_root=interpreter.computer.cwd or ".",
-                                    )
-
-                                    if commit_hash:
-                                        # Update all edits with the commit hash
-                                        for edit in edits_to_commit:
-                                            edit.git_commit_hash = commit_hash
-                                            interpreter.semantic_graph.update_edit_commit_hash(
-                                                edit.id, commit_hash
-                                            )
-
-                                        # Emit commit event for UI feedback
-                                        event_bus = get_event_bus()
-                                        event_bus.emit(
-                                            UIEvent(
-                                                type=EventType.GIT_COMMIT,
-                                                data={
-                                                    "commit_hash": commit_hash,
-                                                    "files_count": len(edits_to_commit),
-                                                },
-                                                source="respond",
-                                            )
-                                        )
-                                        _status["committed"] = True
-                                except Exception as commit_error:
-                                    logger.debug(
-                                        f"Auto-commit failed (non-blocking): {commit_error}"
-                                    )
+                        # Record detected file changes to semantic memory, then
+                        # auto-commit them (both guarded/non-blocking in the service).
+                        user_msgs = [
+                            m for m in interpreter.messages if m.get("role") == "user"
+                        ]
+                        _recorder = MemoryRecorder()
+                        edits_to_commit = _recorder.record_file_changes(
+                            interpreter,
+                            _changed_files,
+                            user_msgs[-1].get("content", "") if user_msgs else "",
+                        )
+                        # === AUTO-COMMIT HOOK ===
+                        commit_hash = _recorder.commit_edits(
+                            interpreter, edits_to_commit
+                        )
+                        if commit_hash:
+                            _status["committed"] = True
                     except Exception as e:
                         logger.debug(
                             f"File change detection failed (non-blocking): {e}"

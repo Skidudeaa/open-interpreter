@@ -459,6 +459,75 @@ def _sync_computer_after(interpreter, language: str) -> None:
         logger.warning("Failed to sync your Computer with iComputer. Continuing.")
 
 
+def _execute_code(interpreter, language: str, code: str, status: dict):
+    """Run ``code`` in the in-language computer, streaming its output chunks.
+
+    Wraps execution in the optional runtime tracer (start via TRACING_START, run,
+    finalize via __exit__ + TRACING_END), stashing the trace on
+    ``interpreter._current_trace`` and setting ``status['traced']``. Tracing is
+    oi-only (``sys.settrace`` cannot cross a process boundary) and stays inline
+    here — it is not a backend-agnostic service. Yields ``{"role": "computer",
+    **line}`` for each streamed line.
+    """
+    _execution_trace = None
+    _trace_ctx = None
+
+    # Setup tracing context if enabled
+    if interpreter.enable_tracing and interpreter.tracer:
+        try:
+            # Emit start event for UI feedback
+            event_bus = get_event_bus()
+            event_bus.emit(
+                UIEvent(
+                    type=EventType.TRACING_START,
+                    data={"language": language, "code_length": len(code)},
+                    source="respond",
+                )
+            )
+
+            _trace_ctx = interpreter.tracer.trace(code, language)
+            _trace_ctx.__enter__()
+        except Exception:
+            _trace_ctx = None  # Non-blocking - continue without tracing
+
+    try:
+        for line in interpreter.computer.run(language, code, stream=True):
+            yield {"role": "computer", **line}
+    finally:
+        # Complete tracing if it was started
+        if _trace_ctx is not None:
+            try:
+                _trace_ctx.__exit__(None, None, None)
+                _execution_trace = _trace_ctx.trace
+                interpreter._current_trace = _execution_trace
+                status["traced"] = True
+
+                # Emit tracing end event
+                event_bus = get_event_bus()
+                call_count = (
+                    len(_execution_trace.call_graph.calls)
+                    if _execution_trace.call_graph
+                    else 0
+                )
+                event_bus.emit(
+                    UIEvent(
+                        type=EventType.TRACING_END,
+                        data={
+                            "success": not _execution_trace.exception_occurred,
+                            "call_count": call_count,
+                            "exception": (
+                                _execution_trace.exception_type
+                                if _execution_trace.exception_occurred
+                                else None
+                            ),
+                        },
+                        source="respond",
+                    )
+                )
+            except Exception as e:
+                logger.debug(f"Tracing completion failed (non-blocking): {e}")
+
+
 def _run_mcp_tool(interpreter):
     """
     Execute an MCP tool call and yield result chunks.
@@ -1260,67 +1329,7 @@ def respond(interpreter):
                     }
 
                 # === EXECUTION WITH OPTIONAL TRACING ===
-                # Using context manager pattern for tracer (start/stop via __enter__/__exit__)
-                _execution_trace = None
-                _trace_ctx = None
-
-                # Setup tracing context if enabled
-                if interpreter.enable_tracing and interpreter.tracer:
-                    try:
-                        # Emit start event for UI feedback
-                        event_bus = get_event_bus()
-                        event_bus.emit(
-                            UIEvent(
-                                type=EventType.TRACING_START,
-                                data={"language": language, "code_length": len(code)},
-                                source="respond",
-                            )
-                        )
-
-                        _trace_ctx = interpreter.tracer.trace(code, language)
-                        _trace_ctx.__enter__()
-                    except Exception:
-                        _trace_ctx = None  # Non-blocking - continue without tracing
-
-                try:
-                    for line in interpreter.computer.run(language, code, stream=True):
-                        yield {"role": "computer", **line}
-                finally:
-                    # Complete tracing if it was started
-                    if _trace_ctx is not None:
-                        try:
-                            _trace_ctx.__exit__(None, None, None)
-                            _execution_trace = _trace_ctx.trace
-                            interpreter._current_trace = _execution_trace
-                            _status["traced"] = True
-
-                            # Emit tracing end event
-                            event_bus = get_event_bus()
-                            call_count = (
-                                len(_execution_trace.call_graph.calls)
-                                if _execution_trace.call_graph
-                                else 0
-                            )
-                            event_bus.emit(
-                                UIEvent(
-                                    type=EventType.TRACING_END,
-                                    data={
-                                        "success": not _execution_trace.exception_occurred,
-                                        "call_count": call_count,
-                                        "exception": (
-                                            _execution_trace.exception_type
-                                            if _execution_trace.exception_occurred
-                                            else None
-                                        ),
-                                    },
-                                    source="respond",
-                                )
-                            )
-                        except Exception as e:
-                            logger.debug(
-                                f"Tracing completion failed (non-blocking): {e}"
-                            )
-                            pass  # Non-blocking
+                yield from _execute_code(interpreter, language, code, _status)
 
                 # === DIRECTORY FRECENCY HOOK (autojump-style) ===
                 _record_directory_frecency(interpreter, code, language)

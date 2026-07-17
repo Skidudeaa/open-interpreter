@@ -156,6 +156,104 @@ def _detect_language(file_path: str) -> str:
     return _EXTENSION_TO_LANGUAGE.get(ext, "text")
 
 
+def _sync_computer_before(interpreter, language: str) -> None:
+    """Sync interpreter flags onto its computer, and (optionally) push the
+    computer dict into the in-language computer before running code."""
+    # sync up some things (is this how we want to do this?)
+    interpreter.computer.verbose = interpreter.verbose
+    interpreter.computer.debug = interpreter.debug
+    interpreter.computer.emit_images = interpreter.llm.supports_vision
+    interpreter.computer.max_output = interpreter.max_output
+
+    # sync up the interpreter's computer with your computer
+    try:
+        if interpreter.sync_computer and language == "python":
+            computer_dict = interpreter.computer.to_dict()
+            if "_hashes" in computer_dict:
+                computer_dict.pop("_hashes")
+            if "system_message" in computer_dict:
+                computer_dict.pop("system_message")
+            computer_json = json.dumps(computer_dict)
+            sync_code = f"""import json\ncomputer.load_dict(json.loads('''{computer_json}'''))"""
+            interpreter.computer.run("python", sync_code)
+    except Exception as e:
+        if interpreter.debug:
+            raise
+        logger.error(str(e))
+        logger.warning("Failed to sync iComputer with your Computer. Continuing...")
+
+
+def _capture_file_snapshots_before(interpreter) -> dict:
+    """Capture source-file states before execution if semantic memory OR file
+    diff display is enabled. Returns {} when disabled or on error."""
+    if not (
+        interpreter.enable_semantic_memory
+        or getattr(interpreter, "show_file_diffs", False)
+    ):
+        return {}
+    try:
+        from .utils.file_snapshot import capture_source_file_states
+
+        return capture_source_file_states(interpreter.computer.cwd or ".")
+    except Exception as e:
+        logger.debug(f"File snapshot capture failed (non-blocking): {e}")
+        return {}
+
+
+def _record_directory_frecency(interpreter, code: str, language: str) -> None:
+    """Parse cd/chdir targets out of the code that just ran and record them.
+
+    WHY: OI's shell is a piped subprocess, so we can't hook the shell prompt the
+    way autojump does — instead we parse `cd` / os.chdir targets out of the code
+    that just ran. Cheap (regex only fires if the code mentions cd/chdir) and
+    fully isolated so a bad path can never disturb the execution loop.
+    """
+    try:
+        from .memory.directory_frecency import extract_cd_targets
+
+        _cd_targets = extract_cd_targets(code, language)
+        if _cd_targets:
+            _base = getattr(interpreter.computer, "cwd", "") or os.getcwd()
+            _recorded = interpreter.computer.files.frecency.record_many(
+                _cd_targets, base_cwd=_base
+            )
+            # Track the last absolute dir so subsequent relative `cd` resolution
+            # and file-diff base paths stay accurate.
+            if _recorded:
+                interpreter.computer.cwd = _recorded[-1]
+    except Exception as e:
+        logger.debug(f"Directory frecency recording failed: {e}")
+
+
+def _feed_trace_to_llm(interpreter) -> None:
+    """After a code-execution exception, append the runtime trace as a user
+    message so the LLM can analyze and fix. No-op unless tracing + trace feedback
+    are enabled and a trace with an exception exists."""
+    if not (interpreter.enable_trace_feedback and interpreter.enable_tracing):
+        return
+    try:
+        trace = getattr(interpreter, "_current_trace", None)
+        if trace and getattr(trace, "exception_occurred", False):
+            from .tracing import TraceContextGenerator
+
+            generator = TraceContextGenerator()
+            trace_context = generator.to_edit_context(trace)
+
+            interpreter.messages.append(
+                {
+                    "role": "user",
+                    "type": "message",
+                    "content": (
+                        "The code execution failed. Here's the execution trace:\n\n"
+                        f"```\n{trace_context}\n```\n\n"
+                        "Please analyze the trace and fix the code."
+                    ),
+                }
+            )
+    except Exception as e:
+        logger.debug(f"Trace feedback failed (non-blocking): {e}")
+
+
 def _run_mcp_tool(interpreter):
     """
     Execute an MCP tool call and yield result chunks.
@@ -920,30 +1018,7 @@ def respond(interpreter):
                     ):
                         code = code + "\npass"
 
-                # sync up some things (is this how we want to do this?)
-                interpreter.computer.verbose = interpreter.verbose
-                interpreter.computer.debug = interpreter.debug
-                interpreter.computer.emit_images = interpreter.llm.supports_vision
-                interpreter.computer.max_output = interpreter.max_output
-
-                # sync up the interpreter's computer with your computer
-                try:
-                    if interpreter.sync_computer and language == "python":
-                        computer_dict = interpreter.computer.to_dict()
-                        if "_hashes" in computer_dict:
-                            computer_dict.pop("_hashes")
-                        if "system_message" in computer_dict:
-                            computer_dict.pop("system_message")
-                        computer_json = json.dumps(computer_dict)
-                        sync_code = f"""import json\ncomputer.load_dict(json.loads('''{computer_json}'''))"""
-                        interpreter.computer.run("python", sync_code)
-                except Exception as e:
-                    if interpreter.debug:
-                        raise
-                    logger.error(str(e))
-                    logger.warning(
-                        "Failed to sync iComputer with your Computer. Continuing..."
-                    )
+                _sync_computer_before(interpreter, language)
 
                 ## ↓ CODE IS RUN HERE
 
@@ -965,24 +1040,7 @@ def respond(interpreter):
                 }
 
                 # === FILE CHANGE DETECTION: BEFORE ===
-                # Capture file states if semantic memory OR file diff display is enabled
-                _file_snapshots_before = {}
-                _should_detect_file_changes = (
-                    interpreter.enable_semantic_memory
-                    or getattr(interpreter, "show_file_diffs", False)
-                )
-                if _should_detect_file_changes:
-                    try:
-                        from .utils.file_snapshot import capture_source_file_states
-
-                        _file_snapshots_before = capture_source_file_states(
-                            interpreter.computer.cwd or "."
-                        )
-                    except Exception as e:
-                        logger.debug(
-                            f"File snapshot capture failed (non-blocking): {e}"
-                        )
-                        pass  # Non-blocking
+                _file_snapshots_before = _capture_file_snapshots_before(interpreter)
 
                 # === VALIDATION HOOK (pre-execution) ===
                 _status["validated"], _validation_errors = CodeGate().check(
@@ -1060,26 +1118,7 @@ def respond(interpreter):
                             pass  # Non-blocking
 
                 # === DIRECTORY FRECENCY HOOK (autojump-style) ===
-                # WHY: OI's shell is a piped subprocess, so we can't hook the
-                # shell prompt the way autojump does — instead we parse `cd` /
-                # os.chdir targets out of the code that just ran. Cheap (regex
-                # only fires if the code mentions cd/chdir) and fully isolated
-                # so a bad path can never disturb the execution loop.
-                try:
-                    from .memory.directory_frecency import extract_cd_targets
-
-                    _cd_targets = extract_cd_targets(code, language)
-                    if _cd_targets:
-                        _base = getattr(interpreter.computer, "cwd", "") or os.getcwd()
-                        _recorded = interpreter.computer.files.frecency.record_many(
-                            _cd_targets, base_cwd=_base
-                        )
-                        # Track the last absolute dir so subsequent relative
-                        # `cd` resolution and file-diff base paths stay accurate.
-                        if _recorded:
-                            interpreter.computer.cwd = _recorded[-1]
-                except Exception as e:
-                    logger.debug(f"Directory frecency recording failed: {e}")
+                _record_directory_frecency(interpreter, code, language)
 
                 # === SEMANTIC MEMORY HOOK (post-execution) ===
                 _status["recorded"] = MemoryRecorder().record_code_execution(
@@ -1329,29 +1368,7 @@ def respond(interpreter):
                 }
 
                 # === TRACE FEEDBACK TO LLM ===
-                if interpreter.enable_trace_feedback and interpreter.enable_tracing:
-                    try:
-                        trace = getattr(interpreter, "_current_trace", None)
-                        if trace and getattr(trace, "exception_occurred", False):
-                            from .tracing import TraceContextGenerator
-
-                            generator = TraceContextGenerator()
-                            trace_context = generator.to_edit_context(trace)
-
-                            interpreter.messages.append(
-                                {
-                                    "role": "user",
-                                    "type": "message",
-                                    "content": (
-                                        "The code execution failed. Here's the execution trace:\n\n"
-                                        f"```\n{trace_context}\n```\n\n"
-                                        "Please analyze the trace and fix the code."
-                                    ),
-                                }
-                            )
-                    except Exception as e:
-                        logger.debug(f"Trace feedback failed (non-blocking): {e}")
-                        pass  # Non-blocking
+                _feed_trace_to_llm(interpreter)
 
         ### RUN MCP TOOL (if it's there) ###
         # WHY: Execute external tools via Model Context Protocol

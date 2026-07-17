@@ -62,24 +62,20 @@ def test_record_code_execution_no_graph_returns_false():
     assert MemoryRecorder().record_code_execution(interp, "print(1)", "python") is False
 
 
-def test_record_code_execution_currently_noops_due_to_edittype_bug():
-    """PINS A PRE-EXISTING LATENT BUG (preserved verbatim by the extraction):
-    the inline code used ``EditType.OTHER``, which does not exist on the enum
-    (members end at UNKNOWN), so building the Edit raises AttributeError, the
-    non-blocking except swallows it, and code-execution recording silently
-    no-ops -> returns False, records nothing, emits no MEMORY_RECORD. This is a
-    separate bug from the validation gate and is out of scope for the
-    behavior-identical decomposition; fixing it (EditType.UNKNOWN) is a
-    deliberate follow-up that would update this test.
-    """
+def test_record_code_execution_records_and_emits():
+    """Code-execution recording works: the Edit is recorded and MEMORY_RECORD
+    fires. (Previously a no-op — the inline code used EditType.OTHER, which is
+    absent from the enum, and the AttributeError was swallowed. Fixed to
+    EditType.UNKNOWN.)"""
     interp = _fake_interpreter()
     events = _capture()
 
     ok = MemoryRecorder().record_code_execution(interp, "print(1)", "python")
 
-    assert ok is False
-    assert interp.semantic_graph.recorded == []
-    assert not any(ev.type == EventType.MEMORY_RECORD for ev in events)
+    assert ok is True
+    assert len(interp.semantic_graph.recorded) == 1
+    assert interp.semantic_graph.recorded[0].new_content == "print(1)"
+    assert any(ev.type == EventType.MEMORY_RECORD for ev in events)
 
 
 # --- record_file_changes --------------------------------------------------

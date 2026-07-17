@@ -50,13 +50,18 @@ class MemoryRecorder:
                         assistant_response=code,
                     )
 
-            # Record the code execution
+            # Record the code execution. NOTE: the original inline code was doubly
+            # broken and silently no-op'd (its AttributeError/TypeError was swallowed
+            # by the non-blocking except): it passed edit_type=EditType.OTHER (absent
+            # from the enum) and language=... (Edit has no `language` field). Build it
+            # with valid fields — EditType.UNKNOWN (uncategorized script execution) and
+            # the language captured in user_intent.
             edit = Edit(
-                file_path=None,  # Script execution, not file edit
+                file_path="",  # Script execution, not a file edit
                 original_content="",
                 new_content=code,
-                edit_type=EditType.OTHER,
-                language=language,
+                edit_type=EditType.UNKNOWN,
+                user_intent=f"Executed {language} code",
                 conversation_context=context,
             )
             interpreter.semantic_graph.record_edit(edit)

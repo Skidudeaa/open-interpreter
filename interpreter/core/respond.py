@@ -15,6 +15,7 @@ from ..terminal_interface.components.network_status import get_network_status
 from ..terminal_interface.components.ui_events import EventType, UIEvent, get_event_bus
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
 from .render_message import render_message
+from .services.system_message_builder import SystemMessageBuilder, _weakref_or_none
 
 # Module logger
 logger = logging.getLogger(__name__)
@@ -55,17 +56,6 @@ def _strip_thinking_block_ids(thinking_blocks):
     return cleaned
 
 
-# System message cache to avoid rebuilding every iteration
-@dataclass(slots=True)
-class _SysMsgCacheEntry:
-    key: tuple[Any, ...]
-    value: str
-    interp_ref: weakref.ref | None = None
-
-
-_system_message_cache: dict[int, _SysMsgCacheEntry] = {}
-
-
 # Intent refiner instance cache (lazy-loaded)
 @dataclass(slots=True)
 class _IntentRefinerCacheEntry:
@@ -74,31 +64,6 @@ class _IntentRefinerCacheEntry:
 
 
 _intent_refiner_cache: dict[int, _IntentRefinerCacheEntry] = {}
-
-# Headless detection is stable per-process. Don't redo expensive/fragile checks every cache miss.
-_IS_HEADLESS: bool | None = None
-
-
-def _detect_headless() -> bool:
-    global _IS_HEADLESS
-    if _IS_HEADLESS is not None:
-        return _IS_HEADLESS
-    try:
-        import pyautogui
-
-        pyautogui.size()  # fails in headless
-        _IS_HEADLESS = False
-    except Exception:
-        _IS_HEADLESS = True
-    return _IS_HEADLESS
-
-
-def _weakref_or_none(obj: Any) -> weakref.ref | None:
-    """Best-effort weakref to protect against id() reuse after GC."""
-    try:
-        return weakref.ref(obj)
-    except TypeError:
-        return None
 
 
 def _get_refined_message(interpreter, content: str) -> str:
@@ -137,76 +102,6 @@ def _get_refined_message(interpreter, content: str) -> str:
     except Exception as e:
         logger.debug(f"IntentRefiner init/refine failed (non-blocking): {e}")
         return content
-
-
-def _build_system_message(interpreter):
-    """
-    Build the system message with caching based on dependencies.
-    Returns cached version if dependencies haven't changed.
-    """
-    # Build cache key from dependencies (exclude id; we store per-interpreter id already)
-    lang_messages = tuple(
-        getattr(lang, "system_message", "")
-        for lang in interpreter.computer.terminal.languages
-        if hasattr(lang, "system_message")
-    )
-    cache_key = (
-        interpreter.system_message,
-        lang_messages,
-        interpreter.custom_instructions,
-        interpreter.computer.import_computer_api,
-        (
-            interpreter.computer.system_message
-            if interpreter.computer.import_computer_api
-            else ""
-        ),
-        _detect_headless(),
-    )
-
-    interpreter_id = id(interpreter)
-    entry = _system_message_cache.get(interpreter_id)
-    if entry is not None and entry.key == cache_key:
-        if entry.interp_ref is None or entry.interp_ref() is interpreter:
-            return entry.value
-        # id() reused after GC
-        _system_message_cache.pop(interpreter_id, None)
-
-    # Build system message using parts (faster, avoids quadratic string appends)
-    parts: list[str] = []
-    base = getattr(interpreter, "system_message", "") or ""
-    parts.append(base)
-
-    for lang_msg in lang_messages:
-        if lang_msg:
-            parts.append(lang_msg)
-
-    if interpreter.custom_instructions:
-        parts.append(interpreter.custom_instructions)
-
-    if interpreter.computer.import_computer_api and interpreter.computer.system_message:
-        # Avoid duplicates by equality, not substring containment.
-        if interpreter.computer.system_message not in parts:
-            parts.append(interpreter.computer.system_message)
-
-    if _detect_headless():
-        parts.append(
-            "IMPORTANT: This is a HEADLESS environment (no X11/display). "
-            "Do NOT call computer.display.view(), computer.screenshot(), "
-            "computer.mouse, computer.keyboard, or any GUI functions - they will fail."
-        )
-
-    system_message = "\n\n".join(p for p in parts if p)
-
-    # Cache (bounded)
-    _system_message_cache[interpreter_id] = _SysMsgCacheEntry(
-        key=cache_key,
-        value=system_message,
-        interp_ref=_weakref_or_none(interpreter),
-    )
-    if len(_system_message_cache) > 128:
-        _system_message_cache.clear()
-
-    return system_message
 
 
 # Extension to language mapping for file diff display
@@ -610,7 +505,7 @@ def respond(interpreter):
                 # Fall through
 
         # ========= BUILD LLM MESSAGES =========
-        system_message = _build_system_message(interpreter)
+        system_message = SystemMessageBuilder().build(interpreter)
 
         ## Rendering ↓
         rendered_system_message = render_message(interpreter, system_message)

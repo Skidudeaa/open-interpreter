@@ -39,6 +39,7 @@ from ..terminal_interface.components.activity_stream import emit_activity
 from ..terminal_interface.components.network_status import get_network_status
 from ..terminal_interface.components.ui_events import EventType, UIEvent, get_event_bus
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
+from .memory.file_change_detector import FileChangeDetector
 from .memory.recorder import MemoryRecorder
 from .render_message import render_message
 from .services.system_message_builder import SystemMessageBuilder, _weakref_or_none
@@ -296,13 +297,7 @@ def _capture_file_snapshots_before(interpreter) -> dict:
         or getattr(interpreter, "show_file_diffs", False)
     ):
         return {}
-    try:
-        from .utils.file_snapshot import capture_source_file_states
-
-        return capture_source_file_states(interpreter.computer.cwd or ".")
-    except Exception as e:
-        logger.debug(f"File snapshot capture failed (non-blocking): {e}")
-        return {}
+    return FileChangeDetector().capture(interpreter.computer.cwd or ".")
 
 
 def _record_directory_frecency(interpreter, code: str, language: str) -> None:
@@ -373,10 +368,9 @@ def _detect_file_changes_and_commit(
     if not snapshots_before:
         return changed_files
     try:
-        from .utils.file_snapshot import capture_source_file_states, diff_file_states
-
-        snapshots_after = capture_source_file_states(interpreter.computer.cwd or ".")
-        changed_files = diff_file_states(snapshots_before, snapshots_after)
+        changed_files = FileChangeDetector().changes_since(
+            snapshots_before, interpreter.computer.cwd or "."
+        )
 
         # Emit FILE_CHANGE events for UI diff display
         if changed_files and getattr(interpreter, "show_file_diffs", False):

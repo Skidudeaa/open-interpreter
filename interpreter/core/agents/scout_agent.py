@@ -342,6 +342,11 @@ class ScoutAgent(BaseAgent):
             # Deduplicate results (same file/line/content).
             search_results = self._dedupe_results(search_results)
 
+            # Relevance-rerank so the downstream caps ([:25]/[:50]) surface the
+            # best matches instead of a path-ordered slice. Reorders in place;
+            # no-ops to the current order when the reranker is disabled/unkeyed.
+            search_results = self._rerank_search_results(task, analysis, search_results)
+
             # Pull files from search results.
             for r in search_results:
                 files_found.append(r.file_path)
@@ -1502,3 +1507,33 @@ Return ONLY valid JSON. No markdown. No commentary."""
             seen.add(key)
             out.append(r)
         return out
+
+    def _rerank_search_results(
+        self,
+        task: str,
+        analysis: "SearchAnalysis | None",
+        results: list[SearchResult],
+    ) -> list[SearchResult]:
+        """Reorder search hits by relevance to the task via the shared reranker.
+
+        Reorder-only (no truncation): when the reranker is disabled or unkeyed it
+        returns the input order unchanged, so downstream caps behave exactly as
+        before. Each hit is ranked on ``path:line`` + its matched source line.
+        """
+        if len(results) <= 1:
+            return results
+        reranker = getattr(self.interpreter, "reranker", None)
+        if reranker is None or not reranker.is_available():
+            return results
+        query = task or (analysis.semantic_query if analysis else "") or ""
+        if not query:
+            return results
+
+        def _doc(r: SearchResult) -> str:
+            return f"{r.file_path}:{r.line_number}\n{r.content}"
+
+        try:
+            ranked = reranker.rerank_items(query, results, key=_doc)
+            return [item for item, _score in ranked] or results
+        except Exception:  # never let ranking break exploration
+            return results

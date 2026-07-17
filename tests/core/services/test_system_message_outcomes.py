@@ -24,24 +24,15 @@ def _interp(enable, messages):
     it.computer.terminal.languages = []
     it.computer.import_computer_api = False
     it.computer.system_message = ""
-    # isolate the outcome section from the others
-    it.enable_memory_preprompt = enable
+    # every other section off — this file tests the outcome section
+    it.enable_memory_preprompt = False
     it.enable_preference_memory = False
-    it.preference_store = None
-    it.semantic_graph = None  # edit-memory section returns ""
+    it.enable_task_memory = False
+    it.enable_context_memory = False
+    it.enable_outcome_memory = enable
     it.messages = messages
     it._outcome_store = OutcomeStore(db_path=None)  # fresh in-memory, hermetic
     it._last_outcome_scan = 0
-    # neutralize sibling task section (shared enable_memory_preprompt gate)
-    from interpreter.core.memory.tasks import TaskStore
-
-    it._task_store = TaskStore(db_path=None)
-    it._last_task_capture = None
-    it.task_limit = 10
-    from interpreter.core.memory.context_patterns import ContextPatternStore
-
-    it._context_store = ContextPatternStore(db_path=None)
-    it._last_context_capture = None
     return it
 
 

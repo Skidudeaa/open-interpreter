@@ -31,21 +31,11 @@ def _interp(enable_preprompt, search_results=None, query="fix the socket"):
     it.computer.system_message = ""
     it.enable_memory_preprompt = enable_preprompt
     it.memory_preprompt_limit = 5
-    it.enable_preference_memory = False  # isolate the edit-memory section
-    it.preference_store = None
-    # neutralize sibling task/outcome sections (shared enable_memory_preprompt gate)
-    from interpreter.core.memory.outcomes import OutcomeStore
-    from interpreter.core.memory.tasks import TaskStore
-
-    it._task_store = TaskStore(db_path=None)
-    it._last_task_capture = None
-    it.task_limit = 10
-    it._outcome_store = OutcomeStore(db_path=None)
-    it._last_outcome_scan = 0
-    from interpreter.core.memory.context_patterns import ContextPatternStore
-
-    it._context_store = ContextPatternStore(db_path=None)
-    it._last_context_capture = None
+    # every other section off — this file tests the edit-memory recall section
+    it.enable_preference_memory = False
+    it.enable_task_memory = False
+    it.enable_outcome_memory = False
+    it.enable_context_memory = False
     it.messages = [{"role": "user", "type": "message", "content": query}]
     it.reranker = None
     if search_results is None:

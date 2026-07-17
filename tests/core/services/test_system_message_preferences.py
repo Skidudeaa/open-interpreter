@@ -24,7 +24,11 @@ def _interp(enable_pref, store, query="I prefer tabs over spaces"):
     it.computer.terminal.languages = []
     it.computer.import_computer_api = False
     it.computer.system_message = ""
-    it.enable_memory_preprompt = False  # isolate the preference section
+    # every other section off — this file tests the preference section
+    it.enable_memory_preprompt = False
+    it.enable_task_memory = False
+    it.enable_outcome_memory = False
+    it.enable_context_memory = False
     it.enable_preference_memory = enable_pref
     it.preference_store = store
     it.preference_limit = 20

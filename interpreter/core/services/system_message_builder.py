@@ -175,7 +175,7 @@ class SystemMessageBuilder:
         """Observe (time-of-day, activity) for this turn and, once a pattern has
         enough support, surface it. Store lazily attached to the interpreter (no
         core.py dependency); capture deduped per message. Non-blocking."""
-        if not getattr(interpreter, "enable_memory_preprompt", False):
+        if not getattr(interpreter, "enable_context_memory", False):
             return ""
         try:
             from ...terminal_interface.utils.local_storage_path import get_storage_path
@@ -213,7 +213,7 @@ class SystemMessageBuilder:
         """Capture task open/complete declarations from the current message and
         inject the open set for continuity. Store lazily attached to the
         interpreter (no core.py dependency); capture deduped per message."""
-        if not getattr(interpreter, "enable_memory_preprompt", False):
+        if not getattr(interpreter, "enable_task_memory", False):
             return ""
         try:
             store = getattr(interpreter, "_task_store", None)
@@ -244,7 +244,7 @@ class SystemMessageBuilder:
         """Record execution failures from the conversation and inject a warning
         about ones seen before. The store is lazily attached to the interpreter
         (avoids a core.py dependency) and scanning is incremental. Non-blocking."""
-        if not getattr(interpreter, "enable_memory_preprompt", False):
+        if not getattr(interpreter, "enable_outcome_memory", False):
             return ""
         try:
             store = getattr(interpreter, "_outcome_store", None)

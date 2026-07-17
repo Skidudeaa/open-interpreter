@@ -385,7 +385,7 @@ class OpenInterpreter:
         self.rerank_model = os_module.environ.get(
             "OI_RERANK_MODEL", "cohere/rerank-v4.0-pro"
         )
-        # Memory pre-prompting: inject relevant past memories (reranked) into the
+        # Memory pre-prompting: inject relevant reranked edit-graph recall into the
         # system message before the LLM sees the request. Opt-in (adds a retrieval
         # per turn); no-ops without semantic memory.
         self.enable_memory_preprompt = False
@@ -396,6 +396,12 @@ class OpenInterpreter:
         self._preference_store = None
         self.enable_preference_memory = False
         self.preference_memory_path = get_storage_path("preferences.db")
+
+        # Other pre-prompting sub-features, each independently toggleable (all
+        # inject a section into the system message; opt-in, non-blocking).
+        self.enable_task_memory = False  # open/done task tracking
+        self.enable_outcome_memory = False  # recurring-failure warnings
+        self.enable_context_memory = False  # time-of-day behavioral patterns
 
         # Plugin system (lazy-initialized)
         self._plugin_registry = None
@@ -463,6 +469,9 @@ class OpenInterpreter:
             self.enable_reranker = True  # no-ops without a key, so harmless
             self.enable_memory_preprompt = True  # no-ops without semantic memory
             self.enable_preference_memory = True
+            self.enable_task_memory = True
+            self.enable_outcome_memory = True
+            self.enable_context_memory = True
             # NOTE: intent_refiner deliberately NOT enabled here - it causes
             # workflow misrouting by transforming simple commands into complex ones
 
@@ -493,6 +502,9 @@ class OpenInterpreter:
             "enable_reranker",
             "enable_memory_preprompt",
             "enable_preference_memory",
+            "enable_task_memory",
+            "enable_outcome_memory",
+            "enable_context_memory",
             "backend",
         ]
 
@@ -787,6 +799,9 @@ class OpenInterpreter:
         self.enable_reranker = True  # no-ops without a provider key
         self.enable_memory_preprompt = True  # no-ops without semantic memory
         self.enable_preference_memory = True
+        self.enable_task_memory = True
+        self.enable_outcome_memory = True
+        self.enable_context_memory = True
         return self
 
     def local_setup(self):

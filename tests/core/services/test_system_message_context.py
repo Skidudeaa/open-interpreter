@@ -6,8 +6,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from interpreter.core.memory.context_patterns import ContextPatternStore
-from interpreter.core.memory.outcomes import OutcomeStore
-from interpreter.core.memory.tasks import TaskStore
 from interpreter.core.services import system_message_builder as smb
 from interpreter.core.services.system_message_builder import SystemMessageBuilder
 
@@ -31,18 +29,14 @@ def _interp(enable, query, context_store):
     it.computer.terminal.languages = []
     it.computer.import_computer_api = False
     it.computer.system_message = ""
-    it.enable_memory_preprompt = enable
+    # every other section off — this file tests the context section
+    it.enable_memory_preprompt = False
     it.enable_preference_memory = False
-    it.preference_store = None
-    it.semantic_graph = None
+    it.enable_task_memory = False
+    it.enable_outcome_memory = False
+    it.enable_context_memory = enable
     it._context_store = context_store
     it._last_context_capture = None
-    # neutralize sibling sections
-    it._task_store = TaskStore(db_path=None)
-    it._last_task_capture = None
-    it.task_limit = 10
-    it._outcome_store = OutcomeStore(db_path=None)
-    it._last_outcome_scan = 0
     it.messages = [{"role": "user", "type": "message", "content": query}]
     return it
 

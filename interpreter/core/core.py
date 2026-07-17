@@ -580,9 +580,12 @@ class OpenInterpreter:
         return self._chunk_pipeline
 
     def _build_pipeline_middleware(self) -> list:
-        """The ordered middleware list for the chunk pipeline. Empty in Phase 0;
-        later phases append Observability/Memory/Validation middleware here."""
-        return []
+        """The ordered middleware list for the chunk pipeline. Each middleware
+        no-ops for the oi backend and activates for hermes; ordering is
+        producer -> ... -> consumer."""
+        from .pipeline.memory_middleware import MemoryMiddleware
+
+        return [MemoryMiddleware()]
 
     @property
     def preference_store(self):

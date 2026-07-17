@@ -387,6 +387,12 @@ class OpenInterpreter:
         self.enable_memory_preprompt = False
         self.memory_preprompt_limit = 5
 
+        # Preference memory: capture explicit "I prefer/always/never X" declarations
+        # and inject the active set into the system message. Opt-in.
+        self._preference_store = None
+        self.enable_preference_memory = False
+        self.preference_memory_path = get_storage_path("preferences.db")
+
         # Plugin system (lazy-initialized)
         self._plugin_registry = None
         self.enable_plugins = True  # Enabled by default for extensibility
@@ -452,6 +458,7 @@ class OpenInterpreter:
             self.enable_observability = True
             self.enable_reranker = True  # no-ops without a key, so harmless
             self.enable_memory_preprompt = True  # no-ops without semantic memory
+            self.enable_preference_memory = True
             # NOTE: intent_refiner deliberately NOT enabled here - it causes
             # workflow misrouting by transforming simple commands into complex ones
 
@@ -481,6 +488,7 @@ class OpenInterpreter:
             "enable_observability",
             "enable_reranker",
             "enable_memory_preprompt",
+            "enable_preference_memory",
             "backend",
         ]
 
@@ -549,6 +557,22 @@ class OpenInterpreter:
 
                     self._reranker = Reranker(model=self.rerank_model)
         return self._reranker
+
+    @property
+    def preference_store(self):
+        """
+        Lazy-initialized store for explicit user preferences.
+        Thread-safe with double-checked locking. Returns None when disabled.
+        """
+        if self._preference_store is None and self.enable_preference_memory:
+            with self._property_lock:
+                if self._preference_store is None and self.enable_preference_memory:
+                    from .memory.preferences import PreferenceStore
+
+                    self._preference_store = PreferenceStore(
+                        db_path=self.preference_memory_path
+                    )
+        return self._preference_store
 
     @property
     def conversation_linker(self):
@@ -731,6 +755,7 @@ class OpenInterpreter:
         self.enable_observability = True
         self.enable_reranker = True  # no-ops without a provider key
         self.enable_memory_preprompt = True  # no-ops without semantic memory
+        self.enable_preference_memory = True
         return self
 
     def local_setup(self):

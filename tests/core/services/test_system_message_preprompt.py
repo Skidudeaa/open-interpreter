@@ -31,6 +31,8 @@ def _interp(enable_preprompt, search_results=None, query="fix the socket"):
     it.computer.system_message = ""
     it.enable_memory_preprompt = enable_preprompt
     it.memory_preprompt_limit = 5
+    it.enable_preference_memory = False  # isolate the edit-memory section
+    it.preference_store = None
     it.messages = [{"role": "user", "type": "message", "content": query}]
     it.reranker = None
     if search_results is None:

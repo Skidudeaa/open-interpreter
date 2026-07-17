@@ -159,9 +159,47 @@ class SystemMessageBuilder:
         return ""
 
     def _build_memory_preamble(self, interpreter) -> str:
-        """Retrieve relevant past memories for the current query and format them
-        as a preamble. Fully non-blocking: returns '' when disabled, unavailable,
-        empty, or on any error — so the base system message is never affected."""
+        """Assemble the dynamic system-message preamble: stated preferences +
+        relevant past memories. Each section is independently guarded and
+        non-blocking, so the base system message is never affected."""
+        sections = [
+            self._preferences_section(interpreter),
+            self._edit_memory_section(interpreter),
+        ]
+        return "\n\n".join(s for s in sections if s)
+
+    def _preferences_section(self, interpreter) -> str:
+        """Capture explicit preferences from the current message and inject the
+        active set. Capture happens here (before the LLM sees the turn) and is
+        deduplicated per message; both are fully non-blocking."""
+        if not getattr(interpreter, "enable_preference_memory", False):
+            return ""
+        try:
+            store = getattr(interpreter, "preference_store", None)
+            if store is None:
+                return ""
+            query = self._latest_user_query(interpreter)
+            # Capture once per unique message (build() may run several times/turn).
+            if query and getattr(interpreter, "_last_pref_capture", None) != query:
+                interpreter._last_pref_capture = query
+                store.record_from_text(query)
+            active = store.get_active(
+                limit=getattr(interpreter, "preference_limit", 20)
+            )
+            if not active:
+                return ""
+            lines = [f"- {p.display()}" for p in active]
+            return (
+                "## User preferences\n"
+                "Honor these stated preferences:\n" + "\n".join(lines)
+            )
+        except Exception:  # preference memory must never break the system message
+            return ""
+
+    def _edit_memory_section(self, interpreter) -> str:
+        """Retrieve relevant past memories for the current query and format them.
+        Fully non-blocking: returns '' when disabled, unavailable, empty, or on
+        any error."""
         if not getattr(interpreter, "enable_memory_preprompt", False):
             return ""
         try:

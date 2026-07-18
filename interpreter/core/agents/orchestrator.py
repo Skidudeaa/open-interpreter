@@ -535,6 +535,11 @@ class AgentOrchestrator:
         if len(task.strip()) < 15:
             return WorkflowType.NONE
 
+        # Fast-path obvious conversation so we don't pay the classifier LLM call
+        # on chit-chat. High-precision: only fires with zero code/action signal.
+        if self._is_clearly_conversational(task):
+            return WorkflowType.NONE
+
         # Check cache to avoid repeated LLM calls
         # WHY: Same task resubmitted in loop should not re-call LLM
         # TRADEOFF: Small memory overhead vs. repeated LLM calls
@@ -630,6 +635,104 @@ Respond with exactly one word: NONE, EXPLORE, EDIT, VALIDATE, or FULL"""
         except Exception as e:
             logger.warning(f"LLM workflow detection failed: {e}")
             return _cache_and_return(WorkflowType.NONE)
+
+    # Conversational openers that never indicate a code task. Matched on the
+    # first token only, and only when no action signal is present.
+    _CHAT_OPENERS = frozenset(
+        {
+            "ok",
+            "okay",
+            "yes",
+            "yeah",
+            "yep",
+            "yup",
+            "no",
+            "nope",
+            "sure",
+            "thanks",
+            "thank",
+            "thx",
+            "great",
+            "nice",
+            "cool",
+            "awesome",
+            "perfect",
+            "good",
+            "hi",
+            "hello",
+            "hey",
+            "please",
+            "continue",
+            "got",
+            "sounds",
+            "makes",
+            "agreed",
+            "correct",
+            "right",
+            "exactly",
+            "cheers",
+            "yay",
+            "hmm",
+            "huh",
+            "wait",
+            "so",
+        }
+    )
+    # Any of these anywhere in the message means it might be a code task —
+    # defer to the heuristic / LLM classifier rather than short-circuiting.
+    _ACTION_SIGNAL = (
+        "file",
+        "code",
+        "project",
+        "module",
+        "function",
+        "class",
+        "symbol",
+        ".py",
+        ".js",
+        ".ts",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".md",
+        "find",
+        "search",
+        "list",
+        "locate",
+        "grep",
+        "where is",
+        "where are",
+        "show me",
+        "fix",
+        "add",
+        "change",
+        "update",
+        "modify",
+        "edit",
+        "implement",
+        "refactor",
+        "remove",
+        "create",
+        "build",
+        "test",
+        "verify",
+        "validate",
+        "run tests",
+        "check if",
+    )
+
+    @classmethod
+    def _is_clearly_conversational(cls, task: str) -> bool:
+        """True for high-confidence chit-chat (no code/action signal, opens with
+        a conversational token) — safe to skip agent routing entirely."""
+        t = task.strip().lower()
+        if not t:
+            return True
+        if any(term in t for term in cls._ACTION_SIGNAL):
+            return False
+        first = t.split()[0].strip(".,!?;:'\"")
+        return first in cls._CHAT_OPENERS
 
     @staticmethod
     def _detect_workflow_heuristic(task: str) -> WorkflowType | None:

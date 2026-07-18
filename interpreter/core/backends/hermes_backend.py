@@ -173,14 +173,52 @@ def _latest_user_text(interpreter) -> str:
     return ""
 
 
+def _conversation_transcript(interpreter, max_chars: int = 4000) -> str:
+    """Prior user/assistant turns as a readable transcript, excluding the current
+    request. Hermes gets a fresh ACP session per turn and only receives this
+    prompt, so without the transcript it cannot hold a conversational thread.
+    Most-recent-truncated to bound prompt size."""
+    msgs = getattr(interpreter, "messages", []) or []
+    # The last user text message is the current request — exclude it here.
+    last_user_idx = None
+    for i in range(len(msgs) - 1, -1, -1):
+        m = msgs[i]
+        if (
+            isinstance(m, dict)
+            and m.get("role") == "user"
+            and m.get("type", "message") == "message"
+        ):
+            last_user_idx = i
+            break
+    lines: list[str] = []
+    for i, m in enumerate(msgs):
+        if i == last_user_idx or not isinstance(m, dict):
+            continue
+        if m.get("type", "message") != "message":
+            continue
+        content = m.get("content")
+        if not isinstance(content, str) or not content.strip():
+            continue
+        role = m.get("role")
+        if role == "user":
+            lines.append(f"User: {content.strip()}")
+        elif role == "assistant":
+            lines.append(f"Assistant: {content.strip()}")
+    if not lines:
+        return ""
+    transcript = "\n".join(lines)
+    if len(transcript) > max_chars:
+        transcript = "…\n" + transcript[-max_chars:]
+    return transcript
+
+
 def _compose_prompt(interpreter) -> str:
     """The text sent to Hermes for a turn: OI's assembled system message (incl.
-    source-routing) as a labeled preamble, then the user request.
+    source-routing), the prior conversation transcript, then the current request.
 
-    ACP has no separate system-prompt slot (``acp_client.new_session``/``prompt``
-    take no instructions), so OI's prompt must ride in the prompt text or hermes
-    runs without it. Non-blocking: if the system message can't be built, fall back
-    to the user text alone (prior behavior).
+    ACP has no separate system-prompt slot and hermes runs a fresh session per
+    turn, so system prompt + history must ride in the prompt text. Non-blocking:
+    if nothing extra can be built, fall back to the user text alone.
     """
     user_text = _latest_user_text(interpreter)
     try:
@@ -189,14 +227,18 @@ def _compose_prompt(interpreter) -> str:
         system_message = SystemMessageBuilder().build(interpreter)
     except Exception:
         system_message = ""
-    if not system_message:
-        return user_text
-    return (
-        "# System instructions\n"
-        f"{system_message}\n\n"
-        "# User request\n"
-        f"{user_text}"
-    )
+    transcript = _conversation_transcript(interpreter)
+
+    if not system_message and not transcript:
+        return user_text  # prior behavior
+
+    parts: list[str] = []
+    if system_message:
+        parts.append("# System instructions\n" + system_message)
+    if transcript:
+        parts.append("# Conversation so far\n" + transcript)
+    parts.append("# Current request\n" + user_text)
+    return "\n\n".join(parts)
 
 
 # Friendly short aliases → a needle matched against Hermes's live model catalog.

@@ -93,6 +93,30 @@ def test_oi_backend_is_pure_passthrough(tmp_path):
     assert not any(ev.type == EventType.FILE_CHANGE for ev in events)
 
 
+def test_records_new_file_in_empty_dir(tmp_path):
+    """REGRESSION: a hermes turn that creates a NEW file in a directory with no
+    tracked source files at start must be recorded. Previously missed because an
+    empty baseline short-circuited detection (found via a live hermes run in a
+    fresh temp dir)."""
+    interp = _hermes_interp(tmp_path)  # tmp_path starts empty
+    new = tmp_path / "brand_new.py"
+
+    def hermes_stream():
+        yield {"role": "assistant", "type": "message", "content": "creating"}
+        new.write_text("print('hi')")  # first source file appears mid-turn
+        yield {
+            "role": "computer",
+            "type": "console",
+            "format": "output",
+            "content": "done",
+        }
+
+    ctx = {"interpreter": interp, "backend": "hermes"}
+    list(MemoryMiddleware().process(hermes_stream(), ctx))
+
+    assert len(interp.semantic_graph.recorded) == 1
+
+
 def test_no_file_change_records_nothing(tmp_path):
     interp = _hermes_interp(tmp_path)
     (tmp_path / "stable.py").write_text("x = 1")

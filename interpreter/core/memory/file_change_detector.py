@@ -42,9 +42,14 @@ class FileChangeDetector:
             logger.debug(f"File diff failed (non-blocking): {e}")
             return {}
 
-    def changes_since(self, before: dict, cwd: str | None) -> dict:
+    def changes_since(self, before: dict | None, cwd: str | None) -> dict:
         """Capture the current state under ``cwd`` and diff it against ``before``.
-        Empty dict when ``before`` is empty or on error."""
-        if not before:
+
+        ``before is None`` means no baseline was captured (detection disabled) →
+        return {}. An *empty* ``before`` ({}) is a valid baseline (the dir had no
+        tracked source files at start), so we still diff — this is what lets a
+        NEW file created in a previously-empty directory be detected.
+        """
+        if before is None:
             return {}
         return self.diff(before, self.capture(cwd))

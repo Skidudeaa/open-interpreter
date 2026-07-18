@@ -21,8 +21,25 @@ def test_changes_since_round_trips_a_real_edit():
         assert changed[str(f)] == ("# before", "# after")
 
 
-def test_changes_since_empty_before_returns_empty():
-    assert FileChangeDetector().changes_since({}, ".") == {}
+def test_changes_since_none_before_returns_empty():
+    """None baseline = detection was not performed -> nothing to diff."""
+    assert FileChangeDetector().changes_since(None, ".") == {}
+
+
+def test_changes_since_empty_before_detects_new_file(tmp_path):
+    """REGRESSION: an *empty* baseline ({}) is valid — a NEW file created in a
+    previously-empty dir must be detected (was silently missed by an `if not
+    before` guard, surfaced by a live hermes run in a fresh directory)."""
+    det = FileChangeDetector()
+    before = det.capture(str(tmp_path))  # empty dir -> {}
+    assert before == {}
+
+    new = tmp_path / "created.py"
+    new.write_text("print('new')")
+
+    changed = det.changes_since(before, str(tmp_path))
+    assert str(new) in changed
+    assert changed[str(new)] == ("", "print('new')")
 
 
 def test_no_change_yields_empty_diff():

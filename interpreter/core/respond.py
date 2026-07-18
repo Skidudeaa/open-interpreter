@@ -289,14 +289,17 @@ def _sync_computer_before(interpreter, language: str) -> None:
         logger.warning("Failed to sync iComputer with your Computer. Continuing...")
 
 
-def _capture_file_snapshots_before(interpreter) -> dict:
+def _capture_file_snapshots_before(interpreter) -> dict | None:
     """Capture source-file states before execution if semantic memory OR file
     diff display is enabled. Returns {} when disabled or on error."""
+    # Return None (not {}) when disabled so the after-diff can distinguish
+    # "no baseline captured" from "captured an empty dir" — the latter must still
+    # be diffed so new files in a previously-empty dir are detected.
     if not (
         interpreter.enable_semantic_memory
         or getattr(interpreter, "show_file_diffs", False)
     ):
-        return {}
+        return None
     return FileChangeDetector().capture(interpreter.computer.cwd or ".")
 
 
@@ -355,17 +358,18 @@ def _feed_trace_to_llm(interpreter) -> None:
 
 
 def _detect_file_changes_and_commit(
-    interpreter, snapshots_before: dict, status: dict
+    interpreter, snapshots_before: dict | None, status: dict
 ) -> dict:
     """Diff source files against ``snapshots_before``, emit FILE_CHANGE display
     events, record changes to memory, and auto-commit. Returns the changed-files
     map (also consumed by auto-test). Sets ``status['committed']``.
 
-    File-change *detection* stays here (shared infra); memory recording and
-    commit are delegated to MemoryRecorder.
+    ``snapshots_before is None`` means no baseline was captured (detection off);
+    an empty {} baseline is valid and still diffed. File-change *detection* stays
+    here (shared infra); memory recording and commit are delegated to MemoryRecorder.
     """
     changed_files: dict = {}
-    if not snapshots_before:
+    if snapshots_before is None:
         return changed_files
     try:
         changed_files = FileChangeDetector().changes_since(

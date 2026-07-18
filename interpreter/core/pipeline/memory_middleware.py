@@ -38,7 +38,10 @@ class MemoryMiddleware(Middleware):
         cwd = getattr(getattr(interpreter, "computer", None), "cwd", None) or "."
         detector = FileChangeDetector()
 
-        before = {}
+        # None = no baseline captured (memory off). An empty {} baseline is valid
+        # (dir had no tracked source files at turn start) and must still be diffed,
+        # so a NEW file created during the turn is recorded.
+        before = None
         if getattr(interpreter, "enable_semantic_memory", False) or getattr(
             interpreter, "show_file_diffs", False
         ):
@@ -50,7 +53,7 @@ class MemoryMiddleware(Middleware):
             self._record_turn(interpreter, detector, before, cwd)
 
     def _record_turn(self, interpreter, detector, before, cwd):
-        if not before:
+        if before is None:
             return
         try:
             changed = detector.changes_since(before, cwd)

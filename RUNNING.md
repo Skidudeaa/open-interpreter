@@ -59,14 +59,15 @@ To turn any of them off, flip it to `false` in that file. To toggle in a session
 
 | Role | Model | Override |
 |---|---|---|
-| Main chat | `gemini/gemini-3.5-flash` | `--model X` or `OI_MODEL=X` |
+| Main chat | `gemini/gemini-3.1-pro-preview` | `"model"` in settings.json; `--model X` / `OI_MODEL=X` per run |
 | Scout (explore) | `gemini/gemini-3.5-flash` | `orchestrator.py::_ROLE_MODELS` |
-| Surgeon (edits) | `gpt-5.5` | ″ |
-| Architect (design) | `claude-opus-4-8` | ″ |
+| Surgeon (edits) | `gpt-5.6-terra` | ″ |
+| Architect (design) | `claude-fable-5` | ″ |
+| Validator | `claude-sonnet-5` | ″ |
 | Reranker | `cohere/rerank-v4.0-pro` | `OI_RERANK_MODEL=X` |
 
-Set a different default model for good: `export OI_MODEL=claude-opus-4-8` in your
-profile, or `interpreter --model ...` per run.
+The **main model is persisted** in `settings.json` (`"model"` key), so `oi` uses it
+with no flags. Override per run with `interpreter --model ...` or `OI_MODEL=...`.
 
 ## Backends
 

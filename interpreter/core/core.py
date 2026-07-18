@@ -520,6 +520,11 @@ class OpenInterpreter:
                 else:
                     setattr(self, flag, bool(value))
 
+        # Main chat model persists on the LLM wrapper, not a feature flag.
+        # CLI --model / OI_MODEL still override this (applied after __init__).
+        if "model" in settings and settings["model"]:
+            self.llm.model = str(settings["model"])
+
     def save_current_settings(self) -> bool:
         """
         Save current feature flag settings to persistent config.

@@ -371,7 +371,11 @@ class OpenInterpreter:
 
         # Agents (lazy-initialized)
         self._agent_orchestrator = None
-        self.enable_agents = True  # Enabled by default for smart exploration
+        # Opt-in only: agent orchestration intercepts every turn with a
+        # history-blind workflow classifier + context-free agent handoff, which
+        # breaks conversational continuity. Enable explicitly for multi-step
+        # tasks (interpreter.enable_agents = True or via settings.json).
+        self.enable_agents = False
 
         # Reranker (lazy-initialized) — relevance-orders retrieval candidates
         # (Scout hits, research sources, memory recall). Opt-in: it costs per
@@ -467,7 +471,8 @@ class OpenInterpreter:
             self.enable_semantic_memory = True
             self.enable_validation = True
             self.enable_tracing = True
-            self.enable_agents = True
+            # enable_agents intentionally NOT set here — it breaks conversational
+            # continuity (history-blind per-turn routing); keep it opt-in.
             self.enable_auto_test = True
             self.enable_trace_feedback = True
             self.enable_plugins = True
@@ -801,7 +806,7 @@ class OpenInterpreter:
         self.enable_semantic_memory = True
         self.enable_validation = True
         self.enable_tracing = True
-        self.enable_agents = True
+        # enable_agents intentionally NOT set — opt-in only (breaks continuity)
         self.enable_auto_test = True
         self.enable_trace_feedback = True
         self.enable_plugins = True

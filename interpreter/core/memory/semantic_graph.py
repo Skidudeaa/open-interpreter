@@ -13,6 +13,7 @@ if DuckDB is not available.
 
 import json
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,12 @@ class SemanticEditGraph:
         """
         self.db_path = db_path
         self._connection: Any = None
+        # Serializes writes across threads. The connection is shared across the
+        # backend seam (e.g. the hermes pipeline records from the consumer thread
+        # while the connection may have been opened on another), so writes must be
+        # serialized and (for SQLite) the connection opened with
+        # check_same_thread=False.
+        self._lock = threading.RLock()
         self._use_duckdb = use_duckdb and self._check_duckdb_available()
 
         if self._use_duckdb:
@@ -72,11 +79,14 @@ class SemanticEditGraph:
         """Initialize SQLite connection and schema."""
         import sqlite3
 
+        # check_same_thread=False: the connection is shared across threads (the
+        # hermes pipeline records on the consumer thread). Writes are serialized by
+        # self._lock, so this is safe.
         if self.db_path:
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-            self._connection = sqlite3.connect(self.db_path)
+            self._connection = sqlite3.connect(self.db_path, check_same_thread=False)
         else:
-            self._connection = sqlite3.connect(":memory:")
+            self._connection = sqlite3.connect(":memory:", check_same_thread=False)
 
         self._create_schema_sqlite()
 
@@ -254,10 +264,11 @@ class SemanticEditGraph:
         """
         data_json = json.dumps(edit.to_dict())
 
-        if self._use_duckdb:
-            self._record_edit_duckdb(edit, data_json)
-        else:
-            self._record_edit_sqlite(edit, data_json)
+        with self._lock:
+            if self._use_duckdb:
+                self._record_edit_duckdb(edit, data_json)
+            else:
+                self._record_edit_sqlite(edit, data_json)
 
         logger.debug(f"Recorded edit {edit.id} for {edit.file_path}")
         return edit.id
@@ -440,18 +451,19 @@ class SemanticEditGraph:
             True if updated successfully
         """
         try:
-            if self._use_duckdb:
-                self._connection.execute(
-                    "UPDATE edits SET git_commit_hash = ? WHERE id = ?",
-                    [commit_hash, edit_id],
-                )
-            else:
-                cursor = self._connection.cursor()
-                cursor.execute(
-                    "UPDATE edits SET git_commit_hash = ? WHERE id = ?",
-                    (commit_hash, edit_id),
-                )
-                self._connection.commit()
+            with self._lock:
+                if self._use_duckdb:
+                    self._connection.execute(
+                        "UPDATE edits SET git_commit_hash = ? WHERE id = ?",
+                        [commit_hash, edit_id],
+                    )
+                else:
+                    cursor = self._connection.cursor()
+                    cursor.execute(
+                        "UPDATE edits SET git_commit_hash = ? WHERE id = ?",
+                        (commit_hash, edit_id),
+                    )
+                    self._connection.commit()
 
             logger.debug(f"Updated edit {edit_id} with commit hash {commit_hash[:8]}")
             return True

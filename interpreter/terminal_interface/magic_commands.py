@@ -66,6 +66,7 @@ def handle_help(self, arguments):
         "%retry": "Re-run the last user message (strips last exchange and re-queues it).",
         "%compact [n]": "Summarize old messages with the LLM to free context window. Keeps last n (default 6).",
         "%model [name]": "Show or hot-swap the model mid-session.",
+        "%reflect [off]": "Escalate to a heavier reasoner (reflect_model) for deep thinking; %reflect again to revert.",
         "%copy": "Copy the last assistant response to the clipboard.",
         "%jump [pattern]": "Jump to a frecency-ranked directory (autojump-style). No args lists the top directories.",
         "%info": "Show system and interpreter information",
@@ -362,6 +363,40 @@ def handle_model(self, arguments):
     )
 
 
+def handle_reflect(self, arguments):
+    """Toggle 'reflect' mode: hot-swap the main model to a heavier reasoner
+    (self.reflect_model) on demand, then `%reflect` again (or `%reflect off`)
+    to revert to the previous model."""
+    from rich.console import Console
+
+    console = Console()
+    reflect_model = (
+        getattr(self, "reflect_model", None) or "openrouter/moonshotai/kimi-k3"
+    )
+    prev = getattr(self, "_reflect_prev_model", None)
+    arg = arguments.strip().lower()
+
+    # Revert: explicit `off`, or toggle-off when already reflecting.
+    if arg == "off" or (prev is not None and self.llm.model == reflect_model):
+        if prev is not None:
+            self.llm.model = prev
+            self.llm._is_loaded = False
+            self._reflect_prev_model = None
+            console.print(f"[dim]Reflect off →[/dim] [green]{prev}[/green]")
+        else:
+            console.print("[dim]Not in reflect mode.[/dim]")
+        return
+
+    # Engage: stash the current model, swap to the reflect model.
+    self._reflect_prev_model = self.llm.model
+    self.llm.model = reflect_model
+    self.llm._is_loaded = False
+    console.print(
+        f"[dim]Reflect on:[/dim] [red]{self._reflect_prev_model}[/red] [dim]→[/dim] "
+        f"[magenta]{reflect_model}[/magenta] [dim](%reflect to revert)[/dim]"
+    )
+
+
 def handle_copy(self, arguments):
     """Copy the last assistant response to the clipboard."""
     from .utils.clipboard import copy_to_clipboard, get_last_content
@@ -589,6 +624,7 @@ def handle_magic_command(self, user_input):
         "retry": handle_retry,
         "compact": handle_compact,
         "model": handle_model,
+        "reflect": handle_reflect,
         "copy": handle_copy,
         "jump": handle_jump,
         "jupyter": jupyter,

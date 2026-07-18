@@ -69,6 +69,11 @@ To turn any of them off, flip it to `false` in that file. To toggle in a session
 The **main model is persisted** in `settings.json` (`"model"` key), so `oi` uses it
 with no flags. Override per run with `interpreter --model ...` or `OI_MODEL=...`.
 
+**Escalate on demand:** type `%reflect` mid-session to hot-swap to a heavier
+reasoner (`reflect_model`, default `openrouter/moonshotai/kimi-k3`) for a hard
+problem, then `%reflect` again (or `%reflect off`) to revert. Set the reflect
+model with `OI_REFLECT_MODEL=...`.
+
 ## Backends
 
 ```bash

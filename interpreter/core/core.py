@@ -385,6 +385,13 @@ class OpenInterpreter:
         self.rerank_model = os_module.environ.get(
             "OI_RERANK_MODEL", "cohere/rerank-v4.0-pro"
         )
+        # Reflect escalation: `%reflect` hot-swaps the main model to a heavier
+        # reasoner on demand, then reverts. Cheap explicit trigger (no per-turn
+        # complexity scoring). Default kimi-k3 via OpenRouter.
+        self.reflect_model = os_module.environ.get(
+            "OI_REFLECT_MODEL", "openrouter/moonshotai/kimi-k3"
+        )
+        self._reflect_prev_model = None
         # Memory pre-prompting: inject relevant reranked edit-graph recall into the
         # system message before the LLM sees the request. Opt-in (adds a retrieval
         # per turn); no-ops without semantic memory.

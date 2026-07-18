@@ -327,6 +327,12 @@ class SemanticEditGraph:
                 ],
             )
 
+        # Explicit commit for durability parity with the SQLite path. DuckDB
+        # autocommits single statements, but this edit spans several INSERTs
+        # (edit + symbols + conversation); commit them as a unit so a reopen
+        # always sees the whole record.
+        self._connection.commit()
+
     def _record_edit_sqlite(self, edit: Edit, data_json: str):
         """Record edit using SQLite."""
         cursor = self._connection.cursor()

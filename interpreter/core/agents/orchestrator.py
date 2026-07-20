@@ -20,6 +20,7 @@ from itertools import count
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+from ..session_log import current_caller_role
 from .base_agent import AgentResult, AgentRole, BaseAgent
 
 logger = logging.getLogger(__name__)
@@ -397,11 +398,29 @@ class AgentOrchestrator:
 
         # Acquire lock for model switching to prevent race conditions
         with self._model_switch_lock:
+            effective_model = role_model or getattr(self.interpreter.llm, "model", None)
             if role_model is not None:
                 original_model = self.interpreter.llm.model
                 self.interpreter.llm.model = role_model
                 logger.debug(f"Switched model to {role_model} for {role.value}")
 
+            # Structured agent-call record (authoritative for "which model ran
+            # which agent when" — the UI events and sidecar drop this detail).
+            slog = getattr(self.interpreter, "session_logger", None)
+            if slog is not None:
+                slog.log(
+                    "agent_call",
+                    phase="start",
+                    agent_id=agent_id,
+                    role=role.value,
+                    model=effective_model,
+                    parent_id=parent_id,
+                    task=task[:2000],
+                )
+            call_t0 = time.perf_counter()
+
+            # Attribute every LLM call this agent makes to its role.
+            role_token = current_caller_role.set(role.value)
             try:
                 agent_result = agent.run(task, context=context)
 
@@ -414,13 +433,35 @@ class AgentOrchestrator:
                     else:
                         lifecycle.error(self._agent_error_message(role, agent_result))
 
+                if slog is not None:
+                    slog.log(
+                        "agent_call",
+                        phase="end",
+                        agent_id=agent_id,
+                        role=role.value,
+                        model=effective_model,
+                        success=bool(agent_result.success),
+                        elapsed_ms=round((time.perf_counter() - call_t0) * 1000, 1),
+                    )
                 return agent_id, agent_result
 
             except Exception as e:
                 if HAS_UI_EVENTS and self.event_bus:
                     lifecycle.error(str(e))
+                if slog is not None:
+                    slog.log(
+                        "agent_call",
+                        phase="end",
+                        agent_id=agent_id,
+                        role=role.value,
+                        model=effective_model,
+                        success=False,
+                        error=str(e)[:1000],
+                        elapsed_ms=round((time.perf_counter() - call_t0) * 1000, 1),
+                    )
                 raise
             finally:
+                current_caller_role.reset(role_token)
                 # Restore original model after agent execution
                 if original_model is not None:
                     self.interpreter.llm.model = original_model
@@ -531,14 +572,28 @@ class AgentOrchestrator:
         # NOTE: Results are cached by task hash to avoid repeated LLM calls on
         # loop-back iterations. Cache invalidates on new task content.
         """
+
+        def _decide(workflow, method, raw=None):
+            """Log how the routing verdict was reached, then return it."""
+            slog = getattr(self.interpreter, "session_logger", None)
+            if slog is not None:
+                slog.log(
+                    "workflow_decision",
+                    task=task[:500],
+                    workflow=workflow.name,
+                    method=method,
+                    classifier_raw=(raw.strip()[:60] if raw else None),
+                )
+            return workflow
+
         # Very short messages don't need agent routing
         if len(task.strip()) < 15:
-            return WorkflowType.NONE
+            return _decide(WorkflowType.NONE, "too_short")
 
         # Fast-path obvious conversation so we don't pay the classifier LLM call
         # on chit-chat. High-precision: only fires with zero code/action signal.
         if self._is_clearly_conversational(task):
-            return WorkflowType.NONE
+            return _decide(WorkflowType.NONE, "conversational")
 
         # Check cache to avoid repeated LLM calls
         # WHY: Same task resubmitted in loop should not re-call LLM
@@ -551,7 +606,7 @@ class AgentOrchestrator:
             logger.debug(
                 f"Workflow cache hit: {cached.name} for task hash {task_hash[:8]}"
             )
-            return cached
+            return _decide(cached, "cache")
 
         prompt = f"""Classify this user request into exactly ONE workflow type.
 
@@ -595,27 +650,34 @@ Respond with exactly one word: NONE, EXPLORE, EDIT, VALIDATE, or FULL"""
         heuristic_workflow = self._detect_workflow_heuristic(task)
         if heuristic_workflow is not None:
             logger.info("Workflow detected heuristically: %s", heuristic_workflow.name)
-            return _cache_and_return(heuristic_workflow)
+            return _decide(_cache_and_return(heuristic_workflow), "heuristic")
 
         try:
             if not (self.interpreter and hasattr(self.interpreter, "llm")):
                 logger.warning("Workflow detection skipped: no LLM available")
-                return _cache_and_return(WorkflowType.NONE)
+                return _decide(_cache_and_return(WorkflowType.NONE), "no_llm")
 
             # WHY: LiteLLM/OpenAI requires first message to have 'system' role
             messages = [{"role": "system", "type": "message", "content": prompt}]
             response_text = ""
-            for chunk in self.interpreter.llm.run(messages):
-                if chunk.get("type") == "message" and chunk.get("content"):
-                    response_text += chunk["content"]
-                # Stop early once we have enough
-                if len(response_text) > 20:
-                    break
+            # Attribute the classifier's own LLM call to the "classifier" role.
+            classifier_token = current_caller_role.set("classifier")
+            try:
+                for chunk in self.interpreter.llm.run(messages):
+                    if chunk.get("type") == "message" and chunk.get("content"):
+                        response_text += chunk["content"]
+                    # Stop early once we have enough
+                    if len(response_text) > 20:
+                        break
+            finally:
+                current_caller_role.reset(classifier_token)
 
             # Check for empty response
             if not response_text.strip():
                 logger.warning("Workflow detection: LLM returned empty response")
-                return _cache_and_return(WorkflowType.NONE)
+                return _decide(
+                    _cache_and_return(WorkflowType.NONE), "llm_empty", response_text
+                )
 
             # Parse response
             response_upper = response_text.strip().upper()
@@ -624,17 +686,19 @@ Respond with exactly one word: NONE, EXPLORE, EDIT, VALIDATE, or FULL"""
                     logger.info(
                         f"Workflow detected: {wf.name} (response: '{response_text.strip()[:30]}')"
                     )
-                    return _cache_and_return(wf)
+                    return _decide(_cache_and_return(wf), "llm", response_text)
 
             # No match found
             logger.warning(
                 f"Workflow detection: no match in response '{response_text.strip()[:50]}'"
             )
-            return _cache_and_return(WorkflowType.NONE)
+            return _decide(
+                _cache_and_return(WorkflowType.NONE), "llm_nomatch", response_text
+            )
 
         except Exception as e:
             logger.warning(f"LLM workflow detection failed: {e}")
-            return _cache_and_return(WorkflowType.NONE)
+            return _decide(_cache_and_return(WorkflowType.NONE), "llm_error", str(e))
 
     # Conversational openers that never indicate a code task. Matched on the
     # first token only, and only when no action signal is present.

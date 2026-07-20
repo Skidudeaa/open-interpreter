@@ -257,6 +257,11 @@ def handle_retry(self, arguments):
     self.messages = self.messages[:last_user_idx]
     self._pending_retry = last_msg
 
+    # Reward signal: an explicit retry means the previous answer missed.
+    slog = getattr(self, "session_logger", None)
+    if slog is not None:
+        slog.log("user_signal", signal="retry", task=str(last_msg)[:500])
+
     preview = last_msg[:70] + ("..." if len(last_msg) > 70 else "")
     self.display_message(f"> Retrying: `{preview}`")
 
@@ -376,12 +381,16 @@ def handle_reflect(self, arguments):
     prev = getattr(self, "_reflect_prev_model", None)
     arg = arguments.strip().lower()
 
+    slog = getattr(self, "session_logger", None)
+
     # Revert: explicit `off`, or toggle-off when already reflecting.
     if arg == "off" or (prev is not None and self.llm.model == reflect_model):
         if prev is not None:
             self.llm.model = prev
             self.llm._is_loaded = False
             self._reflect_prev_model = None
+            if slog is not None:
+                slog.log("user_signal", signal="reflect_off", model=prev)
             console.print(f"[dim]Reflect off →[/dim] [green]{prev}[/green]")
         else:
             console.print("[dim]Not in reflect mode.[/dim]")
@@ -391,6 +400,14 @@ def handle_reflect(self, arguments):
     self._reflect_prev_model = self.llm.model
     self.llm.model = reflect_model
     self.llm._is_loaded = False
+    # Reward signal: reflecting means the default model wasn't reasoning enough.
+    if slog is not None:
+        slog.log(
+            "user_signal",
+            signal="reflect_on",
+            model=reflect_model,
+            from_model=self._reflect_prev_model,
+        )
     console.print(
         f"[dim]Reflect on:[/dim] [red]{self._reflect_prev_model}[/red] [dim]→[/dim] "
         f"[magenta]{reflect_model}[/magenta] [dim](%reflect to revert)[/dim]"
@@ -468,11 +485,11 @@ def handle_count_tokens(self, prompt):
     outputs = []
 
     if len(self.messages) == 0:
-        (conversation_tokens, conversation_cost) = count_messages_tokens(
+        conversation_tokens, conversation_cost = count_messages_tokens(
             messages=messages, model=self.llm.model
         )
     else:
-        (conversation_tokens, conversation_cost) = count_messages_tokens(
+        conversation_tokens, conversation_cost = count_messages_tokens(
             messages=messages, model=self.llm.model
         )
 
@@ -481,7 +498,7 @@ def handle_count_tokens(self, prompt):
     )
 
     if prompt:
-        (prompt_tokens, prompt_cost) = count_messages_tokens(
+        prompt_tokens, prompt_cost = count_messages_tokens(
             messages=[prompt], model=self.llm.model
         )
         outputs.append(

@@ -741,6 +741,14 @@ Use """ to write multi-line messages.
     interpreter._ui_backend = backend
     interpreter._ui_state = ui_state
 
+    # WHY: Touch the always-on session logger now so its EventBus sink is
+    # attached before the first message — otherwise SYSTEM_START and the opening
+    # exchange's terminal output are emitted before anyone is listening.
+    try:
+        _ = interpreter.session_logger
+    except Exception:
+        pass
+
     # WHY: Initialize the observability bridge early so it captures SYSTEM_START
     # and other events emitted before chat() is called. Without this, the bridge
     # only subscribes inside chat(), missing all pre-first-message events.

@@ -451,6 +451,13 @@ class OpenInterpreter:
         self._observability_bridge = None
         self.enable_observability = False  # Disabled by default, opt-in
 
+        # WHY: Always-on structured JSONL corpus for analysis / fine-tuning.
+        # Independent of the opt-in observability daemon; captures model ids,
+        # per-agent timing, routing decisions, terminal content, and user
+        # signals in full. Disable with OI_SESSION_LOG=0.
+        self._session_logger = None
+        self.enable_session_log = True
+
         # Intent refinement ("Un-Steering" architecture)
         # Uses Mistral Small Creative to strip safety-trigger phrasing
         # before sending to main LLM (Gemini/Claude/etc)
@@ -793,6 +800,46 @@ class OpenInterpreter:
                     except ImportError:
                         pass  # cc-sidecar not available
         return self._observability_bridge
+
+    @property
+    def session_logger(self):
+        """Lazy, always-on structured session logger (JSONL corpus).
+
+        Thread-safe with double-checked locking. On first access it opens the
+        per-session log file and attaches a coalescing sink to the UI EventBus
+        so terminal content and lifecycle events are captured. Never raises;
+        degrades to a disabled no-op logger on any failure.
+        """
+        if self._session_logger is None:
+            with self._property_lock:
+                if self._session_logger is None:
+                    try:
+                        from .session_log import SessionLogger
+
+                        logger = SessionLogger(
+                            session_id=os_module.environ.get("CLAUDE_SESSION_ID"),
+                            enabled=getattr(self, "enable_session_log", True),
+                        )
+                        logger.attach_event_bus()
+                        logger.session_start(
+                            model=getattr(self.llm, "model", None),
+                            auto_run=getattr(self, "auto_run", None),
+                            offline=getattr(self, "offline", None),
+                            os_mode=getattr(self, "os", None),
+                            enable_agents=getattr(self, "enable_agents", None),
+                            approval_mode=os_module.environ.get(
+                                "OPEN_INTERPRETER_APPROVAL"
+                            ),
+                            oi_activate_all=os_module.environ.get("OI_ACTIVATE_ALL"),
+                        )
+                        self._session_logger = logger
+                    except Exception:
+                        # Fall back to a disabled logger so callers can always
+                        # `interpreter.session_logger.log(...)` safely.
+                        from .session_log import SessionLogger
+
+                        self._session_logger = SessionLogger(enabled=False)
+        return self._session_logger
 
     def activate_all_features(self):
         """

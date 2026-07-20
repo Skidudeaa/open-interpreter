@@ -84,9 +84,7 @@ class Llm:
         )  # Will only use if supports_vision is False
 
         self.supports_functions = None  # Will try to auto-detect
-        self.execution_instructions: str | bool = (
-            "To execute code on the user's machine, write a markdown code block. Specify the language after the ```. You will receive the output. Use any programming language."  # If supports_functions is False, this will be added to the system message. Can be set to False to disable.
-        )
+        self.execution_instructions: str | bool = "To execute code on the user's machine, write a markdown code block. Specify the language after the ```. You will receive the output. Use any programming language."  # If supports_functions is False, this will be added to the system message. Can be set to False to disable.
 
         # Optional settings
         self.context_window = None
@@ -293,15 +291,18 @@ class Llm:
                 except Exception:
                     if len(messages) == 1:
                         if self.interpreter.in_terminal_interface:
-                            self.interpreter.display_message("""
+                            self.interpreter.display_message(
+                                """
 **We were unable to determine the context window of this model.** Defaulting to 8000.
 
 If your model can handle more, run `interpreter --context_window {token limit} --max_tokens {max tokens per response}`.
 
 Continuing...
-                            """)
+                            """
+                            )
                         else:
-                            self.interpreter.display_message("""
+                            self.interpreter.display_message(
+                                """
 **We were unable to determine the context window of this model.** Defaulting to 8000.
 
 If your model can handle more, run `self.context_window = {token limit}`.
@@ -309,7 +310,8 @@ If your model can handle more, run `self.context_window = {token limit}`.
 Also please set `self.max_tokens = {max tokens per response}`.
 
 Continuing...
-                            """)
+                            """
+                            )
                     messages = tt.trim(
                         messages, system_message=system_message, max_tokens=8000
                     )
@@ -369,11 +371,59 @@ Continuing...
                 print("\n")
             print("\n\n\n")
 
-        if self.supports_functions:
-            # yield from run_function_calling_llm(self, params)
-            yield from run_tool_calling_llm(self, params)
-        else:
-            yield from run_text_llm(self, params)
+        # Structured per-request logging: model, params, latency, caller role.
+        # This is the single point every LLM call flows through — main loop,
+        # workflow classifier, and each orchestrated agent (whose model is
+        # swapped onto self.model before this runs). Best-effort, never fatal.
+        _slog = getattr(self.interpreter, "session_logger", None)
+        _req = None
+        if _slog is not None:
+            try:
+                _req = _slog.llm_request_begin(
+                    model=model,
+                    params={
+                        "temperature": params.get("temperature"),
+                        "max_tokens": params.get("max_tokens"),
+                        "api_base": params.get("api_base"),
+                        "stream": params.get("stream"),
+                    },
+                    system_message=system_message,
+                    n_messages=len(messages),
+                )
+            except Exception:
+                _req = None
+
+        try:
+            if self.supports_functions:
+                # yield from run_function_calling_llm(self, params)
+                _gen = run_tool_calling_llm(self, params)
+            else:
+                _gen = run_text_llm(self, params)
+
+            _first = True
+            for _chunk in _gen:
+                if _req is not None:
+                    try:
+                        if _first:
+                            _req.first_token()
+                            _first = False
+                        _req.observe_chunk(_chunk)
+                    except Exception:
+                        pass
+                yield _chunk
+
+            if _req is not None:
+                try:
+                    _req.end(status="ok")
+                except Exception:
+                    pass
+        except Exception as _e:
+            if _req is not None:
+                try:
+                    _req.end(status="error", error=repr(_e))
+                except Exception:
+                    pass
+            raise
 
     # If you change model, set _is_loaded to false
     @property

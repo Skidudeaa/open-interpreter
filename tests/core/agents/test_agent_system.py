@@ -80,17 +80,18 @@ def _create_llm_run_mock():
     import re
 
     def mock_run(messages):
-        # Extract the prompt from messages
-        prompt = messages[0].get("content", "") if messages else ""
-
-        # Extract just the user request from the prompt (between "User request:" and next section)
-        match = re.search(
-            r"User request:\s*(.+?)(?:\n\n|\nWorkflow)", prompt, re.DOTALL
-        )
-        if match:
-            user_request = match.group(1).lower().strip()
+        # The classifier now sends the policy as the system message and the
+        # request being classified as the user message. Read the user turn.
+        user_msgs = [m for m in messages if m.get("role") == "user"]
+        if user_msgs:
+            user_request = str(user_msgs[-1].get("content", "")).lower().strip()
         else:
-            user_request = prompt.lower()
+            # Back-compat with the old single-message shape ("User request: ...").
+            prompt = messages[0].get("content", "") if messages else ""
+            match = re.search(
+                r"User request:\s*(.+?)(?:\n\n|\nWorkflow)", prompt, re.DOTALL
+            )
+            user_request = match.group(1).lower().strip() if match else prompt.lower()
 
         # Determine workflow type based on task keywords in the user request
         # NOTE: Order matters - check more specific patterns first

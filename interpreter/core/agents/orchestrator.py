@@ -608,9 +608,7 @@ class AgentOrchestrator:
             )
             return _decide(cached, "cache")
 
-        prompt = f"""Classify this user request into exactly ONE workflow type.
-
-User request: {task[:500]}
+        classifier_policy = """You are a routing classifier. Read the user's request and label it with exactly ONE workflow type, then reply with only that word — nothing else.
 
 Workflow types:
 - NONE: Pure conversation, general questions, math, or non-code requests
@@ -634,7 +632,7 @@ Examples:
 - "fix the bug in login" → EDIT
 - "hello, how are you?" → NONE
 
-Respond with exactly one word: NONE, EXPLORE, EDIT, VALIDATE, or FULL"""
+Reply with exactly one word: NONE, EXPLORE, EDIT, VALIDATE, or FULL."""
 
         def _cache_and_return(workflow: WorkflowType) -> WorkflowType:
             """Cache the workflow result and return it."""
@@ -657,8 +655,17 @@ Respond with exactly one word: NONE, EXPLORE, EDIT, VALIDATE, or FULL"""
                 logger.warning("Workflow detection skipped: no LLM available")
                 return _decide(_cache_and_return(WorkflowType.NONE), "no_llm")
 
-            # WHY: LiteLLM/OpenAI requires first message to have 'system' role
-            messages = [{"role": "system", "type": "message", "content": prompt}]
+            # WHY: The first message must be 'system' (LiteLLM/OpenAI), but
+            # Anthropic ALSO requires at least one non-system message — a lone
+            # system message 400s ("Anthropic requires at least one non-system
+            # message"). So the classification policy lives in the system
+            # message and the request being classified is the user turn. This
+            # is both the correct cross-provider shape AND the right prompt
+            # architecture: stable rubric in system, variable input as user.
+            messages = [
+                {"role": "system", "type": "message", "content": classifier_policy},
+                {"role": "user", "type": "message", "content": task[:500]},
+            ]
             response_text = ""
             # Attribute the classifier's own LLM call to the "classifier" role.
             classifier_token = current_caller_role.set("classifier")

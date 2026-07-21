@@ -331,6 +331,19 @@ Continuing...
             if messages[0]["role"] != "system":
                 messages = [{"role": "system", "content": system_message}] + messages
 
+        # Newer Anthropic models reject conversations that end with an assistant
+        # message ("This model does not support assistant message prefill").
+        # respond.py injects agent findings as a trailing assistant message
+        # before re-running the LLM, so close the turn with a user nudge. This
+        # list is request-local (converted copy), so nothing is persisted.
+        if messages and messages[-1].get("role") == "assistant":
+            messages.append(
+                {
+                    "role": "user",
+                    "content": "Please continue based on the information above.",
+                }
+            )
+
         ## Start forming the request
 
         params = {

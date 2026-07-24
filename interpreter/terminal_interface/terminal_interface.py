@@ -17,8 +17,6 @@ import tempfile
 import time
 from dataclasses import dataclass
 
-logger = logging.getLogger(__name__)
-
 from ..core.utils.scan_code import scan_code
 from ..core.utils.system_debug_info import system_info
 
@@ -47,6 +45,8 @@ from .utils.display_output import display_output
 from .utils.find_image_path import find_image_path
 from .utils.ui_logger import UIErrorContext, log_ui_event
 from .utils.voice_output import speak, stop_speaking
+
+logger = logging.getLogger(__name__)
 
 # Add examples to the readline history
 examples = [
@@ -855,9 +855,13 @@ def terminal_interface(interpreter, message):
                                 should_scan_code = True
                             elif interpreter.safe_mode == "ask":
                                 if interpreter.plain_text_display:
-                                    response = input(
-                                        "  Would you like to scan this code? (y/n)\n\n  "
-                                    )
+                                    try:
+                                        response = input(
+                                            "  Would you like to scan this code? (y/n)\n\n  "
+                                        )
+                                    except EOFError:
+                                        # Piped stdin is exhausted — default to no scan.
+                                        response = "n"
                                     if response.strip().lower() == "y":
                                         should_scan_code = True
                                 else:
@@ -871,9 +875,18 @@ def terminal_interface(interpreter, message):
                             scan_code(code, language, interpreter)
 
                         if interpreter.plain_text_display:
-                            response = input(
-                                "Would you like to run this code? (y/n)\n\n"
-                            )
+                            try:
+                                response = input(
+                                    "Would you like to run this code? (y/n)\n\n"
+                                )
+                            except EOFError:
+                                # Piped stdin is exhausted — never auto-run code the
+                                # user couldn't approve. Skip and say how to opt in.
+                                print(
+                                    "[stdin closed — skipping code execution. "
+                                    "Pass -y to auto-run code in piped mode.]"
+                                )
+                                response = "n"
                             print("")  # <- Aesthetic choice
                         else:
                             # Use interactive menu for code execution confirmation

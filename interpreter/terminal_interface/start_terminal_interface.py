@@ -554,6 +554,14 @@ Use """ to write multi-line messages.
         print(f"Open Interpreter {oi_version} {update_name}")
         return
 
+    # Piped input (e.g. `echo "list files" | interpreter`): stdin is not a
+    # TTY, so the interactive backends would start, read EOF, and exit without
+    # ever seeing the piped message. Route through stdin mode as if --stdin
+    # had been passed. plain_text_display also selects the RichStream backend.
+    if not args.stdin and not args.server and not sys.stdin.isatty():
+        args.stdin = True
+        interpreter.plain_text_display = True
+
     if args.no_highlight_active_line:
         interpreter.highlight_active_line = False
 
@@ -773,9 +781,12 @@ Use """ to write multi-line messages.
     try:
         # Standard in mode
         if args.stdin:
-            stdin_input = input()
+            # A pipe can carry multiple lines; read it all. Explicit --stdin
+            # from a TTY keeps the original one-line input() behavior.
+            stdin_input = input() if sys.stdin.isatty() else sys.stdin.read().strip()
             interpreter.plain_text_display = True
-            interpreter.chat(stdin_input)
+            if stdin_input:
+                interpreter.chat(stdin_input)
         elif backend.backend_type == BackendType.TEXTUAL:
             # Textual has its own run loop that handles chat internally
             from .textual_backend import TextualBackend
@@ -822,8 +833,12 @@ def main():
     session_mgr = SessionManager(interpreter)
     session_mgr.enable_autosave()
 
-    # Check for resumable session
-    skip_resume = any(arg in sys.argv for arg in ["-y", "--auto_run", "--version"])
+    # Check for resumable session. Skip when stdin is piped — the input()
+    # below would consume the first line of the piped message as its answer.
+    skip_resume = (
+        any(arg in sys.argv for arg in ["-y", "--auto_run", "--version"])
+        or not sys.stdin.isatty()
+    )
     if not skip_resume and (resume_prompt := get_resume_prompt(interpreter)):
         try:
             response = input(f"\n{resume_prompt} ").strip().lower()
@@ -845,7 +860,11 @@ def main():
             from rich.console import Console
 
             console = Console()
-            console.clear_live()
+            try:
+                console.clear_live()
+            except IndexError:
+                # Older rich raises on an empty live stack instead of no-op.
+                pass
 
             # Save session on interrupt
             if interpreter.messages:

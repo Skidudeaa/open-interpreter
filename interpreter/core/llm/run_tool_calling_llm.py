@@ -220,15 +220,18 @@ def run_tool_calling_llm(llm, request_params):
 
         # Convert tool call into function call, which we have great parsing logic for below
         if "tool_calls" in delta and delta["tool_calls"]:
-            function_call_detected = True
-
-            # import pdb; pdb.set_trace()
-            if len(delta["tool_calls"]) > 0 and delta["tool_calls"][0].function:
+            _fn = delta["tool_calls"][0].function if delta["tool_calls"] else None
+            # A real tool call opens with a function name; continuations carry
+            # only argument fragments. Some litellm versions (<=1.80) emit a
+            # phantom nameless tool_call (arguments "{}", index -1) on
+            # claude-sonnet-5 streams before any real call — treating it as one
+            # flips function_call_detected and swallows all later text content.
+            if _fn and (_fn.name or function_call_detected):
+                function_call_detected = True
                 delta = {
-                    # "id": delta["tool_calls"][0],
                     "function_call": {
-                        "name": delta["tool_calls"][0].function.name,
-                        "arguments": delta["tool_calls"][0].function.arguments,
+                        "name": _fn.name,
+                        "arguments": _fn.arguments,
                     }
                 }
 
